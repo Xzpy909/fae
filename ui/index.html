@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fast Image Editor</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <header id="topbar">
+    <div class="brand"><span class="logo"></span><span>Fast Image Editor</span></div>
+    <div class="fileinfo">
+      <span id="fileName">No image</span>
+      <span id="fileDims" class="muted"></span>
+    </div>
+    <div class="tb-group">
+      <button id="undoBtn" class="icon" title="Undo (Ctrl+Z)">
+        <svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+      </button>
+      <button id="redoBtn" class="icon" title="Redo (Ctrl+Y)">
+        <svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
+      </button>
+      <span class="sep"></span>
+      <button id="copyBtn" class="ghost" title="Copy edits (Ctrl+Shift+C)">Copy edits</button>
+      <button id="pasteBtn" class="ghost" title="Paste edits (Ctrl+Shift+V)">Paste</button>
+      <button id="resetBtn" class="ghost" title="Reset point correction and curves">Reset</button>
+      <span class="sep"></span>
+      <button id="zoomFit" class="ghost" title="Fit (0)">Fit</button>
+      <button id="zoom100" class="ghost" title="Actual pixels (1)">1:1</button>
+      <span id="zoomLabel" class="muted mono">–</span>
+    </div>
+  </header>
+
+  <aside id="sidebar">
+    <div class="side-head">
+      <span class="label">Images <b id="count">0</b></span>
+      <div class="row-btns">
+        <button id="addFiles" class="small">+ Files</button>
+        <button id="addFolder" class="small">+ Folder</button>
+      </div>
+    </div>
+    <ul id="fileList"></ul>
+    <div class="side-foot">
+      <button id="removeBtn" class="small ghost">Remove</button>
+      <button id="clearBtn" class="small ghost">Clear</button>
+    </div>
+  </aside>
+
+  <main id="viewport">
+    <div id="stage"><canvas id="view"></canvas></div>
+    <div id="markers"></div>
+    <div id="cmp">
+      <div id="cmpLine"><div id="cmpHandle" title="Drag to compare · double-click to centre">
+        <svg viewBox="0 0 24 24"><path d="m9 7-5 5 5 5"/><path d="m15 7 5 5-5 5"/></svg></div></div>
+      <div id="cmpL" class="cmp-label">Lossless</div>
+      <div id="cmpR" class="cmp-label">JPEG</div>
+    </div>
+    <div id="sizeChip"></div>
+    <div id="empty">
+      <div class="drop-icon">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
+      </div>
+      <div class="big">Drop images or folders here</div>
+      <div class="muted">or use <b>+ Files</b> / <b>+ Folder</b></div>
+    </div>
+    <div id="hud"></div>
+    <div id="modeChip"></div>
+    <canvas id="loupe" width="132" height="132"></canvas>
+    <div id="spinner"></div>
+
+    <div id="cropLayer">
+      <canvas id="cropCanvas"></canvas>
+      <div id="cropTop">
+        <span class="muted">Crop &amp; rotate</span>
+        <span class="grow"></span>
+        <button id="cropCancel" class="ghost" title="Esc">Cancel</button>
+        <button id="cropDone" class="primary" title="Enter">Done</button>
+      </div>
+      <div id="cropBar">
+        <div class="crop-row">
+          <div class="crop-btns">
+            <button id="rotL" class="icon" title="Rotate left 90° ([)"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
+            <button id="rotR" class="icon" title="Rotate right 90° (])"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></button>
+            <button id="flipH" class="icon" title="Flip horizontal (H)"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M8 7 3 12l5 5V7z"/><path d="M16 7l5 5-5 5V7z"/></svg></button>
+          </div>
+          <div class="ruler-wrap">
+            <div id="angleLabel" class="mono">0.0°</div>
+            <canvas id="ruler"></canvas>
+          </div>
+          <div class="crop-btns right">
+            <button id="cropReset" class="ghost small" title="Reset crop & rotation (R)">Reset</button>
+          </div>
+        </div>
+        <div id="aspects"></div>
+      </div>
+    </div>
+  </main>
+
+  <aside id="panel">
+    <div class="scroll">
+
+      <section class="card">
+        <div class="card-head"><span>Histogram</span><span class="muted mono" id="histInfo"></span></div>
+        <div class="histo-wrap">
+          <canvas id="histo"></canvas>
+          <span id="clipLo" class="clip lo" title="Pixels with a channel clipped to 0">0%</span>
+          <span id="clipHi" class="clip hi" title="Pixels with a channel clipped to 255">0%</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><span>Crop &amp; rotate</span><button id="geomClear" class="link">Clear</button></div>
+        <button id="cropOpen" class="wide">Crop / Rotate <kbd>C</kbd></button>
+        <div class="muted small" id="geomInfo">Full image</div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><span>Point correction</span><button id="clearPoints" class="link">Clear</button></div>
+        <div class="tools">
+          <button class="tool" data-tool="black" title="Black point (B)">
+            <span class="sw" id="sw-black"></span><span class="tname">Black</span><kbd>B</kbd>
+          </button>
+          <button class="tool" data-tool="gray" title="Neutral gray (G)">
+            <span class="sw" id="sw-gray"></span><span class="tname">Gray</span><kbd>G</kbd>
+          </button>
+          <button class="tool" data-tool="white" title="White point (W)">
+            <span class="sw" id="sw-white"></span><span class="tname">White</span><kbd>W</kbd>
+          </button>
+        </div>
+        <div id="pointFields"></div>
+        <div class="hint">Tool stays active: keep clicking to refine. Hold <kbd>Alt</kbd> for clipping view, scroll to move the threshold. <kbd>Esc</kbd> drops the tool.</div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div class="tabs" id="curveTabs">
+            <button data-ch="m" class="on">RGB</button>
+            <button data-ch="r" class="r">R</button>
+            <button data-ch="g" class="g">G</button>
+            <button data-ch="b" class="b">B</button>
+          </div>
+          <button id="resetCurve" class="link">Reset</button>
+        </div>
+        <canvas id="curve"></canvas>
+        <div class="curve-foot"><span class="muted" id="curveInfo">Click to add · drag · double-click or drag out to remove</span></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><label class="toggle head"><input type="checkbox" id="resizeOn"><span class="tg"></span>Resize</label></div>
+        <div id="resizeBody">
+        <div class="seg" id="modeSeg"><button data-v="720p">720p crop</button><button data-v="Mpix">Target Mpix</button></div>
+        <div id="mpixFields"></div>
+        <div class="field-row">
+          <label>Priority</label>
+          <select id="prioSel">
+            <option>Mpix priority</option><option>Balanced</option><option>Ratio error priority</option>
+          </select>
+        </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><span>Color balance</span></div>
+        <label class="toggle"><input type="checkbox" id="wpOn"><span class="tg"></span>Percentile White-Patch</label>
+        <div id="wpFields" class="sub"></div>
+        <label class="toggle"><input type="checkbox" id="geOn"><span class="tg"></span>Gray-Edge</label>
+        <div id="geFields" class="sub"></div>
+      </section>
+
+    </div>
+
+    <div class="process">
+      <div class="out-row">
+        <div class="seg compact" id="fmtSeg"><button data-v="WEBP">WEBP</button><button data-v="PNG">PNG</button><button data-v="JPEG">JPEG</button><button data-v="AVIF">AVIF</button></div>
+        <span class="muted small" id="outInfo"></span>
+      </div>
+      <div id="encRow">
+        <div id="grpJPEG" class="egrp">
+          <div class="jrow"><div class="seg" id="jModeSeg"><button data-v="q">Quality</button><button data-v="d">Distance</button></div></div>
+          <div id="jpegQ"></div>
+          <div id="jpegD"></div>
+        </div>
+        <div id="grpWEBP" class="egrp">
+          <div class="jrow"><div class="seg" id="wModeSeg"><button data-v="lossy">Lossy</button><button data-v="lossless">Lossless</button></div></div>
+          <div id="webpQ"></div>
+        </div>
+        <div id="grpAVIF" class="egrp">
+          <div id="avifQ"></div>
+          <div id="avifS"></div>
+        </div>
+      </div>
+      <button id="processBtn" class="primary" title="Ctrl+S">Process<span class="kbd-hint">Ctrl+S</span></button>
+      <div class="process-row">
+        <label class="check"><input type="checkbox" id="advanceChk">Next image after process</label>
+        <button id="processAllBtn" class="small ghost" title="Each image with its own edits; untouched images get the current Output / Color settings">Process all</button>
+      </div>
+      <div class="progress" id="progress"><div></div></div>
+    </div>
+  </aside>
+
+  <footer id="statusbar">
+    <span id="stCoords" class="mono">–</span>
+    <span id="stRGB" class="mono"></span>
+    <span class="grow"></span>
+    <span id="stMsg" class="muted"></span>
+  </footer>
+</div>
+
+<div id="toast"></div>
+<script src="app.js"></script>
+<script src="crop.js"></script>
+</body>
+</html>

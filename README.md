@@ -4,6 +4,10 @@ A fast, keyboard-friendly desktop editor for batch-preparing images: crop and ro
 
 Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/JS; image processing uses NumPy, OpenCV and Pillow.
 
+## Preview
+
+![img](https://github.com/Xzpy909/fast-image-editor/blob/main/preview%201.jpg?raw=true)
+
 ## Features
 
 **Workflow**

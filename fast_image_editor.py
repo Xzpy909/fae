@@ -75,7 +75,7 @@ IMAGE_EXTS = {
 @dataclass(frozen=True)
 class StageParams:
     """Settings that change the image Python hands to the live preview."""
-    resize_on: bool = True
+    resize_on: bool = False
     mode: str = MODE_720
     mpix: float = 2.0
     prio: str = PRIO_BALANCED

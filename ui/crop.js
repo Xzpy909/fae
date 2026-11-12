@@ -162,7 +162,7 @@ const Crop = (() => {
     if (v === C.angle) return;
     C.angle = v;
     C.crop = (v === 0 && C.aspect === 'original' && sameRect(C.desired, fullFrame())) ? fullFrame() : shrink(C.desired);
-    draw(); drawRuler();
+    draw(); drawRuler(); follow();
   }
   const sameRect = (a, b) => a && b && Math.abs(a.x - b.x) < .5 && Math.abs(a.y - b.y) < .5 && Math.abs(a.w - b.w) < .5 && Math.abs(a.h - b.h) < .5;
   function setAspect(key) {
@@ -173,7 +173,7 @@ const Crop = (() => {
       C.crop = here.w * here.h > centred.w * centred.h * 0.98 ? here : centred;
     }
     C.desired = { ...C.crop };
-    buildAspects(); updateHint(); draw();
+    buildAspects(); updateHint(); draw(); follow();
   }
   function rotate90(dir) {
     C.q = (C.q + (dir > 0 ? 1 : 3)) % 4;
@@ -192,16 +192,80 @@ const Crop = (() => {
   function reset() {
     C.q = 0; C.angle = 0; C.flip = false;
     C.crop = defaultCrop(); C.desired = { ...C.crop };
-    layout(); draw(); drawRuler();
+    layout(true); draw(); drawRuler();
+  }
+  /* Alt/Ctrl + wheel: scale the crop box. Zooms toward the cursor; when growing hits the
+     image edge the box slides inward, and at the limit it becomes the largest box of that
+     shape. The aspect ratio of the current box is kept. */
+  function zoomCrop(f, px, py) {
+    const c = C.crop;
+    const ax = px == null ? c.x : clamp((px - view.ox) / view.z, c.x - c.w / 2, c.x + c.w / 2);
+    const ay = py == null ? c.y : clamp((py - view.oy) / view.z, c.y - c.h / 2, c.y + c.h / 2);
+    const s = Math.max(f, MIN / c.w, MIN / c.h);
+    let b = { x: ax + (c.x - ax) * s, y: ay + (c.y - ay) * s, w: c.w * s, h: c.h * s };
+    if (!contains(b)) {
+      const toward = t => ({ ...b, x: b.x * (1 - t), y: b.y * (1 - t) });
+      if (contains(toward(1))) {
+        let lo = 0, hi = 1;
+        for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2; if (contains(toward(m))) hi = m; else lo = m; }
+        b = toward(hi);
+      } else {
+        b = maxRect(c.w / c.h, 0, 0);
+        if (b.w <= c.w) b = { ...c };
+      }
+    }
+    C.crop = b; C.desired = { ...b };
+    draw(); follow();
   }
   function nudge(dx, dy) {
     const b = { ...C.crop, x: C.crop.x + dx, y: C.crop.y + dy };
     C.crop = fitTowards(C.crop, b, false); C.desired = { ...C.crop };
-    draw();
+    draw(); follow();
+  }
+
+  /* ---------------- camera ----------------
+     The view follows the crop box: once the box is smaller than ~CAM_FILL of the screen
+     area, the camera zooms in so the box edges sit near the screen edges, and pans to keep
+     it centred (never panning past the image frame). It eases toward its target and is
+     frozen while a handle/box drag is in progress so the box does not move under the mouse. */
+  const CAM_FILL = 0.8, CAM_MAX_Z = 4, CAM_EASE = 0.22;
+  const cam = { z: 1, cx: 0, cy: 0, tz: 1, tcx: 0, tcy: 0, A: null, anim: false };
+
+  function camTarget() {
+    const A = cam.A, c = C.crop, [fw, fh] = frameWH();
+    let z = A.z0;
+    if (c) z = Math.max(A.z0, Math.min(Math.min(A.aw / c.w, A.ah / c.h) * CAM_FILL, Math.max(A.z0, CAM_MAX_Z)));
+    const hx = Math.max(0, fw / 2 - A.aw / (2 * z)), hy = Math.max(0, fh / 2 - A.ah / (2 * z));
+    cam.tz = z;
+    cam.tcx = c ? clamp(c.x, -hx, hx) : 0;
+    cam.tcy = c ? clamp(c.y, -hy, hy) : 0;
+  }
+  function camApply() {
+    const A = cam.A;
+    view.z = cam.z;
+    view.ox = A.sx0 - cam.cx * cam.z;
+    view.oy = A.sy0 - cam.cy * cam.z;
+  }
+  function camStep() {
+    const dz = cam.tz - cam.z, dx = cam.tcx - cam.cx, dy = cam.tcy - cam.cy;
+    const done = Math.abs(dz) / cam.tz < 0.002 && Math.abs(dx * cam.z) < 0.5 && Math.abs(dy * cam.z) < 0.5;
+    if (done) { cam.z = cam.tz; cam.cx = cam.tcx; cam.cy = cam.tcy; }
+    else {
+      // ease zoom in log space so in/out feel the same
+      cam.z = Math.exp(Math.log(cam.z) + (Math.log(cam.tz) - Math.log(cam.z)) * CAM_EASE);
+      cam.cx += dx * CAM_EASE; cam.cy += dy * CAM_EASE;
+    }
+    camApply(); draw();
+    if (!done && C && !drag) requestAnimationFrame(camStep); else cam.anim = false;
+  }
+  function follow() {
+    if (!C || !cam.A || drag) return;
+    camTarget();
+    if (!cam.anim) { cam.anim = true; requestAnimationFrame(camStep); }
   }
 
   /* ---------------- drawing ---------------- */
-  function layout() {
+  function layout(animate) {
     if (!C) return;
     const r = cc.getBoundingClientRect(), d = dpr();
     if (cc.width !== Math.round(r.width * d) || cc.height !== Math.round(r.height * d)) {
@@ -210,8 +274,12 @@ const Crop = (() => {
     const top = 58, bot = $('#cropBar').offsetHeight + 18, side = 40;
     const [fw, fh] = frameWH();
     const aw = r.width - 2 * side, ah = r.height - top - bot;
-    view.z = Math.max(0.01, Math.min(aw / fw, ah / fh));
-    view.ox = side + aw / 2; view.oy = top + ah / 2; view.w = r.width; view.h = r.height;
+    cam.A = { aw, ah, sx0: side + aw / 2, sy0: top + ah / 2, z0: Math.max(0.01, Math.min(aw / fw, ah / fh)) };
+    view.w = r.width; view.h = r.height;
+    camTarget();
+    if (animate) { follow(); return; }
+    cam.z = cam.tz; cam.cx = cam.tcx; cam.cy = cam.tcy;
+    camApply();
   }
   const toS = (x, y) => [view.ox + x * view.z, view.oy + y * view.z];
   function requestDraw() { if (!raf) { raf = true; requestAnimationFrame(() => { raf = false; draw(); }); } }
@@ -386,11 +454,20 @@ const Crop = (() => {
     C.crop = fitTowards(C.crop, b, !!ar);
     requestDraw();
   });
-  const endDrag = () => { if (drag) { drag = null; C.desired = { ...C.crop }; draw(); } };
+  const endDrag = () => { if (drag) { drag = null; C.desired = { ...C.crop }; draw(); follow(); } };
   cc.addEventListener('pointerup', endDrag);
   cc.addEventListener('pointercancel', endDrag);
-  cc.addEventListener('wheel', e => { e.preventDefault(); if (C) setAngle(C.angle + (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? 1 : 0.1)); }, { passive: false });
-  cc.addEventListener('dblclick', e => { if (C && !hit(e.offsetX, e.offsetY)) { C.crop = defaultCrop(); C.desired = { ...C.crop }; draw(); } });
+  cc.addEventListener('wheel', e => {
+    e.preventDefault();
+    if (!C || !e.deltaY) return;
+    if (e.altKey || e.ctrlKey) {            // zoom the crop (wheel up = zoom in = smaller box)
+      const r = cc.getBoundingClientRect(), step = e.shiftKey ? 1.02 : 1.08;
+      zoomCrop(e.deltaY < 0 ? 1 / step : step, e.clientX - r.left, e.clientY - r.top);
+      return;
+    }
+    setAngle(C.angle + (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? 1 : 0.1));
+  }, { passive: false });
+  cc.addEventListener('dblclick', e => { if (C && !hit(e.offsetX, e.offsetY)) { C.crop = defaultCrop(); C.desired = { ...C.crop }; draw(); follow(); } });
 
   ruler.addEventListener('pointerdown', e => {
     if (!C) return;

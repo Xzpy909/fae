@@ -12,7 +12,7 @@ const api = () => window.pywebview.api;
 const dpr = () => window.devicePixelRatio || 1;
 
 const DEFAULT_STAGE = {
-  resize_on: true, mode: '720p', mpix: 2.0, prio: 'Balanced',
+  resize_on: false, mode: '720p', mpix: 2.0, prio: 'Balanced',
   wp_on: false, wp_pct: 99.0, wp_strength: 1.0,
   ge_on: false, ge_p: 1, ge_sigma: 2.0, ge_strength: 1.0,
 };

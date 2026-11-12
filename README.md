@@ -17,6 +17,8 @@ Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/J
 **Geometry**
 - Crop & rotate mode with 90° steps, fine angle ruler, horizontal flip and aspect presets (Free, Original, 1:1, 16:9, 9:16, 4:3, 3:2, …)
 - Bound-aware crop: the crop box can never leave the rotated image
+- Wheel rotates; `Alt`/`Ctrl` + wheel zooms the crop toward the cursor
+- The view follows the crop: as the box gets smaller the camera zooms in and pans to keep its edges near the screen edges
 
 **Colour**
 - Black / neutral-gray / white point eyedroppers that stay active, so you can keep clicking to refine
@@ -114,6 +116,8 @@ python fast_image_editor.py --debug     # opens the web inspector
 | `,` / `.` | Fine angle ±0.1° (Shift = ±1°) |
 | `H` | Flip horizontal |
 | `R` | Reset |
+| Mouse wheel | Fine angle ±0.1° (Shift = ±1°) |
+| `Alt` / `Ctrl` + wheel | Zoom the crop in / out toward the cursor (Shift = finer) |
 | Arrow keys | Nudge crop (Shift = 10 px) |
 
 **Curves and sliders:** click to add a point, drag to move it, double-click it or drag it out of the box to remove it. Double-click a slider to reset it. Scroll over a number box to step its value (Shift = ×10).

@@ -42,7 +42,7 @@ const S = {
   E: null,
   prefs: { fmt: 'WEBP', advance: true, stage: null, jpeg_q: 90, jpeg_mode: 'q', jpeg_d: 1.0,
     webp_lossy: false, webp_q: 90, avif_crf: 25, avif_preset: 4 },
-  cmp: { x: 0.5, data: null, path: null, key: null, bytes: 0, enc: '', fmt: '', opts: null, req: 0, busy: false,
+  cmp: { x: 0.5, data: null, path: null, key: null, bytes: 0, enc: '', fmt: '', opts: null, req: Date.now(), busy: false,
     jpegli: true, avif: true, svt: true },
   hist: [], fut: [], committed: null,
   img: null, outData: null, dispData: null, baseData: null, n: 0,
@@ -255,14 +255,15 @@ function jpegKey() {
   return JSON.stringify([jobFor(f, true), S.prefs.fmt, activeOpts()]);
 }
 let jpegTimer = null;
+const stageReady = () => S.cur >= 0 && S.img && S.files[S.cur] && S.img.path === S.files[S.cur].path;
 function requestJpeg(immediate) {
-  if (!isLossy() || S.cur < 0 || !S.img || S.cropMode) return;
+  if (!isLossy() || !stageReady() || S.cropMode) return;   // never encode before the image itself is shown
   clearTimeout(jpegTimer);
   jpegTimer = setTimeout(loadJpeg, immediate ? 0 : 260);
 }
 async function loadJpeg() {
   const f = S.files[S.cur];
-  if (!isLossy() || !f || !S.img) return;
+  if (!isLossy() || !f || !stageReady()) return;
   const key = jpegKey();
   if (key === S.cmp.key && cmpReady()) return;
   const id = ++S.cmp.req;
@@ -271,7 +272,7 @@ async function loadJpeg() {
   const fmt = S.prefs.fmt;
   try { r = await api().lossy_preview(jobFor(f, true), fmt, encOpts(), id); }
   catch (e) { r = { ok: false, error: String(e) }; }
-  if (id !== S.cmp.req) return;
+  if (id !== S.cmp.req || (r && r.cancelled)) return;
   if (!r || !r.ok) { S.cmp.busy = false; updateCmp(); toast('JPEG preview failed: ' + (r ? r.error : 'unknown'), true); return; }
   let buf;
   try { buf = await (await fetch('/preview/' + r.token)).arrayBuffer(); }
@@ -444,7 +445,7 @@ function requestStage(immediate) {
 async function loadStage() {
   const f = S.files[S.cur];
   if (!f) return;
-  const id = ++S.reqId;
+  const id = ++S.reqId, t0 = S.loadT || performance.now();
   spinner(true);
   let r;
   try { r = await api().load_stage(f.path, stageParams(S.stage, S.geom), id); }
@@ -467,9 +468,12 @@ async function loadStage() {
   S.baseData = new ImageData(base, r.pw, r.ph);
   canvas.style.display = 'block';
   if (sizeChanged || S.newFile) fitView();
+  const wasNew = S.newFile;
   S.newFile = false;
   updateInfo();
   render();
+  if (wasNew) status(`Loaded in ${Math.round(performance.now() - t0)} ms` + (S.loadFromDrop ? ' (from drop)' : ''));
+  S.loadT = null; S.loadFromDrop = false;
   requestJpeg(true);
 }
 
@@ -1083,6 +1087,14 @@ function renderList() {
   const cur = ul.querySelector('li.cur');
   if (cur) cur.scrollIntoView({ block: 'nearest' });
 }
+function updateListCur() {
+  const lis = document.querySelectorAll('#fileList li');
+  if (lis.length !== S.files.length) { renderList(); return; }
+  lis.forEach((li, i) => li.classList.toggle('cur', i === S.cur));
+  markCurrentEdited();
+  const cur = lis[S.cur];
+  if (cur) cur.scrollIntoView({ block: 'nearest' });
+}
 function markCurrentEdited() {
   const li = document.querySelector('#fileList li.cur');
   if (li) li.classList.toggle('edited', isEditedState(S.edit, S.geom));
@@ -1116,8 +1128,10 @@ function switchTo(i) {
   }
   S.thr = { shadows: null, highlights: null, neutral: null };
   dropJpeg();
+  const fromDrop = S.dropT && performance.now() - S.dropT < 10000;
+  S.loadT = fromDrop ? S.dropT : performance.now(); S.loadFromDrop = !!fromDrop; S.dropT = null;
   S.newFile = true;
-  syncPanel(); renderList(); updateInfo(); editChanged();
+  syncPanel(); updateListCur(); updateInfo(); editChanged();
   requestStage(true);
 }
 
@@ -1143,12 +1157,21 @@ $('#addFolder').addEventListener('click', pickFolder);
 $('#removeBtn').addEventListener('click', removeCurrent);
 $('#clearBtn').addEventListener('click', () => { S.files = []; S.cur = -1; clearView(); renderList(); updateInfo(); });
 
-// visual feedback only - Python receives the real file paths from the native drop
+// Python receives the real file paths from the native drop on #dropZone (see bind_drop in
+// fast_image_editor.py). The zone is an empty full-window overlay shown only during a file
+// drag, so pywebview's event serialisation stays tiny.
 let dragDepth = 0;
-window.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; vp.classList.add('dragover'); });
+const dropZone = $('#dropZone');
+const isFileDrag = e => !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files'));
+const dragEnd = () => { dragDepth = 0; vp.classList.remove('dragover'); dropZone.classList.remove('show'); };
+window.addEventListener('dragenter', e => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault(); dragDepth++;
+  vp.classList.add('dragover'); dropZone.classList.add('show');
+});
 window.addEventListener('dragover', e => e.preventDefault());
-window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; vp.classList.remove('dragover'); } });
-window.addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; vp.classList.remove('dragover'); });
+window.addEventListener('dragleave', () => { if (--dragDepth <= 0) dragEnd(); });
+window.addEventListener('drop', e => { e.preventDefault(); S.dropT = performance.now(); dragEnd(); });
 
 /* ======================================================================
    Process

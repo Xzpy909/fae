@@ -134,6 +134,8 @@ button.primary:hover { background: #f5c375; border-color: #f5c375; }
   animation: spin .7s linear infinite; }
 #spinner.show { display: block; }
 @keyframes spin { to { transform: rotate(360deg); } }
+#dropZone { position: fixed; inset: 0; z-index: 9999; display: none; background: transparent; }
+#dropZone.show { display: block; }
 #viewport.dragover::after { content: ""; position: absolute; inset: 10px; border: 2px dashed var(--accent);
   border-radius: 12px; background: rgba(240,179,90,.05); pointer-events: none; }
 

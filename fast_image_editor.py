@@ -446,6 +446,63 @@ def _no_window() -> dict:
     return {"creationflags": 0x08000000} if sys.platform.startswith("win") else {}
 
 
+# ---- live-preview encodes: low priority, and killed as soon as a newer preview is requested ----
+class Cancelled(Exception):
+    pass
+
+
+_TL = threading.local()                    # .preview_req is set while a preview encode runs
+_PREV_LOCK = threading.Lock()
+_PREV = {"latest": -1, "procs": {}}
+
+
+def _preview_req():
+    return getattr(_TL, "preview_req", None)
+
+
+def preview_begin(req: int):
+    """Register a new preview request and kill encoder processes of older ones."""
+    with _PREV_LOCK:
+        if req > _PREV["latest"]:
+            _PREV["latest"] = req
+        for r, p in list(_PREV["procs"].items()):
+            if r < _PREV["latest"]:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+
+
+def check_cancel():
+    r = _preview_req()
+    if r is not None and r < _PREV["latest"]:
+        raise Cancelled()
+
+
+def run_encoder(cmd: list[str]):
+    """subprocess.run replacement: preview encodes run at below-normal priority and are killable."""
+    from types import SimpleNamespace
+    req = _preview_req()
+    kw = _no_window()
+    if req is not None and sys.platform.startswith("win"):
+        kw = {"creationflags": 0x08000000 | 0x00004000}     # CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS
+    check_cancel()
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kw)
+    if req is not None:
+        with _PREV_LOCK:
+            _PREV["procs"][req] = p
+            if req < _PREV["latest"]:
+                p.kill()
+    try:
+        out, err = p.communicate()
+    finally:
+        if req is not None:
+            with _PREV_LOCK:
+                _PREV["procs"].pop(req, None)
+    check_cancel()
+    return SimpleNamespace(returncode=p.returncode, stdout=out, stderr=err)
+
+
 def jpegli_available() -> bool:
     return os.path.isfile(CJPEGLI)
 
@@ -482,7 +539,7 @@ def encode_jpeg(img: Image.Image, opts=None, icc: bytes | None = None) -> tuple[
             if icc:
                 kw["icc_profile"] = icc
             img.save(src, "PNG", **kw)
-            r = subprocess.run([CJPEGLI, src, dst, *args], capture_output=True, **_no_window())
+            r = run_encoder([CJPEGLI, src, dst, *args])
             if r.returncode != 0 or not os.path.isfile(dst):
                 msg = (r.stderr or r.stdout or b"").decode(errors="replace").strip()
                 raise RuntimeError(f"cjpegli failed ({r.returncode}): {msg[-300:]}")
@@ -744,13 +801,14 @@ def encode_avif_svt(img: Image.Image, o: dict, icc: bytes | None = None) -> byte
         src, dst = os.path.join(td, "in.yuv"), os.path.join(td, "out.ivf")
         with open(src, "wb") as f:
             f.write(rgb_to_yuv444p10(rgb))
+        check_cancel()
         cmd = [SVTAV1, "-i", src, "-w", str(w), "-h", str(h),
                "--input-depth", "10", "--color-format", "444", "-n", "1", "--avif", "1",
                "--tune", "3", "--crf", f"{o['crf']:g}", "--preset", str(o["preset"]),
                "--color-primaries", "1", "--transfer-characteristics", "13",
                "--matrix-coefficients", "1", "--color-range", "1",
                "--progress", "0", "-b", dst]
-        r = subprocess.run(cmd, capture_output=True, **_no_window())
+        r = run_encoder(cmd)
         if r.returncode != 0 or not os.path.isfile(dst) or os.path.getsize(dst) == 0:
             msg = (r.stderr or r.stdout or b"").decode(errors="replace").strip()
             raise RuntimeError(f"SvtAv1EncApp failed ({r.returncode}): {msg[-400:]}")
@@ -857,7 +915,28 @@ def save_image(img: Image.Image, src_path: str, fmt: str = "WEBP", icc: bytes | 
     return out_path
 
 
+_THUMB_SEM = threading.Semaphore(2)
+_THUMBS: "OrderedDict[tuple, bytes]" = OrderedDict()
+
+
 def make_thumb(path: str) -> bytes:
+    try:
+        key = (os.path.normcase(os.path.abspath(path)), os.path.getmtime(path))
+    except OSError:
+        key = None
+    if key in _THUMBS:
+        _THUMBS.move_to_end(key)
+        return _THUMBS[key]
+    with _THUMB_SEM:
+        data = _make_thumb(path)
+    if key is not None:
+        _THUMBS[key] = data
+        while len(_THUMBS) > 1000:
+            _THUMBS.popitem(last=False)
+    return data
+
+
+def _make_thumb(path: str) -> bytes:
     with Image.open(path) as im:
         im.draft("RGB", (THUMB_SIZE * 2, THUMB_SIZE * 2))
         im = ImageOps.exif_transpose(im).convert("RGB")
@@ -1008,10 +1087,15 @@ class Api:
 
     def lossy_preview(self, job, fmt, opts, req_id):
         """Encode the fully edited image with the lossy format, decode it again, hand back preview pixels."""
+        preview_begin(req_id)
+        _TL.preview_req = req_id
         try:
+            check_cancel()
             fmt = norm_fmt(fmt)
             e, out = self._render_full(job)
+            check_cancel()
             data, enc, used = encode_lossy(out, fmt, opts, e.icc)
+            check_cancel()
             with Image.open(io.BytesIO(data)) as jim:
                 jim.load()
                 pv = jim.convert("RGB")
@@ -1026,8 +1110,14 @@ class Api:
             token = ENGINE.put_preview(rgba.tobytes(), pw, ph)
             return {"ok": True, "req_id": req_id, "token": token, "pw": pw, "ph": ph,
                     "bytes": len(data), "encoder": enc, "fmt": fmt, "opts": used}
+        except Cancelled:
+            return {"ok": False, "req_id": req_id, "cancelled": True}
         except Exception as ex:
+            if req_id < _PREV["latest"]:
+                return {"ok": False, "req_id": req_id, "cancelled": True}
             return {"ok": False, "req_id": req_id, "error": f"{type(ex).__name__}: {ex}"}
+        finally:
+            _TL.preview_req = None
 
     def process(self, jobs, fmt="WEBP", opts=None):
         fmt = norm_fmt(fmt)
@@ -1134,10 +1224,14 @@ def main():
             if found:
                 window.evaluate_js(f"window.app && window.app.addPaths({json.dumps(found)})")
 
-        doc = window.dom.document
-        doc.events.dragenter += DOMEventHandler(lambda e: None, True, True)
-        doc.events.dragover += DOMEventHandler(lambda e: None, True, True)
-        doc.events.drop += DOMEventHandler(on_drop, True, True)
+        # pywebview serialises the whole event (deep DOM copy of target/currentTarget) for every
+        # event it forwards. Bound to `document` that meant the entire page per event - and
+        # dragover fires continuously. So: only `drop`, and only on an empty overlay (#dropZone)
+        # that the UI shows while a file drag is over the window. dragenter/dragover
+        # preventDefault is done in plain JS (ui/app.js).
+        zone = window.dom.get_element("#dropZone")
+        if zone is not None:
+            zone.events.drop += DOMEventHandler(on_drop, True, False)
 
     window.events.loaded += bind_drop
     webview.start(debug=debug)

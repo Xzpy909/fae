@@ -120,9 +120,30 @@ button.primary:hover { background: #f5c375; border-color: #f5c375; }
   box-shadow: 0 6px 20px rgba(0,0,0,.4); }
 #hud b { color: var(--accent); font-family: var(--mono); }
 #hud.show { display: block; }
-#modeChip { position: absolute; left: 14px; top: 14px; padding: 5px 10px; border-radius: 6px;
+#modeChip { position: absolute; left: 14px; top: 54px; padding: 5px 10px; border-radius: 6px;
   background: rgba(16,17,20,.85); border: 1px solid var(--line2); font-size: 12px; display: none; }
 #modeChip.show { display: block; }
+
+/* ---------- tool pills (frosted) ---------- */
+#toolPills { position: absolute; left: 14px; top: 14px; display: flex; gap: 6px; flex-wrap: wrap; z-index: 3;
+  max-width: calc(100% - 60px); }
+.pill { position: relative; width: 36px; height: 36px; padding: 0; display: grid; place-items: center;
+  border-radius: 10px; color: #d9dde2;
+  background: rgba(24, 26, 30, .52); border: 1px solid rgba(255, 255, 255, .13);
+  backdrop-filter: blur(14px) saturate(150%); -webkit-backdrop-filter: blur(14px) saturate(150%);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .06);
+  transition: background .15s, border-color .15s, color .15s; }
+.pill:hover { background: rgba(44, 48, 55, .62); border-color: rgba(255, 255, 255, .22); }
+.pill.on { background: rgba(240, 179, 90, .24); border-color: rgba(240, 179, 90, .7); color: #fff; }
+.pill svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round; }
+.pill svg .fill { fill: currentColor; stroke: none; }
+.pill i { position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent); display: none; }
+.pill.active i { display: block; }
+.pill.on.active i { background: #fff; }
+#panel .card.sec { display: none; }
+#panel .card.sec.show { display: block; }
 #modeChip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px;
   vertical-align: 0; border: 1px solid #fff; }
 #loupe { position: absolute; right: 14px; bottom: 14px; width: 132px; height: 132px; border-radius: 10px;
@@ -226,6 +247,25 @@ input[type=range]:hover::-webkit-slider-thumb { background: #fff; transform: sca
 #sizeChip.stale { opacity: .6; }
 .toggle.head { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .7px; color: #b5bac1; font-weight: 600; }
 #resizeBody.off { opacity: .38; pointer-events: none; }
+#resizeBody .rz { display: none; }
+#resizeBody .rz.show { display: block; }
+.rz-label { margin: 10px 0 5px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--dim); }
+.rzchips { display: flex; gap: 4px; }
+.rzchip { flex: 1; min-width: 0; padding: 4px 0; font-size: 11.5px; border-radius: 6px; background: #111316;
+  border: 1px solid var(--line2); color: var(--muted); font-variant-numeric: tabular-nums; }
+.rzchip:hover { color: var(--text); background: #1c1f24; border-color: #3c424b; }
+.rzchip.on { color: var(--accent); background: var(--accent-soft); border-color: rgba(240,179,90,.55); }
+/* aspect buttons: a rectangle drawn in the ratio it stands for, label underneath */
+.rzchip.ar { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 0 4px; font-size: 10.5px; }
+.rzchip.ar .ic { height: 22px; display: grid; place-items: center; }
+.rzchip.ar .ic i { display: block; border: 1.5px solid currentColor; border-radius: 2px; }
+.rzchip.ar.on .ic i { background: rgba(240,179,90,.18); }
+.wh-row { display: grid; grid-template-columns: 1fr 30px 1fr; gap: 6px; align-items: center; margin: 8px 0; }
+.wh-row input { text-align: center; padding: 5px; }
+#cmodeSeg { margin-bottom: 2px; }
+#rzInfo { margin-top: 8px; font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+#rzInfo:empty { display: none; }
+#rzInfo .warn { color: #ffb347; }
 
 .tabs { display: flex; gap: 2px; background: #111316; border: 1px solid var(--line2); border-radius: 6px; padding: 2px; }
 .tabs button { border: none; background: transparent; padding: 2px 10px; font-size: 11px; font-weight: 600;

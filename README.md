@@ -32,8 +32,14 @@ Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/J
 - Automatic colour balance: Percentile White-Patch and Gray-Edge, each with a strength control
 
 **Resize**
-- 720p cover-crop (1280×720)
-- Target Mpix with *Mpix priority*, *Balanced* or *Ratio error priority*
+- **Preset**: aspect ratio (16:9, 21:9, 4:3, 3:2, 1:1, 4:5, 9:16) × resolution (2160p, 1440p, 1080p, 720p, 480p, 360p; the p-number is the short side), cover-crop
+- **Target Mpix** with *Mpix priority*, *Balanced* or *Ratio error priority*
+- **Custom**: type in width × height, then *Crop in* (cover-crop) or *Stretch*
+- Warns when the resize would upscale
+
+**Input formats**
+
+JPEG, PNG, WEBP, AVIF, BMP, GIF, TIFF, TGA, PPM/PGM, ICO, plus **HEIC/HEIF** and **JPEG XL** (load only).
 
 **Output formats**
 
@@ -60,7 +66,9 @@ Pipeline order: `geometry → resize → White-Patch → Gray-Edge → point cor
 pip install -r requirements.txt
 ```
 
-(`pywebview>=5.0`, `pillow>=11.2`, `numpy`, `opencv-python`). Pillow 11.2 or newer is needed for AVIF decoding in the preview and for the aom fallback.
+(`pywebview>=5.0`, `pillow>=11.2`, `numpy`, `opencv-python`, `pillow-heif`, `pillow-jxl-plugin`). Pillow 11.2 or newer is needed for AVIF decoding in the preview and for the aom fallback.
+
+`pillow-heif` (HEIC/HEIF) and `pillow-jxl-plugin` (JPEG XL) are optional and only needed to **open** those formats. Without them, the app still runs, and opening such a file shows which package to install.
 
 ### Encoders
 

@@ -2,7 +2,8 @@
 Fast Image Editor - pywebview front end, numpy/OpenCV/Pillow back end.
 
 What it does (per image, nothing is written until you press Process):
-    Output     : 720p cover-crop or target-Mpix resize (with priority).
+    Output     : Resize - Preset (aspect + 2160p..360p, cover-crop), Target Mpix (with priority),
+                 or Custom W x H (crop in or stretch).
                  WEBP (lossless or lossy), PNG, JPEG via encoders/cjpegli.exe (Pillow fallback),
                  AVIF 10-bit 4:4:4 via encoders/SvtAv1EncApp.exe (--tune 3), muxed here;
                  Pillow's libavif/aom as fallback. Lossy formats get a split-view preview.
@@ -16,6 +17,7 @@ Pipeline order:
 
 Requirements:
     pip install pywebview pillow numpy opencv-python
+    optional input formats: pip install pillow-heif (HEIC/HEIF)  pillow-jxl-plugin (JPEG XL)
 
 Run:
     python fast_image_editor.py [images or folders...]   (--debug opens dev tools)
@@ -40,7 +42,24 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import cv2
 import numpy as np
-from PIL import Image, ImageOps, features
+from PIL import Image, ImageOps, UnidentifiedImageError, features
+
+# Optional decoders (input only). Both register themselves with Pillow.
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    HAS_HEIF = True
+except ImportError:
+    HAS_HEIF = False
+try:
+    import pillow_jxl  # noqa: F401
+    HAS_JXL = True
+except ImportError:
+    HAS_JXL = False
+PLUGIN_HINT = {
+    ".heic": (HAS_HEIF, "pillow-heif"), ".heif": (HAS_HEIF, "pillow-heif"), ".hif": (HAS_HEIF, "pillow-heif"),
+    ".jxl": (HAS_JXL, "pillow-jxl-plugin"),
+}
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 UI_DIR = os.path.join(APP_DIR, "ui")
@@ -61,14 +80,16 @@ PREVIEW_MAX = 2560          # longest side of the image sent to the live preview
 THUMB_SIZE = 112
 
 TARGET_W, TARGET_H = 1280, 720
-MODE_720 = "720p"
+MODE_PRESET = "preset"
 MODE_MPIX = "Mpix"
+MODE_CUSTOM = "custom"
+LEGACY_720 = "720p"               # old settings: same as preset 16:9 / 720p
 PRIO_MPIX = "Mpix priority"
 PRIO_BALANCED = "Balanced"
 PRIO_RATIO = "Ratio error priority"
 IMAGE_EXTS = {
     ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff",
-    ".avif", ".heic", ".ico", ".ppm", ".pgm", ".tga",
+    ".avif", ".heic", ".heif", ".hif", ".jxl", ".ico", ".ppm", ".pgm", ".tga",
 }
 
 
@@ -76,9 +97,14 @@ IMAGE_EXTS = {
 class StageParams:
     """Settings that change the image Python hands to the live preview."""
     resize_on: bool = False
-    mode: str = MODE_720
+    mode: str = MODE_PRESET
     mpix: float = 2.0
     prio: str = PRIO_BALANCED
+    preset_ar: str = "16:9"
+    preset_res: int = 720
+    cw: int = 1920
+    ch: int = 1080
+    cmode: str = "crop"           # custom: "crop" (cover) or "stretch"
     wp_on: bool = False
     wp_pct: float = 99.0
     wp_strength: float = 1.0
@@ -112,7 +138,7 @@ class StageParams:
         if not self.resize_on:
             f = ("none",)
         else:
-            f = (self.mode, self.mpix, self.prio) if self.mode == MODE_MPIX else (self.mode,)
+            f = (self.mode, self.mpix, self.prio, self.preset_ar, self.preset_res, self.cw, self.ch, self.cmode)
         return (self.geom_key(), f)
 
     def geom_key(self):
@@ -178,12 +204,53 @@ def resize_to_mpix(img: Image.Image, mpix: float, priority: str = PRIO_BALANCED)
     return img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
 
+def preset_size(ar: str, res: int) -> tuple[int, int]:
+    """'16:9', 1080 -> (1920, 1080). The p-number is the short side; the long side is rounded to even."""
+    try:
+        a, b = (float(x) for x in str(ar).split(":"))
+        r = a / b if a > 0 and b > 0 else 16 / 9
+    except ValueError:
+        r = 16 / 9
+    res = max(16, int(res))
+    if r >= 1:
+        return max(2, int(round(res * r / 2)) * 2), res
+    return res, max(2, int(round(res / r / 2)) * 2)
+
+
+def fit_target(P: StageParams) -> tuple[int, int, str] | None:
+    """(w, h, 'cover'|'stretch') for preset / custom modes, None for Mpix / off."""
+    if not P.resize_on or P.mode == MODE_MPIX:
+        return None
+    if P.mode == MODE_CUSTOM:
+        w, h = max(1, min(32768, int(P.cw))), max(1, min(32768, int(P.ch)))
+        return w, h, ("stretch" if P.cmode == "stretch" else "cover")
+    if P.mode == LEGACY_720:
+        return TARGET_W, TARGET_H, "cover"
+    w, h = preset_size(P.preset_ar, P.preset_res)
+    return w, h, "cover"
+
+
+def fit_scale(size: tuple[int, int], P: StageParams) -> float:
+    """Largest per-axis scale factor the resize applies (> 1 means upscaling)."""
+    w, h = size
+    if not P.resize_on:
+        return 1.0
+    if P.mode == MODE_MPIX:
+        nw, nh = mpix_size(w, h, P.mpix, P.prio)
+        return max(nw / w, nh / h)
+    tw, th, _ = fit_target(P)
+    return max(tw / w, th / h)
+
+
 def fit_image(img: Image.Image, P: StageParams) -> Image.Image:
     if not P.resize_on:
         return img
     if P.mode == MODE_MPIX:
         return resize_to_mpix(img, P.mpix, P.prio)
-    return resize_cover_crop(img)
+    tw, th, how = fit_target(P)
+    if how == "stretch":
+        return img if img.size == (tw, th) else img.resize((tw, th), Image.Resampling.LANCZOS)
+    return resize_cover_crop(img, tw, th)
 
 
 
@@ -351,11 +418,22 @@ def apply_edit(rgb: np.ndarray, edit: dict | None, strip_rows: int = 512) -> np.
 # ---------------------------------------------------------------------------
 # Image cache + stage pipeline
 # ---------------------------------------------------------------------------
+def open_image(path: str) -> Image.Image:
+    """Image.open with a clear message when an optional decoder is missing."""
+    try:
+        return Image.open(path)
+    except UnidentifiedImageError:
+        ok, pkg = PLUGIN_HINT.get(os.path.splitext(path)[1].lower(), (True, ""))
+        if not ok:
+            raise RuntimeError(f"{os.path.basename(path)}: needs  pip install {pkg}") from None
+        raise
+
+
 class Entry:
     def __init__(self, path: str):
         self.path = path
         self.mtime = os.path.getmtime(path)
-        with Image.open(path) as im:
+        with open_image(path) as im:
             im.load()
             self.icc = im.info.get("icc_profile")
             self.base = prepare(im)
@@ -937,7 +1015,7 @@ def make_thumb(path: str) -> bytes:
 
 
 def _make_thumb(path: str) -> bytes:
-    with Image.open(path) as im:
+    with open_image(path) as im:
         im.draft("RGB", (THUMB_SIZE * 2, THUMB_SIZE * 2))
         im = ImageOps.exif_transpose(im).convert("RGB")
         im.thumbnail((THUMB_SIZE * 2, THUMB_SIZE * 2), Image.Resampling.BILINEAR)
@@ -1035,6 +1113,8 @@ class Api:
                 "w": w, "h": h, "pw": pw, "ph": ph,
                 "src_w": e.base.size[0], "src_h": e.base.size[1],
                 "alpha": img.mode == "RGBA",
+                "scale": round(fit_scale(e.geometried(P).size, P), 4),
+                "geo_w": e.geometried(P).size[0], "geo_h": e.geometried(P).size[1],
             }
         except Exception as ex:
             return {"ok": False, "req_id": req_id, "error": f"{type(ex).__name__}: {ex}"}

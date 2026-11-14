@@ -12,7 +12,8 @@ const api = () => window.pywebview.api;
 const dpr = () => window.devicePixelRatio || 1;
 
 const DEFAULT_STAGE = {
-  resize_on: false, mode: '720p', mpix: 2.0, prio: 'Balanced',
+  resize_on: false, mode: 'preset', mpix: 2.0, prio: 'Balanced',
+  preset_ar: '16:9', preset_res: 720, cw: 1920, ch: 1080, cmode: 'crop',
   wp_on: false, wp_pct: 99.0, wp_strength: 1.0,
   ge_on: false, ge_p: 1, ge_sigma: 2.0, ge_strength: 1.0,
 };
@@ -41,7 +42,7 @@ const S = {
   cropMode: false,
   E: null,
   prefs: { fmt: 'WEBP', advance: true, stage: null, jpeg_q: 90, jpeg_mode: 'q', jpeg_d: 1.0,
-    webp_lossy: false, webp_q: 90, avif_crf: 25, avif_preset: 4 },
+    webp_lossy: false, webp_q: 90, avif_crf: 25, avif_preset: 4, secs: [] },
   cmp: { x: 0.5, data: null, path: null, key: null, bytes: 0, enc: '', fmt: '', opts: null, req: Date.now(), busy: false,
     jpegli: true, avif: true, svt: true },
   hist: [], fut: [], committed: null,
@@ -222,7 +223,7 @@ function updateCmp() {
     ? `${encName(c.fmt, c.enc)} ${optsLabel(c.fmt, c.opts, c.enc)}${stale ? ' <span class="muted">&middot; updating…</span>' : ''}`
     : `${encName(S.prefs.fmt, null)} <span class="muted">&middot; encoding…</span>`;
   lbl.classList.toggle('stale', stale);
-  const ly = clamp(top + 10, 10, r.height - 34);
+  const ly = clamp(top + 10, 52, r.height - 34);     // stay below the tool pills
   const L = $('#cmpL');
   L.style.top = lbl.style.top = ly + 'px';
   L.style.left = 'auto'; L.style.right = (r.width - x + 10) + 'px';
@@ -492,6 +493,7 @@ function updateInfo() {
       + (S.prefs.fmt === 'AVIF' && S.cmp.svt && I.alpha ? ' · alpha → aom' : '')
     : '';
   $('#empty').style.display = S.files.length ? 'none' : 'grid';
+  syncResize();
 }
 
 /* ======================================================================
@@ -968,12 +970,75 @@ $('#wpOn').addEventListener('change', e => { S.stage.wp_on = e.target.checked; v
 $('#geOn').addEventListener('change', e => { S.stage.ge_on = e.target.checked; valueChanged('stage'); commit(); syncPanel(); });
 $('#advanceChk').addEventListener('change', e => { S.prefs.advance = e.target.checked; savePrefsSoon(); });
 
+/* ---------- resize: Preset / Target Mpix / Custom ---------- */
+const AR_PRESETS = ['16:9', '21:9', '4:3', '3:2', '1:1', '4:5', '9:16'];
+const RES_PRESETS = [2160, 1440, 1080, 720, 480, 360];
+const arRatio = k => { const [a, b] = String(k).split(':').map(Number); return a > 0 && b > 0 ? a / b : 16 / 9; };
+function presetDims(ar, res) {          // must match preset_size() in fast_image_editor.py
+  const r = arRatio(ar);
+  return r >= 1 ? [Math.max(2, Math.round(res * r / 2) * 2), res] : [res, Math.max(2, Math.round(res / r / 2) * 2)];
+}
+/* The output aspect the resize will force (used by crop mode), or null. */
+function resizeCropAspect() {
+  const st = S.stage;
+  if (st.resize_on === false) return null;
+  if (st.mode === 'preset') {
+    const [w, h] = presetDims(st.preset_ar, st.preset_res);
+    return { key: st.preset_ar === '1:1' ? 'square' : st.preset_ar, r: arRatio(st.preset_ar), label: `${w}×${h}` };
+  }
+  if (st.mode === 'custom' && st.cmode !== 'stretch') return { key: null, r: st.cw / st.ch, label: `${st.cw}×${st.ch}` };
+  return null;
+}
+function setStage(k, v) { S.stage[k] = v; valueChanged('stage'); commit(); syncPanel(); }
+function buildChips() {
+  const box = a => {               // icon rectangle in the real ratio, longest side 22 px
+    const r = arRatio(a), M = 22;
+    const w = r >= 1 ? M : Math.round(M * r), h = r >= 1 ? Math.round(M / r) : M;
+    return `<span class="ic"><i style="width:${w}px;height:${h}px"></i></span>`;
+  };
+  $('#arChips').innerHTML = AR_PRESETS.map(a => `<button class="rzchip ar" data-v="${a}" title="${a}">${box(a)}${a}</button>`).join('');
+  $('#resChips').innerHTML = RES_PRESETS.map(r => `<button class="rzchip" data-v="${r}">${r}p</button>`).join('');
+  $('#arChips').addEventListener('click', e => { const b = e.target.closest('.rzchip'); if (b) setStage('preset_ar', b.dataset.v); });
+  $('#resChips').addEventListener('click', e => { const b = e.target.closest('.rzchip'); if (b) setStage('preset_res', Number(b.dataset.v)); });
+}
+buildChips();
+for (const [id, key] of [['#cwIn', 'cw'], ['#chIn', 'ch']]) {
+  const el = $(id);
+  el.addEventListener('change', () => {
+    const v = clamp(Math.round(Number(el.value)) || S.stage[key], 1, 32768);
+    if (v !== S.stage[key]) setStage(key, v); else el.value = v;
+  });
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') el.blur(); e.stopPropagation(); });
+}
+$('#swapWH').addEventListener('click', () => { const w = S.stage.cw; S.stage.cw = S.stage.ch; setStage('ch', w); });
+const syncCmode = segInit('#cmodeSeg', () => S.stage.cmode || 'crop', v => setStage('cmode', v));
+
+function syncResize() {
+  const st = S.stage, m = st.mode;
+  $('#rzPreset').classList.toggle('show', m === 'preset');
+  $('#rzMpix').classList.toggle('show', m === 'Mpix');
+  $('#rzCustom').classList.toggle('show', m === 'custom');
+  document.querySelectorAll('#arChips .rzchip').forEach(b => b.classList.toggle('on', b.dataset.v === st.preset_ar));
+  document.querySelectorAll('#resChips .rzchip').forEach(b => b.classList.toggle('on', Number(b.dataset.v) === st.preset_res));
+  if (document.activeElement !== $('#cwIn')) $('#cwIn').value = st.cw;
+  if (document.activeElement !== $('#chIn')) $('#chIn').value = st.ch;
+  syncCmode();
+  let html = '';
+  if (m === 'preset') { const [w, h] = presetDims(st.preset_ar, st.preset_res); html = `→ ${w}×${h} · crop in`; }
+  else if (m === 'custom') html = `→ ${st.cw}×${st.ch} · ${st.cmode === 'stretch' ? 'stretch (aspect not kept)' : 'crop in'}`;
+  const I = S.img;
+  if (st.resize_on !== false && I && I.scale > 1.001)
+    html += `${html ? '<br>' : ''}<span class="warn">⚠ Upscaling ×${I.scale.toFixed(2)} · source ${I.geo_w}×${I.geo_h} is smaller than the target</span>`;
+  $('#rzInfo').innerHTML = html;
+}
+
 function syncEnabled() {
   $('#prioSel').disabled = S.stage.mode !== 'Mpix';
   $('#prioSel').closest('.field-row').style.opacity = S.stage.mode === 'Mpix' ? 1 : .38;
 }
 function syncPanel() {
   FIELDS.forEach(f => f.sync());
+  syncSections(); updatePills(); syncResize();
   syncMode(); syncFmt(); syncJMode(); syncWMode();
   syncEncRow();
   $('#prioSel').value = S.stage.prio;
@@ -1099,7 +1164,41 @@ function markCurrentEdited() {
   const li = document.querySelector('#fileList li.cur');
   if (li) li.classList.toggle('edited', isEditedState(S.edit, S.geom));
   if ((typeof Crop !== "undefined")) Crop.updateSummary();
+  updatePills();
 }
+
+/* ======================================================================
+   Tool pills: each tool card in the right panel is shown only when its pill is on.
+   Each pill toggles its own card, so any number can be open at once.
+   The dot on a pill means that tool is doing something to the current image.
+   ====================================================================== */
+const SECS = ['crop', 'point', 'curves', 'resize', 'color'];
+function syncSections() {
+  const on = new Set(S.prefs.secs || []);
+  document.querySelectorAll('#panel .card.sec').forEach(c => c.classList.toggle('show', on.has(c.dataset.sec)));
+  document.querySelectorAll('#toolPills .pill').forEach(p => p.classList.toggle('on', on.has(p.dataset.sec)));
+  if (on.has('curves')) requestAnimationFrame(drawCurve);
+}
+function updatePills() {
+  const ident = pts => pts.length === 2 && pts[0][0] === 0 && pts[0][1] === 0 && pts[1][0] === 255 && pts[1][1] === 255;
+  const st = {
+    crop: !isDefaultGeom(S.geom),
+    point: !!(S.edit.black || S.edit.gray || S.edit.white),
+    curves: !['m', 'r', 'g', 'b'].every(c => ident(S.edit.curves[c])),
+    resize: S.stage.resize_on !== false,
+    color: !!(S.stage.wp_on || S.stage.ge_on),
+  };
+  document.querySelectorAll('#toolPills .pill').forEach(p => p.classList.toggle('active', !!st[p.dataset.sec]));
+}
+document.querySelectorAll('#toolPills .pill').forEach(p => {
+  p.addEventListener('pointerdown', e => e.stopPropagation());     // don't start a pan / eyedropper sample
+  p.addEventListener('click', e => {
+    e.stopPropagation();
+    const sec = p.dataset.sec, cur = S.prefs.secs || [];
+    S.prefs.secs = cur.includes(sec) ? cur.filter(x => x !== sec) : [...cur, sec];
+    syncSections(); savePrefsSoon();
+  });
+});
 $('#fileList').addEventListener('click', e => {
   const li = e.target.closest('li'); if (!li) return;
   switchTo(Number(li.dataset.i));
@@ -1307,6 +1406,7 @@ async function init() {
     const s = await api().get_settings();
     if (s && typeof s === 'object') {
       if (s.fmt) S.prefs.fmt = s.fmt;
+      if (Array.isArray(s.secs)) S.prefs.secs = s.secs.filter(x => SECS.includes(x));
       if (s.jpeg_q != null) S.prefs.jpeg_q = clamp(Math.round(Number(s.jpeg_q)) || 90, 1, 100);
       if (s.jpeg_d != null && isFinite(Number(s.jpeg_d))) S.prefs.jpeg_d = clamp(Number(s.jpeg_d), 0, 25);
       if (s.jpeg_mode === 'q' || s.jpeg_mode === 'd') S.prefs.jpeg_mode = s.jpeg_mode;
@@ -1317,6 +1417,7 @@ async function init() {
       if (!['WEBP', 'PNG', 'JPEG', 'AVIF'].includes(S.prefs.fmt)) S.prefs.fmt = 'WEBP';
       if (typeof s.advance === 'boolean') S.prefs.advance = s.advance;
       if (s.stage) S.stage = Object.assign(clone(DEFAULT_STAGE), s.stage);
+      if (S.stage.mode === '720p') Object.assign(S.stage, { mode: 'preset', preset_ar: '16:9', preset_res: 720 });
     }
   } catch (_) {}
   try { const ji = await api().encoder_info(); S.cmp.jpegli = !!(ji && ji.jpegli); S.cmp.avif = !!(ji && ji.avif); S.cmp.svt = !!(ji && ji.svt); } catch (_) {}

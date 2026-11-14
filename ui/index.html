@@ -65,6 +65,13 @@
       <div class="muted">or use <b>+ Files</b> / <b>+ Folder</b></div>
     </div>
     <div id="hud"></div>
+    <div id="toolPills">
+      <button class="pill" data-sec="crop" title="Crop &amp; Rotate"><svg viewBox="0 0 24 24"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg><i></i></button>
+      <button class="pill" data-sec="point" title="Point Correction"><svg viewBox="0 0 24 24"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/></svg><i></i></button>
+      <button class="pill" data-sec="curves" title="Curves"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M6.5 17.5C11 17.5 10 6.5 17.5 6.5"/></svg><i></i></button>
+      <button class="pill" data-sec="resize" title="Resize"><svg viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg><i></i></button>
+      <button class="pill" data-sec="color" title="Color Balance"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path class="fill" d="M12 3a9 9 0 0 0 0 18z"/></svg><i></i></button>
+    </div>
     <div id="modeChip"></div>
     <canvas id="loupe" width="132" height="132"></canvas>
     <div id="spinner"></div>
@@ -109,13 +116,13 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="card sec" data-sec="crop">
         <div class="card-head"><span>Crop &amp; rotate</span><button id="geomClear" class="link">Clear</button></div>
         <button id="cropOpen" class="wide">Crop / Rotate <kbd>C</kbd></button>
         <div class="muted small" id="geomInfo">Full image</div>
       </section>
 
-      <section class="card">
+      <section class="card sec" data-sec="point">
         <div class="card-head"><span>Point correction</span><button id="clearPoints" class="link">Clear</button></div>
         <div class="tools">
           <button class="tool" data-tool="black" title="Black point (B)">
@@ -132,7 +139,7 @@
         <div class="hint">Tool stays active: keep clicking to refine. Hold <kbd>Alt</kbd> for clipping view, scroll to move the threshold. <kbd>Esc</kbd> drops the tool.</div>
       </section>
 
-      <section class="card">
+      <section class="card sec" data-sec="curves">
         <div class="card-head">
           <div class="tabs" id="curveTabs">
             <button data-ch="m" class="on">RGB</button>
@@ -146,21 +153,38 @@
         <div class="curve-foot"><span class="muted" id="curveInfo">Click to add · drag · double-click or drag out to remove</span></div>
       </section>
 
-      <section class="card">
+      <section class="card sec" data-sec="resize">
         <div class="card-head"><label class="toggle head"><input type="checkbox" id="resizeOn"><span class="tg"></span>Resize</label></div>
         <div id="resizeBody">
-        <div class="seg" id="modeSeg"><button data-v="720p">720p crop</button><button data-v="Mpix">Target Mpix</button></div>
-        <div id="mpixFields"></div>
-        <div class="field-row">
-          <label>Priority</label>
-          <select id="prioSel">
-            <option>Mpix priority</option><option>Balanced</option><option>Ratio error priority</option>
-          </select>
+        <div class="seg" id="modeSeg"><button data-v="preset">Preset</button><button data-v="Mpix">Target Mpix</button><button data-v="custom">Custom</button></div>
+        <div id="rzPreset" class="rz">
+          <div class="rz-label">Aspect ratio</div>
+          <div class="rzchips" id="arChips"></div>
+          <div class="rz-label">Resolution</div>
+          <div class="rzchips" id="resChips"></div>
         </div>
+        <div id="rzMpix" class="rz">
+          <div id="mpixFields"></div>
+          <div class="field-row">
+            <label>Priority</label>
+            <select id="prioSel">
+              <option>Mpix priority</option><option>Balanced</option><option>Ratio error priority</option>
+            </select>
+          </div>
+        </div>
+        <div id="rzCustom" class="rz">
+          <div class="wh-row">
+            <input type="number" id="cwIn" min="1" max="32768" step="1" title="Width">
+            <button id="swapWH" class="icon" title="Swap width / height"><svg viewBox="0 0 24 24"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg></button>
+            <input type="number" id="chIn" min="1" max="32768" step="1" title="Height">
+          </div>
+          <div class="seg" id="cmodeSeg"><button data-v="crop">Crop in</button><button data-v="stretch">Stretch</button></div>
+        </div>
+        <div id="rzInfo"></div>
         </div>
       </section>
 
-      <section class="card">
+      <section class="card sec" data-sec="color">
         <div class="card-head"><span>Color balance</span></div>
         <label class="toggle"><input type="checkbox" id="wpOn"><span class="tg"></span>Percentile White-Patch</label>
         <div id="wpFields" class="sub"></div>

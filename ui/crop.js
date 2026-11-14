@@ -13,7 +13,7 @@ const Crop = (() => {
 
   const ASPECTS = [
     ['free', 'Free', null], ['original', 'Original', null], ['square', 'Square', 1],
-    ['9:16', '9 : 16', 9 / 16], ['16:9', '16 : 9', 16 / 9], ['4:5', '4 : 5', 4 / 5], ['5:4', '5 : 4', 5 / 4],
+    ['9:16', '9 : 16', 9 / 16], ['16:9', '16 : 9', 16 / 9], ['21:9', '21 : 9', 21 / 9], ['4:5', '4 : 5', 4 / 5], ['5:4', '5 : 4', 5 / 4],
     ['3:4', '3 : 4', 3 / 4], ['4:3', '4 : 3', 4 / 3], ['2:3', '2 : 3', 2 / 3], ['3:2', '3 : 2', 3 / 2],
     ['5:7', '5 : 7', 5 / 7], ['7:5', '7 : 5', 7 / 5], ['1:2', '1 : 2', 1 / 2], ['2:1', '2 : 1', 2],
   ];
@@ -106,7 +106,7 @@ const Crop = (() => {
     C = {
       W: f.src.W, H: f.src.H, info: f.src,
       q: G.q || 0, angle: G.angle || 0, flip: !!G.flip,
-      aspect: G.aspect || (S.stage.resize_on !== false && S.stage.mode === '720p' ? '16:9' : 'original'),
+      aspect: G.aspect || (() => { const ra = resizeCropAspect(); return ra && ra.key && AMAP[ra.key] ? ra.key : 'original'; })(),
       img: document.createElement('canvas'),
     };
     C.img.width = f.src.pw; C.img.height = f.src.ph;
@@ -376,8 +376,9 @@ const Crop = (() => {
   function updateHint() {
     const top = $('#cropTop .muted');
     if (!C) return;
-    const warn = S.stage.resize_on !== false && S.stage.mode === '720p' && C.aspect !== '16:9';
-    top.innerHTML = 'Crop &amp; rotate' + (warn ? ' &nbsp;·&nbsp; <span style="color:#f0b35a">720p output will still center-crop to 16:9</span>' : '');
+    const ra = resizeCropAspect(), cr = ratio();
+    const warn = ra && (!cr || Math.abs(cr / ra.r - 1) > 0.005);
+    top.innerHTML = 'Crop &amp; rotate' + (warn ? ` &nbsp;·&nbsp; <span style="color:#f0b35a">${ra.label} output will still center-crop to that shape</span>` : '');
   }
 
   function updateSummary() {

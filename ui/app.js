@@ -42,7 +42,7 @@ const S = {
   cropMode: false,
   E: null,
   prefs: { fmt: 'WEBP', advance: true, stage: null, jpeg_q: 90, jpeg_mode: 'q', jpeg_d: 1.0,
-    webp_lossy: false, webp_q: 90, avif_crf: 25, avif_preset: 4, secs: [] },
+    webp_lossy: false, webp_q: 90, avif_crf: 25, avif_preset: 4, aom_q: 80, aom_speed: 6, secs: [] },
   cmp: { x: 0.5, data: null, path: null, key: null, bytes: 0, enc: '', fmt: '', opts: null, req: Date.now(), busy: false,
     jpegli: true, avif: true, svt: true },
   hist: [], fut: [], committed: null,
@@ -235,7 +235,7 @@ function updateCmp() {
 const encOpts = () => ({
   jpeg: { mode: S.prefs.jpeg_mode, q: S.prefs.jpeg_q, d: S.prefs.jpeg_d },
   webp: { lossless: !S.prefs.webp_lossy, q: S.prefs.webp_q },
-  avif: { crf: S.prefs.avif_crf, preset: S.prefs.avif_preset },
+  avif: { crf: S.prefs.avif_crf, preset: S.prefs.avif_preset, aom_q: S.prefs.aom_q, aom_speed: S.prefs.aom_speed },
 });
 function encName(fmt, enc) {
   if (fmt === 'JPEG') return enc === 'pillow' ? 'JPEG (Pillow)' : 'jpegli';
@@ -245,7 +245,7 @@ function encName(fmt, enc) {
 function optsLabel(fmt, o, enc) {
   if (!o) return '';
   if (fmt === 'JPEG') return o.mode === 'd' && enc !== 'pillow' ? `d<b>${Number(o.d).toFixed(2)}</b>` : `q<b>${o.q}</b>`;
-  if (fmt === 'AVIF') return `crf <b>${o.crf}</b> &middot; p${o.preset}`;
+  if (fmt === 'AVIF') return enc === 'svt' ? `crf <b>${o.crf}</b> &middot; p${o.preset}` : `q<b>${o.aom_q}</b> &middot; speed ${o.aom_speed}`;
   return `q<b>${o.q}</b>`;
 }
 /* only the active format's settings go into the cache key */
@@ -493,7 +493,7 @@ function updateInfo() {
       + (S.prefs.fmt === 'AVIF' && S.cmp.svt && I.alpha ? ' · alpha → aom' : '')
     : '';
   $('#empty').style.display = S.files.length ? 'none' : 'grid';
-  syncResize();
+  syncResize(); syncEncRow();
 }
 
 /* ======================================================================
@@ -938,6 +938,8 @@ makeField($('#jpegD'), { obj: 'prefs', key: 'jpeg_d', label: 'Distance', min: 0,
 makeField($('#webpQ'), { obj: 'prefs', key: 'webp_q', label: 'Quality', min: 0, max: 100, smin: 50, smax: 100, step: 1, dec: 0, def: 90 });
 makeField($('#avifQ'), { obj: 'prefs', key: 'avif_crf', label: 'CRF', min: 1, max: 70, smin: 5, smax: 50, step: 0.25, dec: 2, def: 25 });
 makeField($('#avifS'), { obj: 'prefs', key: 'avif_preset', label: 'Preset', min: 0, max: 8, step: 1, dec: 0, def: 4 });
+makeField($('#aomQ'), { obj: 'prefs', key: 'aom_q', label: 'Quality', min: 0, max: 100, smin: 30, smax: 100, step: 1, dec: 0, def: 80 });
+makeField($('#aomS'), { obj: 'prefs', key: 'aom_speed', label: 'Speed', min: 0, max: 10, step: 1, dec: 0, def: 6 });
 makeField($('#mpixFields'), { obj: 'stage', key: 'mpix', label: 'Target Mpix', min: 0.05, max: 100, smin: 0.1, smax: 24, step: 0.05, dec: 2, def: 2,
   enabled: () => S.stage.mode === 'Mpix' });
 makeField($('#wpFields'), { obj: 'stage', key: 'wp_pct', label: 'Percentile', min: 50, max: 100, step: 0.1, dec: 1, def: 99, enabled: () => S.stage.wp_on });
@@ -963,6 +965,12 @@ function syncEncRow() {
   $('#jpegQ').style.display = S.prefs.jpeg_mode === 'd' ? 'none' : '';
   $('#jpegD').style.display = S.prefs.jpeg_mode === 'd' ? '' : 'none';
   $('#webpQ').style.display = S.prefs.webp_lossy ? '' : 'none';
+  // AVIF: show the settings of the encoder that will really be used for this image
+  const aom = !S.cmp.svt || !!(S.img && S.img.alpha);
+  $('#avifSvt').style.display = aom ? 'none' : '';
+  $('#avifAom').style.display = aom ? '' : 'none';
+  $('#aomNote').textContent = !S.cmp.svt ? 'aom via Pillow (SvtAv1EncApp.exe not found)'
+    : 'aom via Pillow (this image has alpha)';
 }
 $('#prioSel').addEventListener('change', e => { S.stage.prio = e.target.value; valueChanged('stage'); commit(); });
 $('#resizeOn').addEventListener('change', e => { S.stage.resize_on = e.target.checked; valueChanged('stage'); commit(); syncPanel(); });
@@ -1414,6 +1422,8 @@ async function init() {
       if (s.webp_q != null) S.prefs.webp_q = clamp(Math.round(Number(s.webp_q)) || 90, 0, 100);
       if (s.avif_crf != null && isFinite(Number(s.avif_crf))) S.prefs.avif_crf = clamp(Math.round(Number(s.avif_crf) * 4) / 4, 1, 70);
       if (s.avif_preset != null && isFinite(Number(s.avif_preset))) S.prefs.avif_preset = clamp(Math.round(Number(s.avif_preset)), 0, 8);
+      if (s.aom_q != null && isFinite(Number(s.aom_q))) S.prefs.aom_q = clamp(Math.round(Number(s.aom_q)), 0, 100);
+      if (s.aom_speed != null && isFinite(Number(s.aom_speed))) S.prefs.aom_speed = clamp(Math.round(Number(s.aom_speed)), 0, 10);
       if (!['WEBP', 'PNG', 'JPEG', 'AVIF'].includes(S.prefs.fmt)) S.prefs.fmt = 'WEBP';
       if (typeof s.advance === 'boolean') S.prefs.advance = s.advance;
       if (s.stage) S.stage = Object.assign(clone(DEFAULT_STAGE), s.stage);

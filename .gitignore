@@ -1,0 +1,24 @@
+# Encoder binaries are shipped in the release zip, not in the repo
+encoders/*
+!encoders/.gitkeep
+
+# Per-user settings (written by the app)
+fast_image_editor_settings.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+
+# PyInstaller
+build/
+dist/
+*.spec

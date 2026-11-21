@@ -61,8 +61,10 @@ PLUGIN_HINT = {
     ".jxl": (HAS_JXL, "pillow-jxl-plugin"),
 }
 
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
-UI_DIR = os.path.join(APP_DIR, "ui")
+# Frozen (PyInstaller) build: settings + encoders/ live next to the .exe, ui/ is bundled inside.
+FROZEN = getattr(sys, "frozen", False)
+APP_DIR = os.path.dirname(os.path.abspath(sys.executable if FROZEN else __file__))
+UI_DIR = os.path.join(getattr(sys, "_MEIPASS", APP_DIR), "ui")
 SETTINGS_PATH = os.path.join(APP_DIR, "fast_image_editor_settings.json")
 ENCODERS_DIR = os.path.join(APP_DIR, "encoders")
 _EXE = ".exe" if sys.platform.startswith("win") else ""
@@ -72,6 +74,8 @@ JPEG_Q_DEFAULT = 90
 JPEG_D_DEFAULT = 1.0
 AVIF_CRF_DEFAULT = 25.0
 AVIF_PRESET_DEFAULT = 4
+AOM_Q_DEFAULT = 80                # Pillow/libavif quality 0..100
+AOM_SPEED_DEFAULT = 6             # Pillow/libavif speed 0 (slowest) .. 10
 WEBP_Q_DEFAULT = 90
 FORMATS = ("WEBP", "PNG", "JPEG", "AVIF")
 EXTS = {"WEBP": ".webp", "PNG": ".png", "JPEG": ".jpg", "AVIF": ".avif"}
@@ -869,7 +873,10 @@ def avif_opts(o) -> dict:
     except (TypeError, ValueError):
         crf = AVIF_CRF_DEFAULT
     crf = round(min(70.0, max(1.0, crf)) * 4) / 4          # SVT takes 0.25 steps
-    return {"crf": crf, "preset": _clampi(o.get("preset"), 0, 8, AVIF_PRESET_DEFAULT)}
+    return {"crf": crf, "preset": _clampi(o.get("preset"), 0, 8, AVIF_PRESET_DEFAULT),
+            # separate settings for Pillow's libavif/aom (used without SvtAv1EncApp, or for alpha)
+            "aom_q": _clampi(o.get("aom_q"), 0, 100, AOM_Q_DEFAULT),
+            "aom_speed": _clampi(o.get("aom_speed"), 0, 10, AOM_SPEED_DEFAULT)}
 
 
 def encode_avif_svt(img: Image.Image, o: dict, icc: bytes | None = None) -> bytes:
@@ -904,9 +911,8 @@ def encode_avif(img: Image.Image, opts=None, icc: bytes | None = None) -> tuple[
     if not avif_available():
         raise RuntimeError("no AVIF encoder: SvtAv1EncApp.exe missing and Pillow has no AVIF "
                            "(pip install -U pillow, 11.2 or newer)")
-    # aom fallback (also for images with alpha): map CRF/preset onto libavif quality/speed
-    q = int(round(100 - min(63.0, o["crf"]) * 100 / 63))
-    kw = dict(quality=q, speed=min(10, o["preset"] + 2), subsampling="4:4:4", range="full")
+    # aom fallback (also for images with alpha): its own quality / speed, passed straight to Pillow
+    kw = dict(quality=o["aom_q"], speed=o["aom_speed"], subsampling="4:4:4", range="full")
     if icc:
         kw["icc_profile"] = icc
     buf = io.BytesIO()

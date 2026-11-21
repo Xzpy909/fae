@@ -52,6 +52,17 @@ const FILTERS = [
     '---',
     ['flt_film_opacity', 'Opacity', 100, 0, 100, 1, 0, '%'],
   ] },
+  // Super Contrast: all live (scParams in edit-math.js); Dynamic Contrast is an approximation (≈); Shadows / Highlights use the shared shLut()
+  { sec: 'f_sc', fields: [
+    ['flt_sc_cast', 'Correct Color Cast', 0, 0, 100, 1, 0, '%'],
+    ['flt_sc_contrast', 'Correct Contrast', 0, 0, 100, 1, 0, '%'],
+    ['flt_sc_dynamic', 'Dynamic Contrast ≈', 0, 0, 100, 1, 0, '%'],
+    '---',
+    ['flt_sc_shadows', 'Shadows', 0, 0, 100, 1, 0, '%'],
+    ['flt_sc_highlights', 'Highlights', 0, 0, 100, 1, 0, '%'],
+    '---',
+    ['flt_sc_opacity', 'Opacity', 100, 0, 100, 1, 0, '%'],
+  ] },
 ];
 /* gradient tracks for the filter sliders (what the slider does, left to right) */
 const FILTER_GRADS = {
@@ -62,6 +73,12 @@ const FILTER_GRADS = {
   flt_film_contrast: 'linear-gradient(90deg, rgba(120,120,120,1), rgba(120,120,120,0)), repeating-linear-gradient(90deg, #050505 0 2px, #f5f5f5 2px 4px)',
   flt_bw_opacity: 'linear-gradient(90deg, rgba(235,235,235,0), #ebebeb), repeating-conic-gradient(#5a5a5a 0 25%, #2e2e2e 0 50%) 0 0 / 6px 6px',
   flt_film_opacity: 'linear-gradient(90deg, rgba(235,235,235,0), #ebebeb), repeating-conic-gradient(#5a5a5a 0 25%, #2e2e2e 0 50%) 0 0 / 6px 6px',
+  flt_sc_cast: 'linear-gradient(90deg, #4f7fd8, #9a8f86 45%, #b0b0b0)',
+  flt_sc_contrast: 'linear-gradient(90deg, #6a6a6a, #8a8a8a 50%, #101010 50%, #f2f2f2)',
+  flt_sc_dynamic: 'linear-gradient(90deg, rgba(120,120,120,1), rgba(120,120,120,0)), repeating-linear-gradient(90deg, #303030 0 5px, #c8c8c8 5px 10px)',
+  flt_sc_shadows: 'linear-gradient(90deg, #050505, #5a5a5a)',
+  flt_sc_highlights: 'linear-gradient(90deg, #ffffff, #a8a8a8)',
+  flt_sc_opacity: 'linear-gradient(90deg, rgba(235,235,235,0), #ebebeb), repeating-conic-gradient(#5a5a5a 0 25%, #2e2e2e 0 50%) 0 0 / 6px 6px',
 };
 const fieldKD = a => Array.isArray(a) ? [a[0], a[2]] : [a.key, a.def];
 const filterFields = f => f.fields.filter(a => a !== '---');

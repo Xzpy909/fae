@@ -79,11 +79,15 @@ def apply_edit(rgb: np.ndarray, edit: dict | None, strip_rows: int = 512) -> np.
     sat = edit.get("sat")
     bw = edit.get("bw")
     film = edit.get("film")
+    sc = edit.get("sc")
     wb = edit.get("wb")
     wb = None if wb is None else np.asarray(wb, dtype=np.float64)
     con = edit.get("con")
     con = None if con is None else np.asarray(con, dtype=np.float64)
     if len(luts) != 3:
+        luts = [np.arange(256, dtype=np.uint8)] * 3
+    final_luts = luts
+    if sc:      # Super Contrast needs the whole filter input: collect it first (curves later, in sc_finish)
         luts = [np.arange(256, dtype=np.uint8)] * 3
     point = bool(edit.get("point"))
     k = float(edit.get("k", 1.0))
@@ -163,7 +167,167 @@ def apply_edit(rgb: np.ndarray, edit: dict | None, strip_rows: int = 512) -> np.
             dst[..., c] = luts[c][idx[..., c]]
     if ps:
         ps_finish(fin, fmid, bw, luts, out, strip_rows, film)
+    if sc:
+        sc_finish(out, sc, final_luts)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Filter Super Contrast (mirrors scParams / scLuts / scContrast / scPass in ui/js/edit-math.js, where the
+# formulas are described): Correct Color Cast curves, then Correct Contrast (linear stretch of the channel
+# average with a colour gain, black / white from channel percentiles), Dynamic Contrast (approximation, grid CLAHE),
+# Shadows / Highlights (shared table from shLut()), then Opacity.
+# ---------------------------------------------------------------------------
+CC_T = {"alo": [0, 0.2727, 0.4497, 0.5386, 0.6571, 0.7771, 1, 1, 1, 1, 1],
+        "blo": [0, 0, 0, 0, 0, 0, 0.2556, 0.5307, 0.7731, 0.8910, 1],
+        "ahi": [0, 0.2118, 0.4149, 0.5963, 0.7711, 0.9293, 1, 1, 1, 1, 1],
+        "bhi": [0, 0, 0, 0, 0, 0, 0.1951, 0.3982, 0.6014, 0.8045, 1],
+        "k": [1, 0.9890, 0.9783, 0.9680, 0.9481, 0.9379, 0.9277, 0.9177, 0.8979, 0.8876, 0.8778]}
+
+
+def _cc_tab(t, s: float) -> float:
+    i = int(np.floor(s / 10))
+    i = 9 if i > 9 else 0 if i < 0 else i
+    f = s / 10 - i
+    return t[i] + (t[i + 1] - t[i]) * f
+
+
+def sc_luts(sc: dict, means) -> list[np.ndarray]:
+    m0, m1, m2 = (float(v) for v in means)
+    g = (m0 + m1 + m2) / 3
+    x = np.arange(256, dtype=np.float64)
+    t = x / 255
+    out = []
+    for m in (m0, m1, m2):
+        k = 4 * float(sc["cast"]) * (g - m)
+        out.append(np.clip(np.floor(x + k * t * (1 - t) + 0.5), 0, 255).astype(np.uint8))
+    return out
+
+
+def _hist_pct(h, n: int, q: float) -> float:
+    pos = (n - 1) * q / 100
+    i0 = int(np.floor(pos))
+    fr = pos - i0
+    cum = np.cumsum(h)
+    v0 = int(np.searchsorted(cum, i0, side="right"))
+    v1 = int(np.searchsorted(cum, i0 + 1, side="right")) if i0 + 1 <= n - 1 else v0
+    return v0 + (v1 - v0) * fr
+
+
+def sc_contrast(cc: float, hists, n: int):
+    pc = lambda q: [_hist_pct(hists[c], n, q) for c in range(3)]
+    p2, p98, p10, p90 = pc(2), pc(98), pc(10), pc(90)
+    a_lo, a_hi = min(p2), max(p98)
+    b_lo, b_hi = min(p10) + 1, max(p90) - 1
+    lo = a_lo * _cc_tab(CC_T["alo"], cc) + (b_lo - a_lo) * _cc_tab(CC_T["blo"], cc)
+    hi = 255 - (255 - a_hi) * _cc_tab(CC_T["ahi"], cc) + (b_hi - a_hi) * _cc_tab(CC_T["bhi"], cc)
+    if hi - lo < 1:
+        hi = lo + 1
+    a = 255 / (hi - lo)
+    return a, -lo * a, _cc_tab(CC_T["k"], cc) * a
+
+
+DC_GW, DC_NB, DC_CLIP, DC_BETA, DC_SAT = 12, 64, 4, 0.40, 1.2
+
+
+def _dc_reflect(i: int, n: int) -> int:
+    if n == 1:
+        return 0
+    p = 2 * n
+    i = i % p
+    return p - 1 - i if i >= n else i
+
+
+def dc_maps(h: np.ndarray, cnt: np.ndarray, gh: int, gw: int, dk) -> np.ndarray:
+    """Dynamic Contrast curves per grid cell (mirrors dcMaps in edit-math.js). h: (gh, gw, NB) counts."""
+    a = h / np.where(cnt > 0, cnt, 1)[..., None]
+    r = (len(dk) - 1) // 2
+    for axis in (0, 1):
+        n = gh if axis == 0 else gw
+        o = np.zeros_like(a)
+        for t in range(-r, r + 1):
+            j = [_dc_reflect(i + t, n) for i in range(n)]
+            o = o + dk[t + r] * (a[j] if axis == 0 else a[:, j])
+        a = o
+    lim = DC_CLIP / DC_NB
+    mp = np.empty_like(a)
+    for y in range(gh):
+        for x in range(gw):
+            v = a[y, x]
+            ex = 0.0
+            for b in range(DC_NB):
+                if v[b] > lim:
+                    ex += v[b] - lim
+            cum = 0.0
+            for b in range(DC_NB):
+                w = (lim if v[b] > lim else v[b]) + ex / DC_NB
+                cum += w
+                mp[y, x, b] = 255 * (cum - w / 2)
+    return mp
+
+
+def sc_finish(out: np.ndarray, sc: dict, luts) -> None:
+    H, W = out.shape[:2]
+    n = H * W
+    h = [np.bincount(out[..., c].ravel(), minlength=256).astype(np.int64) for c in range(3)]
+    means = [float((np.arange(256) * h[c]).sum()) / n for c in range(3)]
+    t = sc_luts(sc, means) if float(sc.get("cast", 0)) > 0 else [np.arange(256, dtype=np.uint8)] * 3
+    cc = float(sc.get("cc", 0))
+    dy = float(sc.get("dyn", 0) or 0)
+    op = float(sc.get("op", 1))
+    if cc > 0:
+        hs = [np.bincount(t[c], weights=h[c], minlength=256) for c in range(3)]
+        ca, cb, ck = sc_contrast(cc, hs, n)
+    src = out.copy()
+    # pass A: Color Cast + Correct Contrast (kept in mid), Dynamic Contrast grid histograms
+    mid = np.stack([t[c][src[..., c]] for c in range(3)], axis=-1)
+    if cc > 0:
+        f = mid.astype(np.float64)
+        M = (f[..., 0] + f[..., 1] + f[..., 2]) / 3
+        mid = np.clip(np.floor(ca * M[..., None] + cb + ck * (f - M[..., None]) + 0.5), 0, 255).astype(np.uint8)
+    res = mid.astype(np.float64)
+    if dy > 0:
+        gw = DC_GW
+        gh = max(1, int(np.floor(H * gw / W + 0.5)))
+        S = mid.astype(np.int64).sum(axis=2)
+        bn = np.minimum(S // 12, DC_NB - 1)
+        cell = (np.arange(H) * gh // H)[:, None] * gw + (np.arange(W) * gw // W)[None, :]
+        hist = np.bincount((cell * DC_NB + bn).ravel(), minlength=gh * gw * DC_NB).astype(np.float64).reshape(gh, gw, DC_NB)
+        cnt = np.bincount(cell.ravel(), minlength=gh * gw).astype(np.float64).reshape(gh, gw)
+        mp = dc_maps(hist, cnt, gh, gw, sc["dk"]).reshape(-1)
+        gs, gb = 1 + dy * (DC_SAT - 1), dy * DC_BETA
+        fy = np.clip((np.arange(H) + 0.5) / H * gh - 0.5, 0, gh - 1)
+        y0 = np.minimum(np.floor(fy).astype(np.int64), gh - 2 if gh > 1 else 0)
+        y1 = np.minimum(y0 + 1, gh - 1)
+        wy = (fy - y0)[:, None]
+        fx = np.clip((np.arange(W) + 0.5) / W * gw - 0.5, 0, gw - 1)
+        x0 = np.minimum(np.floor(fx).astype(np.int64), gw - 2 if gw > 1 else 0)
+        x1 = np.minimum(x0 + 1, gw - 1)
+        wx = (fx - x0)[None, :]
+        Ms = np.arange(766) / 3
+        fbs = np.clip((Ms + 0.5) * DC_NB / 256 - 0.5, 0, DC_NB - 1)
+        b0s = np.minimum(np.floor(fbs).astype(np.int64), DC_NB - 2)
+        wbs = fbs - b0s
+        mp2 = mp.reshape(gh * gw, DC_NB)
+        CT = (mp2[:, b0s] * (1 - wbs) + mp2[:, b0s + 1] * wbs).reshape(-1)   # per cell, per R+G+B sum
+        f = res
+        Ssum = mid.astype(np.int64).sum(axis=2)
+        M = Ssum / 3
+        def tap(yy, xx):
+            return CT[(yy[:, None] * gw + xx[None, :]) * 766 + Ssum]
+        v = (1 - wy) * (1 - wx) * tap(y0, x0) + (1 - wy) * wx * tap(y0, x1) \
+            + wy * (1 - wx) * tap(y1, x0) + wy * wx * tap(y1, x1)
+        M2 = M + gb * (v - M)
+        res = np.clip(np.floor(M2[..., None] + gs * (f - M[..., None]) + 0.5), 0, 255)
+    shl = sc.get("shl")
+    if shl:     # Shadows / Highlights: shared filter curve, table from shLut() in edit-math.js
+        res = np.asarray(shl, dtype=np.float64)[res.astype(np.intp)]
+    if op != 1:
+        xf = src.astype(np.float64)
+        res = np.clip(np.floor(xf + (res - xf) * op + 0.5), 0, 255)
+    ri = res.astype(np.uint8)
+    for c in range(3):
+        out[..., c] = luts[c][ri[..., c]]
 
 
 # ---------------------------------------------------------------------------

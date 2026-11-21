@@ -151,7 +151,8 @@ makeField($('#pointFields'), { obj: 'edit', key: 'strength', label: 'Strength', 
 for (const [key, label, def, min, max, step, dec] of ADJUST)
   makeField($('#adjFields'), { obj: 'edit', key, label, min, max, step, dec, def, wheel: true });
 $('#resetAdjust').addEventListener('click', () => { Object.assign(S.edit, defaultAdjust()); syncPanel(); editChanged(); commit(); });
-const FILTER_UI = { f_bw: { fields: '#bwFields', reset: '#resetBW' }, f_film: { fields: '#filmFields', reset: '#resetFilm' } };
+const FILTER_UI = { f_bw: { fields: '#bwFields', reset: '#resetBW' }, f_film: { fields: '#filmFields', reset: '#resetFilm' },
+  f_sc: { fields: '#scFields', reset: '#resetSC' } };
 function makeSelectField(parent, a) {
   const row = document.createElement('div');
   row.className = 'field fsel';

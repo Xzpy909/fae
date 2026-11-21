@@ -75,7 +75,7 @@ function computeEdit(e) {
   return { k, o, gains, luts, point, wb: wbMatrix(e.adj_temp, e.adj_tint), con: contrastTable(e.adj_contrast, e.adj_pivot),
     tones: tones.length ? tones : null,
     boost: boostGains(e.adj_boost), sat: satv === 50 ? null : satv / 50,
-    md: (Number(e.adj_middetail) || 0) / 100, bw: bwParams(e), film: filmParams(e) };
+    md: (Number(e.adj_middetail) || 0) / 100, bw: bwParams(e), film: filmParams(e), sc: scParams(e) };
 }
 /* Filter Film Effect - Brightness and Contrast, measured from reference renders (Brightness exact,
    Contrast within 1 level on 97-99% of pixels). Both are one tone curve for all three channels:
@@ -406,10 +406,242 @@ function boostGains(v) {
   return G;
 }
 
+/* Filter Super Contrast (matched to reference renders). Needs the whole filter input, so processPixels()
+   collects it and scPass() finishes. Runs after Film Effect, before Curves. Mirrored by sc_finish() in edit.py.
+   1. Correct Color Cast (max 1 level off): per channel c a curve keeping black and white,
+      out = x + 4 D t (1 - t), t = x / 255, D = cast * (g - m_c); m_c = channel mean, g = mean of the means.
+   2. Correct Contrast (max 1 level off at 100%, about 2 at in-between strengths): on the cast result,
+      M = (R + G + B) / 3,  out_c = a M + b + k a (c - M)   (a linear stretch of M plus a colour gain).
+      Black / white points (lo, hi -> 0, 255) come from the channel percentiles: stage A (to 50%) moves
+      towards (min_c P2, max_c P98), stage B (50-100%) towards (min_c P10 + 1, max_c P90 - 1); how far at
+      each strength, and k, are tables measured from a 10-step strength series (CC_T, linear in between).
+   3. Dynamic Contrast (APPROXIMATION, same idea, not pixel-matched): contrast-limited local histogram
+      equalization of M on a coarse grid (DC_GW cells across, 64-bin histograms per cell, Gaussian-smoothed
+      across cells, clipped at DC_CLIP x the mean bin), each pixel bilinear between its 4 cells' curves;
+      M' = M + s * DC_BETA * (curve(M) - M), colour gain 1 + s * (DC_SAT - 1). Linear in strength, as measured.
+   4. Shadows / Highlights: the shared filter tone curve shLut() (same table on all three channels).
+   Opacity mixes the result with the filter input. */
+const CC_T = { alo: [0, 0.2727, 0.4497, 0.5386, 0.6571, 0.7771, 1, 1, 1, 1, 1],
+  blo: [0, 0, 0, 0, 0, 0, 0.2556, 0.5307, 0.7731, 0.8910, 1],
+  ahi: [0, 0.2118, 0.4149, 0.5963, 0.7711, 0.9293, 1, 1, 1, 1, 1],
+  bhi: [0, 0, 0, 0, 0, 0, 0.1951, 0.3982, 0.6014, 0.8045, 1],
+  k: [1, 0.9890, 0.9783, 0.9680, 0.9481, 0.9379, 0.9277, 0.9177, 0.8979, 0.8876, 0.8778] };
+function ccTab(t, s) {             // s = strength 0..100, linear between the 10% steps
+  let i = Math.floor(s / 10); i = i > 9 ? 9 : i < 0 ? 0 : i;
+  const f = s / 10 - i;
+  return t[i] + (t[i + 1] - t[i]) * f;
+}
+/* Shared Shadows / Highlights curve for filters (matched to reference renders, max 1 level off).
+   One table for all three channels. Shadows s (0..1): x + SH_A s (1 - x / (SH_W s))^SH_P for x < SH_W s,
+   i.e. black lifts to about 24 at 100% and the lift fades out by level ~116. Highlights is the exact mirror:
+   x - SH_A h (1 - (255 - x) / (SH_W h))^SH_P. The two never overlap. Reuse this in any filter that has
+   Shadows / Highlights sliders; Python only applies the table it is sent. */
+const SH_A = 24.2, SH_W = 116.5, SH_P = 2.6;
+function shLut(s, h) {
+  if (!(s > 0) && !(h > 0)) return null;
+  const L = new Uint8Array(256);
+  for (let x = 0; x < 256; x++) {
+    let d = 0;
+    if (s > 0 && x < SH_W * s) d += SH_A * s * Math.pow(1 - x / (SH_W * s), SH_P);
+    if (h > 0 && 255 - x < SH_W * h) d -= SH_A * h * Math.pow(1 - (255 - x) / (SH_W * h), SH_P);
+    const v = Math.floor(x + d + 0.5); L[x] = v < 0 ? 0 : v > 255 ? 255 : v;
+  }
+  return L;
+}
+const DC_GW = 12, DC_NB = 64, DC_CLIP = 4, DC_BETA = 0.40, DC_SAT = 1.2, DC_SIGMA = 1.5;
+const DC_KERNEL = (() => {         // Gaussian over grid cells; sent to Python so both use identical weights
+  const r = Math.ceil(3 * DC_SIGMA), k = [];
+  let s = 0;
+  for (let t = -r; t <= r; t++) { const v = Math.exp(-0.5 * (t / DC_SIGMA) * (t / DC_SIGMA)); k.push(v); s += v; }
+  return k.map(v => v / s);
+})();
+function scParams(e) {
+  const cast = (Number(e.flt_sc_cast) || 0) / 100, cc = Number(e.flt_sc_contrast) || 0;
+  const dyn = (Number(e.flt_sc_dynamic) || 0) / 100;
+  const shl = shLut((Number(e.flt_sc_shadows) || 0) / 100, (Number(e.flt_sc_highlights) || 0) / 100);
+  const op = e.flt_sc_opacity == null ? 1 : Number(e.flt_sc_opacity) / 100;
+  return (cast > 0 || cc > 0 || dyn > 0 || shl) && op > 0 ? { cast, cc, dyn, op, dk: DC_KERNEL, shl } : null;
+}
+const dcReflect = (i, n) => { if (n === 1) return 0; const p = 2 * n; i = ((i % p) + p) % p; return i >= n ? p - 1 - i : i; };
+// Dynamic Contrast curves per grid cell from the cell histograms h (gh x gw x NB counts); must match dc_maps() in edit.py
+function dcMaps(h, cnt, gh, gw, dk) {
+  const NB = DC_NB, N = gh * gw * NB, r = (dk.length - 1) / 2;
+  let a = new Float64Array(N);
+  for (let c = 0; c < gh * gw; c++) { const d = cnt[c] > 0 ? cnt[c] : 1; for (let b = 0; b < NB; b++) a[c * NB + b] = h[c * NB + b] / d; }
+  for (let axis = 0; axis < 2; axis++) {   // rows of cells first, then columns
+    const o = new Float64Array(N);
+    for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) for (let b = 0; b < NB; b++) {
+      let s = 0;
+      for (let t = -r; t <= r; t++) {
+        const yy = axis === 0 ? dcReflect(y + t, gh) : y, xx = axis === 1 ? dcReflect(x + t, gw) : x;
+        s += dk[t + r] * a[(yy * gw + xx) * NB + b];
+      }
+      o[(y * gw + x) * NB + b] = s;
+    }
+    a = o;
+  }
+  const lim = DC_CLIP / NB, mp = new Float64Array(N);
+  for (let c = 0; c < gh * gw; c++) {
+    let ex = 0;
+    for (let b = 0; b < NB; b++) { const v = a[c * NB + b]; if (v > lim) ex += v - lim; }
+    let cum = 0;
+    for (let b = 0; b < NB; b++) {
+      let v = a[c * NB + b]; v = (v > lim ? lim : v) + ex / NB;
+      cum += v; mp[c * NB + b] = 255 * (cum - v / 2);
+    }
+  }
+  return mp;
+}
+// Correct Color Cast curves (no opacity) for the given channel means; must match sc_luts() in edit.py
+function scLuts(SC, m0, m1, m2) {
+  const g = (m0 + m1 + m2) / 3;
+  return [m0, m1, m2].map(m => {
+    const K = 4 * SC.cast * (g - m), L = new Uint8Array(256);
+    for (let x = 0; x < 256; x++) {
+      const t = x / 255;
+      let v = Math.floor(x + K * t * (1 - t) + 0.5); L[x] = v < 0 ? 0 : v > 255 ? 255 : v;
+    }
+    return L;
+  });
+}
+// percentile of a 256-bin histogram with n values, as numpy's default (linear between order statistics)
+function histPct(h, n, q) {
+  const pos = (n - 1) * q / 100, i0 = Math.floor(pos), fr = pos - i0;
+  let c = 0, v0 = -1, v1 = -1;
+  for (let v = 0; v < 256; v++) {
+    c += h[v];
+    if (v0 < 0 && c > i0) v0 = v;
+    if (c > i0 + 1 || (c > i0 && i0 + 1 > n - 1)) { v1 = v; break; }
+  }
+  if (v1 < 0) v1 = v0;
+  return v0 + (v1 - v0) * fr;
+}
+// Correct Contrast line (a, b, ka) from the cast-corrected channel histograms; must match sc_contrast() in edit.py
+function scContrast(cc, H, n) {
+  const pc = q => [0, 1, 2].map(c => histPct(H[c], n, q));
+  const p2 = pc(2), p98 = pc(98), p10 = pc(10), p90 = pc(90);
+  const aLo = Math.min(p2[0], p2[1], p2[2]), aHi = Math.max(p98[0], p98[1], p98[2]);
+  const bLo = Math.min(p10[0], p10[1], p10[2]) + 1, bHi = Math.max(p90[0], p90[1], p90[2]) - 1;
+  const lo = aLo * ccTab(CC_T.alo, cc) + (bLo - aLo) * ccTab(CC_T.blo, cc);
+  let hi = 255 - (255 - aHi) * ccTab(CC_T.ahi, cc) + (bHi - aHi) * ccTab(CC_T.bhi, cc);
+  if (hi - lo < 1) hi = lo + 1;
+  const a = 255 / (hi - lo);
+  return { a, b: -lo * a, ka: ccTab(CC_T.k, cc) * a };
+}
+let scMid = null;
+const IDENT_LUT = Uint8Array.from({ length: 256 }, (_, i) => i);
+// second pass: out holds the filter input (post Film Effect); apply Super Contrast + Curves, redo histograms
+function scPass(out, n, SC, luts, hin, hout, hmx, hmn, dims) {
+  const h0 = new Float64Array(256), h1 = new Float64Array(256), h2 = new Float64Array(256);
+  for (let j = 0, end = n * 4; j < end; j += 4) { h0[out[j]]++; h1[out[j + 1]]++; h2[out[j + 2]]++; }
+  let s0 = 0, s1 = 0, s2 = 0;
+  for (let v = 0; v < 256; v++) { s0 += v * h0[v]; s1 += v * h1[v]; s2 += v * h2[v]; }
+  const T = SC.cast > 0 ? scLuts(SC, s0 / n, s1 / n, s2 / n) : [IDENT_LUT, IDENT_LUT, IDENT_LUT];
+  const A0 = T[0], A1 = T[1], A2 = T[2];
+  let CC = null;
+  if (SC.cc > 0) {
+    const H = [new Float64Array(256), new Float64Array(256), new Float64Array(256)];
+    for (let v = 0; v < 256; v++) { H[0][A0[v]] += h0[v]; H[1][A1[v]] += h1[v]; H[2][A2[v]] += h2[v]; }
+    CC = scContrast(SC.cc, H, n);
+  }
+  const ca = CC ? CC.a : 1, cb = CC ? CC.b : 0, ck = CC ? CC.ka : 1, op = SC.op, SHL = SC.shl;
+  const DY = SC.dyn > 0 && dims && dims.w * dims.h === n ? SC.dyn : 0;
+  const W = DY ? dims.w : 0, Hh = DY ? dims.h : 0;
+  // pass A: Color Cast + Correct Contrast into mid (kept), Dynamic Contrast grid histograms
+  if (!scMid || scMid.length !== n * 3) scMid = new Uint8Array(n * 3);
+  const mid = scMid;
+  let gw = 0, gh = 0, hist = null, cnt = null, colC = null, rowC = null;
+  if (DY) {
+    gw = DC_GW; gh = Math.max(1, Math.floor(Hh * gw / W + 0.5));
+    hist = new Float64Array(gh * gw * DC_NB); cnt = new Float64Array(gh * gw);
+    colC = new Int32Array(W); rowC = new Int32Array(Hh);
+    for (let x = 0; x < W; x++) colC[x] = Math.floor(x * gw / W);
+    for (let y = 0; y < Hh; y++) rowC[y] = Math.floor(y * gh / Hh) * gw;
+  }
+  for (let p = 0, j = 0, y = 0, x = 0; p < n; p++, j += 4) {
+    let r = A0[out[j]], g = A1[out[j + 1]], b = A2[out[j + 2]];
+    if (CC) {
+      const M = (r + g + b) / 3;
+      let v = Math.floor(ca * M + cb + ck * (r - M) + 0.5); const nr = v < 0 ? 0 : v > 255 ? 255 : v;
+      v = Math.floor(ca * M + cb + ck * (g - M) + 0.5); const ng = v < 0 ? 0 : v > 255 ? 255 : v;
+      v = Math.floor(ca * M + cb + ck * (b - M) + 0.5); b = v < 0 ? 0 : v > 255 ? 255 : v;
+      r = nr; g = ng;
+    }
+    const q = p * 3; mid[q] = r; mid[q + 1] = g; mid[q + 2] = b;
+    if (DY) {
+      const c = rowC[y] + colC[x];
+      let bn = Math.floor((r + g + b) / 12); bn = bn > DC_NB - 1 ? DC_NB - 1 : bn;
+      hist[c * DC_NB + bn]++; cnt[c]++;
+      if (++x === W) { x = 0; y++; }
+    }
+  }
+  let CT = null;                    // per cell: curve value for every R+G+B sum (0..765), bins interpolated
+  if (DY) {
+    const mp = dcMaps(hist, cnt, gh, gw, SC.dk), nc = gh * gw;
+    CT = new Float64Array(nc * 766);
+    for (let S = 0; S < 766; S++) {
+      const M = S / 3;
+      let fb = (M + 0.5) * DC_NB / 256 - 0.5; fb = fb < 0 ? 0 : fb > DC_NB - 1 ? DC_NB - 1 : fb;
+      let b0 = Math.floor(fb); b0 = b0 > DC_NB - 2 ? DC_NB - 2 : b0;
+      const wb = fb - b0;
+      for (let c = 0; c < nc; c++) CT[c * 766 + S] = mp[c * DC_NB + b0] * (1 - wb) + mp[c * DC_NB + b0 + 1] * wb;
+    }
+  }
+  const gs = 1 + DY * (DC_SAT - 1), gb = DY * DC_BETA;
+  let X0 = null, X1 = null, WX = null, Y0 = null, Y1 = null, WY = null;
+  if (DY) {                         // grid position per column / row (same arithmetic as per pixel)
+    X0 = new Int32Array(W); X1 = new Int32Array(W); WX = new Float64Array(W);
+    for (let x = 0; x < W; x++) {
+      let fx = (x + 0.5) / W * gw - 0.5; fx = fx < 0 ? 0 : fx > gw - 1 ? gw - 1 : fx;
+      let x0 = Math.floor(fx); const xm = gw > 1 ? gw - 2 : 0; x0 = x0 > xm ? xm : x0;
+      X0[x] = x0; X1[x] = x0 + 1 > gw - 1 ? gw - 1 : x0 + 1; WX[x] = fx - x0;
+    }
+    Y0 = new Int32Array(Hh); Y1 = new Int32Array(Hh); WY = new Float64Array(Hh);
+    for (let y = 0; y < Hh; y++) {
+      let fy = (y + 0.5) / Hh * gh - 0.5; fy = fy < 0 ? 0 : fy > gh - 1 ? gh - 1 : fy;
+      let y0 = Math.floor(fy); const ym = gh > 1 ? gh - 2 : 0; y0 = y0 > ym ? ym : y0;
+      Y0[y] = y0; Y1[y] = y0 + 1 > gh - 1 ? gh - 1 : y0 + 1; WY[y] = fy - y0;
+    }
+  }
+  hin.fill(0); hout.fill(0); hmx.fill(0); hmn.fill(0);
+  const L0 = luts[0], L1 = luts[1], L2 = luts[2];
+  for (let p = 0, j = 0, py = 0, px = 0; p < n; p++, j += 4) {
+    const q = p * 3;
+    let r = mid[q], g = mid[q + 1], b = mid[q + 2];
+    if (DY) {
+      const y0 = Y0[py], y1 = Y1[py], wy = WY[py], x0 = X0[px], x1 = X1[px], wx = WX[px];
+      if (++px === W) { px = 0; py++; }
+      const S = r + g + b, M = S / 3;
+      const v = (1 - wy) * (1 - wx) * CT[(y0 * gw + x0) * 766 + S]
+              + (1 - wy) * wx * CT[(y0 * gw + x1) * 766 + S]
+              + wy * (1 - wx) * CT[(y1 * gw + x0) * 766 + S]
+              + wy * wx * CT[(y1 * gw + x1) * 766 + S];
+      const M2 = M + gb * (v - M);
+      let t = Math.floor(M2 + gs * (r - M) + 0.5); const nr = t < 0 ? 0 : t > 255 ? 255 : t;
+      t = Math.floor(M2 + gs * (g - M) + 0.5); const ng = t < 0 ? 0 : t > 255 ? 255 : t;
+      t = Math.floor(M2 + gs * (b - M) + 0.5); b = t < 0 ? 0 : t > 255 ? 255 : t;
+      r = nr; g = ng;
+    }
+    if (SHL) { r = SHL[r]; g = SHL[g]; b = SHL[b]; }
+    if (op !== 1) {
+      const x0 = out[j], x1 = out[j + 1], x2 = out[j + 2];
+      let v = Math.floor(x0 + (r - x0) * op + 0.5); r = v < 0 ? 0 : v > 255 ? 255 : v;
+      v = Math.floor(x1 + (g - x1) * op + 0.5); g = v < 0 ? 0 : v > 255 ? 255 : v;
+      v = Math.floor(x2 + (b - x2) * op + 0.5); b = v < 0 ? 0 : v > 255 ? 255 : v;
+    }
+    hin[r]++; hin[256 + g]++; hin[512 + b]++;
+    const R = L0[r], G = L1[g], B = L2[b];
+    hout[R]++; hout[256 + G]++; hout[512 + B]++;
+    hmx[R > G ? (R > B ? R : B) : (G > B ? G : B)]++;
+    hmn[R < G ? (R < B ? R : B) : (G < B ? G : B)]++;
+    out[j] = R; out[j + 1] = G; out[j + 2] = B;
+  }
+}
 function processPixels(base, out, n, E, withHist, mdB, dims) {
   // Mid/Detail needs the smoothed luma of this exact image (not available e.g. in crop mode)
   const MDa = E.md && mdB && mdB.length === n ? E.md : 0;
-  const L0 = E.luts[0], L1 = E.luts[1], L2 = E.luts[2];
+  const SC = E.sc;                  // Super Contrast: first pass writes the filter input, scPass() finishes
+  const L0 = SC ? IDENT_LUT : E.luts[0], L1 = SC ? IDENT_LUT : E.luts[1], L2 = SC ? IDENT_LUT : E.luts[2];
   const pt = E.point, lumOn = E.k !== 1 || E.o !== 0, k = E.k, o = E.o;
   const gOn = !!E.gains, g0 = gOn ? E.gains[0] : 1, g1 = gOn ? E.gains[1] : 1, g2 = gOn ? E.gains[2] : 1;
   const BG = E.boost, TN = E.tones, SG = E.sat, WB = E.wb, CT = E.con;
@@ -528,6 +760,7 @@ function processPixels(base, out, n, E, withHist, mdB, dims) {
     out[j] = R; out[j + 1] = G; out[j + 2] = B; out[j + 3] = 255;
   }
   if (PS) psPass(fin, fmid, out, dims.w, dims.h, BW, L0, L1, L2, hin, hout, hmx, hmn, FM);
+  if (SC) scPass(out, n, SC, E.luts, hin, hout, hmx, hmn, dims);
 }
 
 /* ---------- Alt views ---------- */

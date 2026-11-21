@@ -2,7 +2,7 @@
 
 A fast, keyboard-friendly desktop editor for batch-preparing images: crop and rotate, colour-correct with eyedroppers and curves, resize to 720p or a target megapixel count, then export to lossless WEBP/PNG or lossy JPEG (jpegli), AVIF (SVT-AV1) or WEBP. Lossy formats have a split-view preview, so you can judge the real encode at the chosen settings before saving.
 
-Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/JS; image processing uses NumPy, OpenCV and Pillow.
+Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/JS; the edit math is a Rust core (Python extension + WebAssembly, see below); loading, geometry, resizing and encoding use NumPy, OpenCV and Pillow.
 
 ## Preview
 
@@ -71,6 +71,7 @@ pip install -r requirements.txt
 ```
 
 (`pywebview>=5.0`, `pillow>=11.2`, `numpy`, `opencv-python`, `pillow-heif`, `pillow-jxl-plugin`). Pillow 11.2 or newer is needed for AVIF decoding in the preview and for the aom fallback.
+The Rust core is required as well: build it once with `core\build_core.bat` (see [Rust core](#rust-core)).
 
 `pillow-heif` (HEIC/HEIF) and `pillow-jxl-plugin` (JPEG XL) are optional and only needed to **open** those formats. Without them, the app still runs, and opening such a file shows which package to install.
 
@@ -101,7 +102,43 @@ or
 ```
 python fast_image_editor.py [images or folders...]
 python fast_image_editor.py --debug     # opens the web inspector
+python fast_image_editor.py --selftest  # checks for the Rust core (WASM, threads, Python extension)
 ```
+
+## Rust core
+
+All edit math runs in one Rust crate (`core/`), built twice: as the Python extension `fastedit_core`
+(Process, lossy compare preview) and as WebAssembly (`ui/wasm/`, the live preview, multithreaded in
+its own worker: `ui/js/preview-worker.js`). The UI only computes the tables the sliders stand for
+(`ui/js/edit-math.js`); there is no NumPy or JS fallback, so the core has to be built:
+
+```
+core\build_core.bat        # needs Rust from https://rustup.rs (MSVC build tools)
+```
+
+`build.bat` runs it too. The Rust version is pinned in `core/rust-toolchain.toml` (the threaded
+WebAssembly build rebuilds Rust's standard library; the script adds the `rust-src` component itself).
+Without the extension the app shows how to build it; without `ui/wasm/` the preview shows the
+unedited image and says so. `FASTEDIT_COI=0` turns off the cross-origin isolation headers the
+threaded WebAssembly needs.
+
+### Tests
+
+Both builds must give exactly the stored pixels and histograms (needs node). Run from the project
+folder:
+
+```
+python tests/parity/parity.py check --impl core   # Python extension
+python tests/parity/parity.py check --impl wasm   # WebAssembly (single-threaded in node)
+python tests/parity/parity.py record              # only after a deliberate change of the math
+python tests/bench/bench_python.py                # full-resolution timings
+python fast_image_editor.py --selftest            # WebView2 checks + live-preview timings
+```
+
+Cases are random slider values run through the UI's own `computeEdit` / `jobFor`, stored in
+`tests/parity/cases.json.gz` by `record` so every machine checks the same inputs (`parity.py tables`
+shows whether this machine's JS computes the tables differently). The test images are synthetic.
+Own images can go into `tests/parity/images/` (not committed).
 
 ## Keyboard shortcuts
 
@@ -152,7 +189,7 @@ fastedit/              # Python back end
 ├── config.py          # paths, defaults, per-image stage parameters
 ├── geometry.py        # resize presets, crop / rotate / flip
 ├── colour.py          # White-Patch, Gray-Edge
-├── edit.py            # full-resolution edit math (mirrors ui/js/edit-math.js)
+├── core.py            # the Rust core (fastedit_core): Process / compare preview
 ├── engine.py          # image loading, stage cache, thumbnails
 ├── proc.py            # running external encoders (cancellable preview encodes)
 ├── jpeg.py, avif.py   # JPEG (jpegli) and AVIF (SVT-AV1 + container muxer, aom fallback)
@@ -165,6 +202,9 @@ ui/
 └── js/                # state, film-tables, film/*, edit-math, render, compare, stage, view,
     │                  # curves, controls, files, tools, process, init, crop (loaded in that order)
     └── film/          # one file per Film Effect preset (33×33×33 colour table)
+core/                  # Rust core: fastedit-core (math), fastedit-py (Python), fastedit-wasm
+tests/parity/          # bit-exactness tests of both core builds against stored goldens
+tests/bench/           # timings
 encoders/              # cjpegli.exe, SvtAv1EncApp.exe (from the release)
 run.bat
 requirements.txt

@@ -32,10 +32,7 @@ async function loadStage() {
   // same output, only the preview resolution changed (zoom crossed PREVIEW_MAX): keep the view where it is
   const resSwap = sizeChanged && old && !S.newFile && old.path === f.path && old.w === r.w && old.h === r.h;
   const base = new Uint8ClampedArray(buf);
-  let mdB = null;                   // Mid/Detail smoothed luma (float32, preview size)
-  try { if (r.md_token) mdB = new Float32Array(await (await fetch('/preview/' + r.md_token)).arrayBuffer()); } catch (_) {}
-  if (id !== S.reqId) return;
-  S.img = Object.assign({}, r, { base, path: f.path, mdB });
+  S.img = Object.assign({}, r, { base, path: f.path });
   if (sizeChanged) {
     canvas.width = r.pw; canvas.height = r.ph;
     S.outData = new ImageData(r.pw, r.ph);

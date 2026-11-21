@@ -148,11 +148,19 @@ const Crop = (() => {
     updateSummary(); markCurrentEdited();
   }
 
+  // the whole uncropped image with the current edit, through the preview core (wasm-preview.js)
   function refreshImage() {
     if (!C) return;
-    const s = C.info, n = s.pw * s.ph, id = new ImageData(s.pw, s.ph);
-    processPixels(s.base, id.data, n, S.E, false);
-    C.img.getContext('2d').putImageData(id, 0, 0);
+    const cur = C, s = C.info;
+    if (!WP.ready()) {                 // core still starting (or missing): the unedited image for now
+      C.img.getContext('2d').putImageData(new ImageData(s.base.slice(), s.pw, s.ph), 0, 0);
+      return;
+    }
+    WP.render(s, S.E, r => {
+      if (C !== cur || r.out.byteLength !== s.pw * s.ph * 4) return;
+      C.img.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(r.out), s.pw, s.ph), 0, 0);
+      draw();
+    });
   }
 
   /* ---------------- actions ---------------- */

@@ -1,0 +1,13 @@
+[package]
+name = "fastedit-py"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "fastedit_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+fe = { package = "fastedit-core", path = "../fastedit-core", features = ["parallel"] }
+numpy = "0.30"
+pyo3 = { version = "0.30", features = ["extension-module"] }

@@ -1,0 +1,12 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "fastedit-core"
+dynamic = ["version"]          # from Cargo.toml
+requires-python = ">=3.10"
+dependencies = ["numpy"]
+
+[tool.maturin]
+module-name = "fastedit_core"

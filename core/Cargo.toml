@@ -1,0 +1,16 @@
+# Rust core of the edit math (see claude/rust-core-plan.md in the project notes).
+#   fastedit-core : the math, no I/O
+#   fastedit-py   : Python extension `fastedit_core` (Process, lossy compare preview)
+#   fastedit-wasm : WebAssembly for the live preview (ui/wasm/)
+[workspace]
+resolver = "2"
+members = ["fastedit-core", "fastedit-py", "fastedit-wasm"]
+
+[workspace.package]
+version = "0.4.0"
+edition = "2021"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1

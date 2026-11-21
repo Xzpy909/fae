@@ -1,0 +1,13 @@
+[package]
+name = "fastedit-core"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+# multithreading over row bands (Python extension; WASM gets it in phase 4)
+parallel = ["dep:rayon"]
+
+[dependencies]
+libm = "0.2"
+rayon = { version = "1", optional = true }

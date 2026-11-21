@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fast Image Editor - self-test</title>
+<style>
+  body { background: #0e0f11; color: #d8d8d8; font: 14px/1.5 system-ui, sans-serif; margin: 32px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  p.sub { color: #8a8a8a; margin: 0 0 20px; }
+  table { border-collapse: collapse; min-width: 640px; }
+  td { padding: 6px 14px 6px 0; vertical-align: top; border-bottom: 1px solid #22252a; }
+  td.k { color: #9aa0a6; white-space: nowrap; }
+  .ok { color: #5fd38d; } .bad { color: #ff6b6b; } .warn { color: #f0b84a; } .wait { color: #8a8a8a; }
+  textarea { width: 100%; max-width: 900px; height: 180px; margin-top: 20px; background: #16181c; color: #cfcfcf;
+             border: 1px solid #2a2d33; font: 12px/1.4 ui-monospace, Consolas, monospace; }
+  button { margin-top: 8px; background: #2a2d33; color: #ddd; border: 0; padding: 6px 14px; border-radius: 4px; cursor: pointer; }
+</style>
+</head>
+<body>
+<h1>Rust core self-test</h1>
+<p class="sub">Checks the pieces the Rust core needs in this window. Start with <code>fast_image_editor.py --selftest</code>.</p>
+<table id="rows"></table>
+<textarea id="report" readonly></textarea><br>
+<button id="copy">Copy report</button>
+<!-- the UI's edit math (state.js needs these elements to load) -->
+<div hidden><canvas id="view"></canvas><div id="viewport"></div><div id="stage"></div></div>
+<script src="js/state.js"></script>
+<script src="js/film-tables.js"></script>
+<script src="js/film/k_64.js"></script>
+<script src="js/film/f_velvia_100.js"></script>
+<script src="js/edit-math.js"></script>
+<script type="module" src="js/selftest.js"></script>
+</body>
+</html>

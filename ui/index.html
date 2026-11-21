@@ -49,6 +49,11 @@
 
   <main id="viewport">
     <div id="stage"><canvas id="view"></canvas></div>
+    <!-- view buttons (top-right): hold to see the original, toggle the split view -->
+    <div id="viewBtns">
+      <button class="pill" id="btnCompare" title="Compare: hold to see the original (or hold \)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path class="fill" d="M12 4h7a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-7z"/></svg></button>
+      <button class="pill" id="btnSplit" title="Split view on / off: drag the divider to compare"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="m8 8-4 4 4 4"/><path d="m16 8 4 4-4 4"/></svg></button>
+    </div>
     <div id="markers"></div>
     <div id="cmp">
       <div id="cmpLine"><div id="cmpHandle" title="Drag to compare · double-click to centre">
@@ -76,7 +81,8 @@
       <div class="pgroup" id="pgFilters">
         <button class="pill gp" title="Filters"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="6"/><circle cx="15" cy="15" r="6"/></svg><b class="chev"></b><i></i></button>
         <div class="ptray">
-          <button class="pill" data-sec="f_bw" title="Brilliance / Warmth"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg><i></i></button>
+          <button class="pill" data-sec="f_bw" title="Perceptual Saturation"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg><i></i></button>
+          <button class="pill" data-sec="f_film" title="Film Effect"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18"/><path d="M17 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg><i></i></button>
         </div>
       </div>
     </div>
@@ -148,9 +154,15 @@
       </section>
 
       <section class="card sec" data-sec="f_bw">
-        <div class="card-head"><span>Filter · Brilliance / Warmth</span><button id="resetBW" class="rst all" title="Reset Brilliance / Warmth"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
+        <div class="card-head"><span>Filter · Perceptual Saturation</span><button id="resetBW" class="rst all" title="Reset Perceptual Saturation filter"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
         <div id="bwFields"></div>
         <div class="hint">≈ Perceptual Saturation is an approximation: it behaves like the reference filter (pushes colours away from their surroundings) but does not match it exactly. Opacity sets how strongly the finished filter is applied.</div>
+      </section>
+
+      <section class="card sec" data-sec="f_film">
+        <div class="card-head"><span>Filter · Film Effect</span><button id="resetFilm" class="rst all" title="Reset Film Effect"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
+        <div id="filmFields"></div>
+        <div class="hint">Presets and Brightness / Contrast are fitted on reference renders. Colours that were not in the reference image are estimated.</div>
       </section>
 
       <section class="card sec" data-sec="adjust">
@@ -230,6 +242,7 @@
           <div id="webpQ"></div>
         </div>
         <div id="grpAVIF" class="egrp">
+          <div class="jrow"><div class="seg" id="aEncSeg"><button data-v="svt">SVT-AV1</button><button data-v="aom">aom</button></div></div>
           <div id="avifSvt"><div id="avifQ"></div><div id="avifS"></div></div>
           <div id="avifAom"><div class="enc-note" id="aomNote"></div><div id="aomQ"></div><div id="aomS"></div></div>
         </div>
@@ -254,6 +267,15 @@
 <div id="toast"></div>
 <div id="dropZone"></div>
 <script src="js/state.js"></script>
+<script src="js/film-tables.js"></script>
+<script src="js/film/k_ultra_color.js"></script>
+<script src="js/film/a_optima_400.js"></script>
+<script src="js/film/f_160c.js"></script>
+<script src="js/film/f_160s.js"></script>
+<script src="js/film/f_800z.js"></script>
+<script src="js/film/f_superia_100.js"></script>
+<script src="js/film/f_astia_100f.js"></script>
+<script src="js/film/f_provia_100f.js"></script>
 <script src="js/edit-math.js"></script>
 <script src="js/render.js"></script>
 <script src="js/compare.js"></script>

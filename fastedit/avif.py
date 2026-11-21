@@ -248,7 +248,8 @@ def avif_opts(o) -> dict:
     except (TypeError, ValueError):
         crf = AVIF_CRF_DEFAULT
     crf = round(min(70.0, max(1.0, crf)) * 4) / 4          # SVT takes 0.25 steps
-    return {"crf": crf, "preset": _clampi(o.get("preset"), 0, 8, AVIF_PRESET_DEFAULT),
+    return {"enc": "aom" if o.get("enc") == "aom" else "svt",     # chosen in the UI; svt falls back to aom
+            "crf": crf, "preset": _clampi(o.get("preset"), 0, 8, AVIF_PRESET_DEFAULT),
             # separate settings for Pillow's libavif/aom (used without SvtAv1EncApp, or for alpha)
             "aom_q": _clampi(o.get("aom_q"), 0, 100, AOM_Q_DEFAULT),
             "aom_speed": _clampi(o.get("aom_speed"), 0, 10, AOM_SPEED_DEFAULT)}
@@ -281,7 +282,7 @@ def encode_avif(img: Image.Image, opts=None, icc: bytes | None = None) -> tuple[
     o = avif_opts(opts)
     if img.mode not in ("RGB", "RGBA"):
         img = img.convert("RGB")
-    if svt_available() and img.mode == "RGB":
+    if o["enc"] == "svt" and svt_available() and img.mode == "RGB":
         return encode_avif_svt(img, o, icc), "svt"
     if not avif_available():
         raise RuntimeError("no AVIF encoder: SvtAv1EncApp.exe missing and Pillow has no AVIF "

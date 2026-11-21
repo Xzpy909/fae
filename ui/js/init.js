@@ -21,6 +21,8 @@ async function init() {
       if (s.avif_crf != null && isFinite(Number(s.avif_crf))) S.prefs.avif_crf = clamp(Math.round(Number(s.avif_crf) * 4) / 4, 1, 70);
       if (s.avif_preset != null && isFinite(Number(s.avif_preset))) S.prefs.avif_preset = clamp(Math.round(Number(s.avif_preset)), 0, 8);
       if (s.aom_q != null && isFinite(Number(s.aom_q))) S.prefs.aom_q = clamp(Math.round(Number(s.aom_q)), 0, 100);
+      if (s.avif_enc === 'svt' || s.avif_enc === 'aom') S.prefs.avif_enc = s.avif_enc;
+      if (typeof s.split === 'boolean') S.prefs.split = s.split;
       if (s.aom_speed != null && isFinite(Number(s.aom_speed))) S.prefs.aom_speed = clamp(Math.round(Number(s.aom_speed)), 0, 10);
       if (!['WEBP', 'PNG', 'JPEG', 'AVIF'].includes(S.prefs.fmt)) S.prefs.fmt = 'WEBP';
       if (typeof s.advance === 'boolean') S.prefs.advance = s.advance;

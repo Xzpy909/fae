@@ -8,7 +8,7 @@ import subprocess
 import sys
 import numpy as np
 from PIL import Image
-from .config import IMAGE_EXTS, PREVIEW_MAX, SETTINGS_PATH, StageParams
+from .config import HIRES_MAX_MP, IMAGE_EXTS, PREVIEW_MAX, SETTINGS_PATH, StageParams
 from .geometry import fit_scale
 from .edit import apply_edit, apply_mid_detail, md_base, md_radius, rgb_luma01
 from .engine import ENGINE, Entry, collect
@@ -21,6 +21,18 @@ from .output import encode_lossy, norm_fmt, save_image
 # ---------------------------------------------------------------------------
 # JS API (window.pywebview.api.*)
 # ---------------------------------------------------------------------------
+def _pv_size(w, h, full=False):
+    """Preview size: PREVIEW_MAX on the long side, or full resolution (capped at HIRES_MAX_MP) when zoomed in."""
+    if full:
+        s = min(1.0, (HIRES_MAX_MP / (w * h)) ** 0.5)
+    else:
+        s = min(1.0, PREVIEW_MAX / max(w, h))
+    return (max(1, round(w * s)), max(1, round(h * s))) if s < 1 else (w, h)
+
+
+_LOSSY = {"key": None}      # last lossy round trip, so a preview-size change doesn't re-encode
+
+
 class Api:
     def __init__(self, initial_paths=None):
         self._window = None
@@ -83,16 +95,15 @@ class Api:
         return True
 
     # ---- stage / preview --------------------------------------------------
-    def load_stage(self, path, params, req_id):
+    def load_stage(self, path, params, req_id, full=False):
         try:
             P = StageParams.from_dict(params)
             e, img = ENGINE.stage(path, P)
             rgb = np.ascontiguousarray(np.asarray(img.convert("RGB")))
             w, h = img.size
             pv = img.convert("RGB")
-            if max(w, h) > PREVIEW_MAX:
-                s = PREVIEW_MAX / max(w, h)
-                pv = pv.resize((max(1, round(w * s)), max(1, round(h * s))), Image.Resampling.LANCZOS)
+            if _pv_size(w, h, full) != (w, h):
+                pv = pv.resize(_pv_size(w, h, full), Image.Resampling.LANCZOS)
             pw, ph = pv.size
             rgba = np.empty((ph, pw, 4), dtype=np.uint8)
             rgba[..., :3] = np.asarray(pv)
@@ -108,7 +119,7 @@ class Api:
                     ENGINE.current = {"path": path, "rgb": rgb, "req": req_id}
             return {
                 "ok": True, "req_id": req_id, "token": token, "md_token": md_token,
-                "w": w, "h": h, "pw": pw, "ph": ph,
+                "w": w, "h": h, "pw": pw, "ph": ph, "lo_pw": _pv_size(w, h)[0], "full": bool(full),
                 "src_w": e.base.size[0], "src_h": e.base.size[1],
                 "alpha": img.mode == "RGBA",
                 "scale": round(fit_scale(e.geometried(P).size, P), 4),
@@ -166,31 +177,35 @@ class Api:
     def encoder_info(self):
         return {"jpegli": jpegli_available(), "avif": avif_available(), "svt": svt_available()}
 
-    def lossy_preview(self, job, fmt, opts, req_id):
+    def lossy_preview(self, job, fmt, opts, req_id, full=False):
         """Encode the fully edited image with the lossy format, decode it again, hand back preview pixels."""
         preview_begin(req_id)
         _TL.preview_req = req_id
         try:
             check_cancel()
             fmt = norm_fmt(fmt)
-            e, out = self._render_full(job)
-            check_cancel()
-            data, enc, used = encode_lossy(out, fmt, opts, e.icc)
-            check_cancel()
-            with Image.open(io.BytesIO(data)) as jim:
-                jim.load()
-                pv = jim.convert("RGB")
-            w, h = pv.size
-            if max(w, h) > PREVIEW_MAX:
-                s = PREVIEW_MAX / max(w, h)
-                pv = pv.resize((max(1, round(w * s)), max(1, round(h * s))), Image.Resampling.LANCZOS)
+            key = json.dumps([job, fmt, opts], sort_keys=True, default=str)
+            if _LOSSY["key"] == key:
+                dec, nbytes, enc, used = _LOSSY["val"]
+            else:
+                e, out = self._render_full(job)
+                check_cancel()
+                data, enc, used = encode_lossy(out, fmt, opts, e.icc)
+                check_cancel()
+                with Image.open(io.BytesIO(data)) as jim:
+                    jim.load()
+                    dec = jim.convert("RGB")
+                nbytes = len(data)
+                _LOSSY.update(key=key, val=(dec, nbytes, enc, used))
+            w, h = dec.size
+            pv = dec if _pv_size(w, h, full) == (w, h) else dec.resize(_pv_size(w, h, full), Image.Resampling.LANCZOS)
             pw, ph = pv.size
             rgba = np.empty((ph, pw, 4), dtype=np.uint8)
             rgba[..., :3] = np.asarray(pv)
             rgba[..., 3] = 255
             token = ENGINE.put_preview(rgba.tobytes(), pw, ph)
             return {"ok": True, "req_id": req_id, "token": token, "pw": pw, "ph": ph,
-                    "bytes": len(data), "encoder": enc, "fmt": fmt, "opts": used}
+                    "bytes": nbytes, "encoder": enc, "fmt": fmt, "opts": used}
         except Cancelled:
             return {"ok": False, "req_id": req_id, "cancelled": True}
         except Exception as ex:

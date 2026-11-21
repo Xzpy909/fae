@@ -15,8 +15,10 @@ async function loadStage() {
   if (!f) return;
   const id = ++S.reqId, t0 = S.loadT || performance.now();
   spinner(true);
+  if (S.newFile) S.hires = false;
+  const full = S.hires;
   let r;
-  try { r = await api().load_stage(f.path, stageParams(S.stage, S.geom), id); }
+  try { r = await api().load_stage(f.path, stageParams(S.stage, S.geom), id, full); }
   catch (e) { r = { ok: false, req_id: id, error: String(e) }; }
   if (id !== S.reqId) return;
   if (!r || !r.ok) { spinner(false); toast(r ? r.error : 'Load failed', true); return; }
@@ -25,7 +27,10 @@ async function loadStage() {
   catch (e) { spinner(false); toast('Preview transfer failed: ' + e, true); return; }
   if (id !== S.reqId) return;
   spinner(false);
-  const sizeChanged = !S.img || S.img.pw !== r.pw || S.img.ph !== r.ph;
+  const old = S.img;
+  const sizeChanged = !old || old.pw !== r.pw || old.ph !== r.ph;
+  // same output, only the preview resolution changed (zoom crossed PREVIEW_MAX): keep the view where it is
+  const resSwap = sizeChanged && old && !S.newFile && old.path === f.path && old.w === r.w && old.h === r.h;
   const base = new Uint8ClampedArray(buf);
   let mdB = null;                   // Mid/Detail smoothed luma (float32, preview size)
   try { if (r.md_token) mdB = new Float32Array(await (await fetch('/preview/' + r.md_token)).arrayBuffer()); } catch (_) {}
@@ -38,7 +43,8 @@ async function loadStage() {
   }
   S.baseData = new ImageData(base, r.pw, r.ph);
   canvas.style.display = 'block';
-  if (sizeChanged || S.newFile) fitView();
+  if (resSwap) { S.view.z *= old.pw / r.pw; applyView(); }
+  else if (sizeChanged || S.newFile) fitView();
   const wasNew = S.newFile;
   S.newFile = false;
   updateInfo();
@@ -60,7 +66,7 @@ function updateInfo() {
       + (isJpeg() && !S.cmp.jpegli ? ' · cjpegli.exe missing, using Pillow' : '')
       + (S.prefs.fmt === 'AVIF' && !S.cmp.avif ? ' · preview needs Pillow ≥ 11.2 (pip install -U pillow)' : '')
       + (S.prefs.fmt === 'AVIF' && !S.cmp.svt ? ' · SvtAv1EncApp.exe missing, using aom' : '')
-      + (S.prefs.fmt === 'AVIF' && S.cmp.svt && I.alpha ? ' · alpha → aom' : '')
+      + (S.prefs.fmt === 'AVIF' && S.prefs.avif_enc === 'svt' && S.cmp.svt && I.alpha ? ' · alpha → aom' : '')
     : '';
   $('#empty').style.display = S.files.length ? 'none' : 'grid';
   syncResize(); syncEncRow();

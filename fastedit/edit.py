@@ -62,7 +62,7 @@ def apply_edit(rgb: np.ndarray, edit: dict | None, strip_rows: int = 512) -> np.
                     (each: clip, truncate)
                 ->  Color Boost: rgb = y + (rgb - y) * boost[max - min]  ->  clip, truncate
                 ->  Saturation: rgb = y + (rgb - y) * sat / 50  ->  clip, truncate
-                ->  Filter Brilliance / Warmth ("bw": w = Warmth gains, s = 1 + Saturation/100, op = Opacity/100):
+                ->  Filter Perceptual Saturation ("bw": w = Warmth gains, s = 1 + Saturation/100, op = Opacity/100):
                     w = min(255, floor(rgb * gains));  y = (wR + 2wG + wB) / 4;  f = clip(y + (w - y) * s)
                     rgb = round(rgb + (f - rgb) * op)
                     Perceptual Saturation ("ps" > 0, APPROXIMATION): f is rounded, the whole image's f is
@@ -78,6 +78,7 @@ def apply_edit(rgb: np.ndarray, edit: dict | None, strip_rows: int = 512) -> np.
     tones = [(np.asarray(t["T"], dtype=np.float64), bool(t.get("ratio"))) for t in (edit.get("tones") or [])]
     sat = edit.get("sat")
     bw = edit.get("bw")
+    film = edit.get("film")
     wb = edit.get("wb")
     wb = None if wb is None else np.asarray(wb, dtype=np.float64)
     con = edit.get("con")
@@ -144,7 +145,7 @@ def apply_edit(rgb: np.ndarray, edit: dict | None, strip_rows: int = 512) -> np.
             y = (0.2126 * f[..., 0] + 0.7152 * f[..., 1] + 0.0722 * f[..., 2])[..., None]
             idx = np.clip(y + (f - y) * float(sat), 0, 255).astype(np.uint8)
         if bw is not None:
-            # Filter Brilliance / Warmth (Saturation matched to reference grades: max 1 level off)
+            # Filter Perceptual Saturation (Saturation matched to reference grades: max 1 level off)
             f = idx.astype(np.float64)
             w = f if not bw.get("w") else np.minimum(255.0, np.floor(f * np.asarray(bw["w"], dtype=np.float64)))
             y = ((w[..., 0] + 2 * w[..., 1] + w[..., 2]) / 4)[..., None]
@@ -155,12 +156,46 @@ def apply_edit(rgb: np.ndarray, edit: dict | None, strip_rows: int = 512) -> np.
                 continue
             fl = np.clip(fl, 0, 255)
             idx = np.clip(np.floor(f + (fl - f) * float(bw["op"]) + 0.5), 0, 255).astype(np.uint8)
+        if film:
+            idx = film_apply(idx, film)
         dst = out[y0:y0 + strip_rows]
         for c in range(3):
             dst[..., c] = luts[c][idx[..., c]]
     if ps:
-        ps_finish(fin, fmid, bw, luts, out, strip_rows)
+        ps_finish(fin, fmid, bw, luts, out, strip_rows, film)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Film Effect (mirrors filmPx in ui/js/edit-math.js): preset = 3D colour table of deltas (trilinear),
+# then the Brightness / Contrast tone table "t1", then Opacity mixed with the input.
+# ---------------------------------------------------------------------------
+def film_apply(idx: np.ndarray, film: dict) -> np.ndarray:
+    f = idx.astype(np.float64)
+    q = f
+    d = film.get("d")
+    if d:
+        n = int(film["n"])
+        D = np.asarray(d, dtype=np.float64).reshape(-1, 3)
+        g = f * (n - 1) / 255
+        i = np.minimum(np.floor(g), n - 2).astype(np.intp)
+        fr = g - i
+        acc = np.zeros_like(f)
+        for dr in (0, 1):
+            for dg in (0, 1):
+                for db in (0, 1):
+                    w = (fr[..., 0] if dr else 1 - fr[..., 0]) * (fr[..., 1] if dg else 1 - fr[..., 1]) \
+                        * (fr[..., 2] if db else 1 - fr[..., 2])
+                    k = ((i[..., 0] + dr) * n + (i[..., 1] + dg)) * n + (i[..., 2] + db)
+                    acc = acc + w[..., None] * D[k]
+        q = np.clip(np.floor(f + acc + 0.5), 0, 255)
+    t1 = film.get("t1")
+    if t1:
+        q = np.asarray(t1, dtype=np.float64)[q.astype(np.intp)]
+    op = float(film.get("op", 1))
+    if op != 1:
+        q = np.clip(np.floor(f + (q - f) * op + 0.5), 0, 255)
+    return q.astype(np.uint8)
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +235,7 @@ def ps_grid(src: np.ndarray, kernel) -> tuple[np.ndarray, int, int]:
     return g, gh, gw
 
 
-def ps_finish(fin: np.ndarray, fmid: np.ndarray, bw: dict, luts, out: np.ndarray, strip_rows: int):
+def ps_finish(fin: np.ndarray, fmid: np.ndarray, bw: dict, luts, out: np.ndarray, strip_rows: int, film=None):
     H, W = fmid.shape[:2]
     g, gh, gw = ps_grid(fmid, bw["psk"])
     t, op, w = float(bw["ps"]), float(bw["op"]), PS_W
@@ -230,6 +265,8 @@ def ps_finish(fin: np.ndarray, fmid: np.ndarray, bw: dict, luts, out: np.ndarray
         q = np.clip(np.floor(f + t * (C * ka + D * kb + e) + 0.5), 0, 255)
         a = fin[r0:r0 + strip_rows].astype(np.float64)
         idx = np.clip(np.floor(a + (q - a) * op + 0.5), 0, 255).astype(np.uint8)
+        if film:
+            idx = film_apply(idx, film)
         dst = out[r0:r0 + strip_rows]
         for c in range(3):
             dst[..., c] = luts[c][idx[..., c]]

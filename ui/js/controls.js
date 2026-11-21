@@ -9,7 +9,7 @@ function makeField(parent, spec) {
   const { obj, key, label, min, max, step, dec } = spec;
   const smin = spec.smin ?? min, smax = spec.smax ?? max;
   const row = document.createElement('div');
-  row.className = spec.wheel ? 'field wheel' : 'field';
+  row.className = spec.wheel ? 'field wheel' : spec.grad ? 'field grad' : 'field';
   const defTxt = spec.def == null ? '' : Number(spec.def).toFixed(dec);
   const ctl = spec.wheel ? `<canvas class="jog" title="Drag left/right (Shift fine, Ctrl coarse), double-click to reset"></canvas>`
                          : `<input type="range" min="${smin}" max="${smax}" step="${step}">`;
@@ -21,6 +21,7 @@ function makeField(parent, spec) {
   const rng = row.querySelector('input[type=range], canvas'), num = row.querySelector('input[type=number]'), rst = row.querySelector('.rst');
   // value change per pixel of mouse travel (wheel 1:1 with the ridges; number scrub a bit faster)
   const perPx = spec.perPx ?? (max - min) / 800;
+  if (spec.grad) rng.style.setProperty('--track', spec.grad);
   const jog = spec.wheel ? makeJog(rng, () => (S[obj][key] - (spec.def ?? 0)) / perPx) : null;
   const set = (v, fin) => {
     v = clamp(Number(v), min, max);
@@ -150,13 +151,25 @@ makeField($('#pointFields'), { obj: 'edit', key: 'strength', label: 'Strength', 
 for (const [key, label, def, min, max, step, dec] of ADJUST)
   makeField($('#adjFields'), { obj: 'edit', key, label, min, max, step, dec, def, wheel: true });
 $('#resetAdjust').addEventListener('click', () => { Object.assign(S.edit, defaultAdjust()); syncPanel(); editChanged(); commit(); });
-const FILTER_UI = { f_bw: { fields: '#bwFields', reset: '#resetBW' } };
+const FILTER_UI = { f_bw: { fields: '#bwFields', reset: '#resetBW' }, f_film: { fields: '#filmFields', reset: '#resetFilm' } };
+function makeSelectField(parent, a) {
+  const row = document.createElement('div');
+  row.className = 'field fsel';
+  row.innerHTML = `<label>${a.label}</label><select>${a.options.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>`;
+  const sel = row.querySelector('select');
+  sel.addEventListener('change', () => { S.edit[a.key] = sel.value; valueChanged('edit'); commit(); });
+  sel.addEventListener('keydown', e => e.stopPropagation());
+  parent.appendChild(row);
+  FIELDS.push({ sync: () => { sel.value = S.edit[a.key] ?? a.def; } });
+}
 for (const f of FILTERS) {
   const ui = FILTER_UI[f.sec];
   for (const a of f.fields) {
     if (a === '---') { $(ui.fields).insertAdjacentHTML('beforeend', '<div class="fsep"></div>'); continue; }
+    if (!Array.isArray(a)) { makeSelectField($(ui.fields), a); continue; }
     const [key, label, def, min, max, step, dec, unit] = a;
-    makeField($(ui.fields), { obj: 'edit', key, label, min, max, step, dec, def, unit, wheel: true });
+    // filters use plain sliders with a gradient track that shows what they do
+    makeField($(ui.fields), { obj: 'edit', key, label, min, max, step, dec, def, unit, grad: FILTER_GRADS[key] });
   }
   $(ui.reset).addEventListener('click', () => { Object.assign(S.edit, defaultFilter(f)); syncPanel(); editChanged(); commit(); });
 }
@@ -185,6 +198,10 @@ const syncFmt = segInit('#fmtSeg', () => S.prefs.fmt, v => { S.prefs.fmt = v; sa
 const syncJMode = segInit('#jModeSeg', () => S.prefs.jpeg_mode, v => { S.prefs.jpeg_mode = v; valueChanged('prefs'); });
 const syncWMode = segInit('#wModeSeg', () => S.prefs.webp_lossy ? 'lossy' : 'lossless',
   v => { S.prefs.webp_lossy = v === 'lossy'; savePrefsSoon(); fmtChanged(); });
+const syncAEnc = segInit('#aEncSeg', () => avifEnc(), v => { S.prefs.avif_enc = v; savePrefsSoon(); fmtChanged(); });
+/* AVIF encoder actually used: SVT-AV1 if chosen and possible (exe found, image without alpha), else aom */
+const svtUsable = () => !!S.cmp.svt && !(S.img && S.img.alpha);
+const avifEnc = () => S.prefs.avif_enc === 'svt' && svtUsable() ? 'svt' : 'aom';
 function syncEncRow() {
   const f = S.prefs.fmt;
   $('#encRow').classList.toggle('show', f !== 'PNG');
@@ -192,12 +209,18 @@ function syncEncRow() {
   $('#jpegQ').style.display = S.prefs.jpeg_mode === 'd' ? 'none' : '';
   $('#jpegD').style.display = S.prefs.jpeg_mode === 'd' ? '' : 'none';
   $('#webpQ').style.display = S.prefs.webp_lossy ? '' : 'none';
-  // AVIF: show the settings of the encoder that will really be used for this image
-  const aom = !S.cmp.svt || !!(S.img && S.img.alpha);
+  // AVIF: encoder choice; SVT-AV1 is greyed out when it can't be used. Show the sliders of the encoder in use.
+  const svtBtn = $('#aEncSeg button[data-v="svt"]');
+  svtBtn.disabled = !svtUsable();
+  svtBtn.title = !S.cmp.svt ? 'SvtAv1EncApp.exe not found in encoders/' : (S.img && S.img.alpha) ? 'Not for images with alpha' : '';
+  syncAEnc();
+  const aom = avifEnc() === 'aom';
   $('#avifSvt').style.display = aom ? 'none' : '';
   $('#avifAom').style.display = aom ? '' : 'none';
-  $('#aomNote').textContent = !S.cmp.svt ? 'aom via Pillow (SvtAv1EncApp.exe not found)'
+  const forced = S.prefs.avif_enc === 'svt' && aom;
+  $('#aomNote').textContent = !forced ? '' : !S.cmp.svt ? 'aom via Pillow (SvtAv1EncApp.exe not found)'
     : 'aom via Pillow (this image has alpha)';
+  $('#aomNote').style.display = forced ? '' : 'none';
 }
 $('#prioSel').addEventListener('change', e => { S.stage.prio = e.target.value; valueChanged('stage'); commit(); });
 $('#resizeOn').addEventListener('change', e => { S.stage.resize_on = e.target.checked; valueChanged('stage'); commit(); syncPanel(); });

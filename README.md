@@ -31,7 +31,7 @@ Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/J
 - Output histogram with clipping percentages
 - Automatic colour balance: Percentile White-Patch and Gray-Edge, each with a strength control
 - **Adjustments** modelled on DaVinci Resolve's Primaries: Color Boost, Shadows, Highlights, Saturation, Temp, Tint, Contrast + Pivot and Mid/Detail, matched to Resolve's output within about half a level (0–255) on reference grades
-- **Filters** (the Filters button rolls out the individual filters): Brilliance / Warmth with Saturation and Warmth matched to the reference filter within 1 level (0–255), Perceptual Saturation (marked ≈) as an **approximation** that pushes colours away from their surroundings but does not match the reference exactly, and Opacity to blend the result
+- **Filters** (the Filters button rolls out the individual filters): Perceptual Saturation filter with Saturation and Warmth matched to the reference filter within 1 level (0–255), Perceptual Saturation (marked ≈) as an **approximation** that pushes colours away from their surroundings but does not match the reference exactly, and Opacity to blend the result. Film Effect: film presets (colour tables fitted on reference renders) plus Brightness and Contrast
 - Jog-wheel controls: drag the wheel left/right (`Shift` fine, `Ctrl` coarse), double-click to reset. Every number box can also be dragged left/right
 - Tool pills in the viewport show or hide each tool's card
 
@@ -162,11 +162,16 @@ fastedit/              # Python back end
 ui/
 ├── index.html
 ├── style.css
-└── js/                # state, edit-math, render, compare, stage, view, curves,
-                       # controls, files, tools, process, init, crop (loaded in that order)
+└── js/                # state, film-tables, film/*, edit-math, render, compare, stage, view,
+    │                  # curves, controls, files, tools, process, init, crop (loaded in that order)
+    └── film/          # one file per Film Effect preset (33×33×33 colour table)
 encoders/              # cjpegli.exe, SvtAv1EncApp.exe (from the release)
 run.bat
 requirements.txt
 ```
 
 Settings are saved to `fast_image_editor_settings.json` next to the script.
+
+## Trademarks
+
+Film stock names used for the Film Effect presets are trademarks of their respective owners. The presets are approximations made for this project and are not affiliated with or endorsed by them.

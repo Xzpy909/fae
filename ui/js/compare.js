@@ -10,6 +10,14 @@ function cmpReady() {
   const I = S.img, c = S.cmp;
   return isLossy() && I && c.data && c.fmt === S.prefs.fmt && c.path === I.path && c.data.width === I.pw && c.data.height === I.ph;
 }
+/* split view for lossless formats: left = original (before edits), right = edited */
+function buildSplitOriginal() {
+  const I = S.img, o = S.outData.data, b = S.baseData.data, d = S.dispData.data;
+  const W = I.pw * 4, split = clamp(Math.round(S.cmp.x * I.pw), 0, I.pw) * 4;
+  d.set(o);
+  if (split <= 0) return;
+  for (let y = 0, row = 0; y < I.ph; y++, row += W) d.set(b.subarray(row, row + split), row);
+}
 function buildCompare() {
   const I = S.img, o = S.outData.data, j = S.cmp.data.data, d = S.dispData.data;
   const W = I.pw * 4, split = clamp(Math.round(S.cmp.x * I.pw), 0, I.pw) * 4;
@@ -39,8 +47,9 @@ function updateSizeChip() {
 function updateCmp() {
   updateSizeChip();
   const el = $('#cmp'), I = S.img;
-  const on = isLossy() && I && !S.cropMode && !viewMode();
+  const on = S.prefs.split && I && !S.cropMode && !viewMode();
   el.classList.toggle('show', !!on);
+  $('#btnSplit').classList.toggle('on', !!S.prefs.split);
   if (!on) return;
   const v = S.view, r = vp.getBoundingClientRect();
   const left = v.x, top = v.y, w = I.pw * v.z, h = I.ph * v.z;
@@ -50,9 +59,10 @@ function updateCmp() {
   line.style.left = x + 'px'; line.style.top = y0 + 'px'; line.style.height = Math.max(0, y1 - y0) + 'px';
   line.style.display = x < -2 || x > r.width + 2 || y1 <= y0 ? 'none' : 'block';
   const c = S.cmp, ready = cmpReady();
-  const stale = c.busy || !ready || c.key !== jpegKey();
+  const stale = isLossy() && (c.busy || !ready || c.key !== jpegKey());
   const lbl = $('#cmpR');
-  lbl.innerHTML = ready
+  $('#cmpL').textContent = isLossy() ? 'Lossless' : 'Original';
+  lbl.innerHTML = !isLossy() ? 'Edited' : ready
     ? `${encName(c.fmt, c.enc)} ${optsLabel(c.fmt, c.opts, c.enc)}${stale ? ' <span class="muted">&middot; updating…</span>' : ''}`
     : `${encName(S.prefs.fmt, null)} <span class="muted">&middot; encoding…</span>`;
   lbl.classList.toggle('stale', stale);
@@ -68,7 +78,7 @@ function updateCmp() {
 const encOpts = () => ({
   jpeg: { mode: S.prefs.jpeg_mode, q: S.prefs.jpeg_q, d: S.prefs.jpeg_d },
   webp: { lossless: !S.prefs.webp_lossy, q: S.prefs.webp_q },
-  avif: { crf: S.prefs.avif_crf, preset: S.prefs.avif_preset, aom_q: S.prefs.aom_q, aom_speed: S.prefs.aom_speed },
+  avif: { enc: avifEnc(), crf: S.prefs.avif_crf, preset: S.prefs.avif_preset, aom_q: S.prefs.aom_q, aom_speed: S.prefs.aom_speed },
 });
 function encName(fmt, enc) {
   if (fmt === 'JPEG') return enc === 'pillow' ? 'JPEG (Pillow)' : 'jpegli';
@@ -104,7 +114,7 @@ async function loadJpeg() {
   S.cmp.busy = true; updateCmp();
   let r;
   const fmt = S.prefs.fmt;
-  try { r = await api().lossy_preview(jobFor(f, true), fmt, encOpts(), id); }
+  try { r = await api().lossy_preview(jobFor(f, true), fmt, encOpts(), id, !!S.img.full); }
   catch (e) { r = { ok: false, error: String(e) }; }
   if (id !== S.cmp.req || (r && r.cancelled)) return;
   if (!r || !r.ok) { S.cmp.busy = false; updateCmp(); toast('JPEG preview failed: ' + (r ? r.error : 'unknown'), true); return; }

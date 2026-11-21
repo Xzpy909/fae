@@ -119,3 +119,19 @@ window.addEventListener('dragenter', e => {
 window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('dragleave', () => { if (--dragDepth <= 0) dragEnd(); });
 window.addEventListener('drop', e => { e.preventDefault(); S.dropT = performance.now(); dragEnd(); });
+
+/* View buttons: Compare (hold = original, like holding \) and the split-view toggle */
+(() => {
+  const cmpBtn = $('#btnCompare'), splitBtn = $('#btnSplit');
+  const hold = on => { S.before = on; cmpBtn.classList.toggle('on', on); requestRender(); };
+  cmpBtn.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    e.stopPropagation(); e.preventDefault(); cmpBtn.setPointerCapture(e.pointerId); hold(true);
+  });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) cmpBtn.addEventListener(ev, () => { if (S.before) hold(false); });
+  splitBtn.addEventListener('pointerdown', e => e.stopPropagation());
+  splitBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    S.prefs.split = !S.prefs.split; savePrefsSoon(); requestRender(); updateCmp();
+  });
+})();

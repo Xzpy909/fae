@@ -6,11 +6,29 @@
    ====================================================================== */
 function applyView() {
   const v = S.view, I = S.img;
-  stageEl.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.z})`;
-  canvas.classList.toggle('pixel', v.z * dpr() >= 2);
+  // translate snapped to whole device pixels, so 1:1 maps each image pixel onto exactly one screen pixel
+  // (snapped in absolute screen coordinates: the viewport itself may start at a fractional device pixel)
+  const d = dpr(), r = vp.getBoundingClientRect();
+  const sx = Math.round((r.left + v.x) * d) / d - r.left, sy = Math.round((r.top + v.y) * d) / d - r.top;
+  stageEl.style.transform = `translate(${sx}px, ${sy}px) scale(${v.z})`;
+  canvas.classList.toggle('pixel', v.z * d >= 2);
+  checkHires();
   $('#zoomLabel').textContent = I ? Math.round(v.z * dpr() * (I.pw / I.w) * 100) + '%' : '–';
   updateMarkers();
   updateCmp();
+}
+
+/* The live preview is at most PREVIEW_MAX px on the long side. Zoomed in past that (output pixels
+   bigger than preview pixels on screen) it is swapped for the full-resolution stage, and back when zoomed out. */
+function checkHires() {
+  const I = S.img, v = S.view;
+  if (!I || S.cropMode || !I.lo_pw || I.lo_pw >= I.w) return;
+  const shown = v.z * dpr() * I.pw / I.w;        // screen pixels per output pixel
+  const lo = I.lo_pw / I.w;                       // output scale the small preview covers
+  const want = S.hires ? shown > lo * 0.8 : shown > lo * 1.01;
+  if (want === S.hires) return;
+  S.hires = want;
+  requestStage();
 }
 
 function fitView() {

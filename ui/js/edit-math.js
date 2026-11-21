@@ -75,9 +75,75 @@ function computeEdit(e) {
   return { k, o, gains, luts, point, wb: wbMatrix(e.adj_temp, e.adj_tint), con: contrastTable(e.adj_contrast, e.adj_pivot),
     tones: tones.length ? tones : null,
     boost: boostGains(e.adj_boost), sat: satv === 50 ? null : satv / 50,
-    md: (Number(e.adj_middetail) || 0) / 100, bw: bwParams(e) };
+    md: (Number(e.adj_middetail) || 0) / 100, bw: bwParams(e), film: filmParams(e) };
 }
-/* Filter Brilliance / Warmth, matched to reference grades (both max 1 level off):
+/* Filter Film Effect - Brightness and Contrast, measured from reference renders (Brightness exact,
+   Contrast within 1 level on 97-99% of pixels). Both are one tone curve for all three channels:
+   per input level the output at 0 / 50 / 100 % is known (FILM_* tables, film-tables.js) and
+   interpolated quadratically in between. Brightness is applied first, then Contrast, then Opacity.
+   Film preset first (3D colour table, FILM_PRESETS), then Brightness / Contrast, then Opacity
+   (mixes with the filter's input). Applied after the other filters, before Curves.
+   Mirrored by film_apply() in fastedit/edit.py. */
+function filmParams(e) {
+  const op = e.flt_film_opacity == null ? 1 : Number(e.flt_film_opacity) / 100;
+  if (!(op > 0)) return null;
+  const d = FILM_PRESETS[e.flt_film_preset] || null, t1 = filmLut(e);
+  return d || t1 ? { n: FILM_N, d: d ? filmTable(e.flt_film_preset, d) : null, t1, op } : null;
+}
+const FO = new Int32Array(3), FILM_CACHE = {};
+const filmTable = (key, d) => FILM_CACHE[key] || (FILM_CACHE[key] = Float64Array.from(d));
+// one pixel through the Film Effect; result in FO. Must match film_apply() in fastedit/edit.py
+function filmPx(FM, r, g, b) {
+  let q0 = r, q1 = g, q2 = b;
+  const D = FM.d;
+  if (D) {
+    const N = FM.n;
+    const g0 = r * (N - 1) / 255, g1 = g * (N - 1) / 255, g2 = b * (N - 1) / 255;
+    const i0 = Math.min(Math.floor(g0), N - 2), i1 = Math.min(Math.floor(g1), N - 2), i2 = Math.min(Math.floor(g2), N - 2);
+    const f0 = g0 - i0, f1 = g1 - i1, f2 = g2 - i2;
+    // 8 corners, unrolled; order (dr, dg, db) = 000, 001, 010, ... 111 as in film_apply()
+    const e0 = 1 - f0, e1 = 1 - f1, e2 = 1 - f2, SB = 3, SG = N * 3, SR = N * N * 3;
+    const k = ((i0 * N + i1) * N + i2) * 3;
+    let w = e0 * e1 * e2, a0 = w * D[k], a1 = w * D[k + 1], a2 = w * D[k + 2];
+    let q = k + SB; w = e0 * e1 * f2; a0 += w * D[q]; a1 += w * D[q + 1]; a2 += w * D[q + 2];
+    q = k + SG; w = e0 * f1 * e2; a0 += w * D[q]; a1 += w * D[q + 1]; a2 += w * D[q + 2];
+    q = k + SG + SB; w = e0 * f1 * f2; a0 += w * D[q]; a1 += w * D[q + 1]; a2 += w * D[q + 2];
+    q = k + SR; w = f0 * e1 * e2; a0 += w * D[q]; a1 += w * D[q + 1]; a2 += w * D[q + 2];
+    q = k + SR + SB; w = f0 * e1 * f2; a0 += w * D[q]; a1 += w * D[q + 1]; a2 += w * D[q + 2];
+    q = k + SR + SG; w = f0 * f1 * e2; a0 += w * D[q]; a1 += w * D[q + 1]; a2 += w * D[q + 2];
+    q = k + SR + SG + SB; w = f0 * f1 * f2; a0 += w * D[q]; a1 += w * D[q + 1]; a2 += w * D[q + 2];
+    q0 = Math.floor(r + a0 + 0.5); q0 = q0 < 0 ? 0 : q0 > 255 ? 255 : q0;
+    q1 = Math.floor(g + a1 + 0.5); q1 = q1 < 0 ? 0 : q1 > 255 ? 255 : q1;
+    q2 = Math.floor(b + a2 + 0.5); q2 = q2 < 0 ? 0 : q2 > 255 ? 255 : q2;
+  }
+  const T = FM.t1;
+  if (T) { q0 = T[q0]; q1 = T[q1]; q2 = T[q2]; }
+  const op = FM.op;
+  if (op !== 1) {
+    let v = Math.floor(r + (q0 - r) * op + 0.5); q0 = v < 0 ? 0 : v > 255 ? 255 : v;
+    v = Math.floor(g + (q1 - g) * op + 0.5); q1 = v < 0 ? 0 : v > 255 ? 255 : v;
+    v = Math.floor(b + (q2 - b) * op + 0.5); q2 = v < 0 ? 0 : v > 255 ? 255 : v;
+  }
+  FO[0] = q0; FO[1] = q1; FO[2] = q2;
+}
+// Brightness / Contrast tone table (no opacity; that is mixed in filmPx), or null
+function filmLut(e) {
+  const t = (Number(e.flt_film_bright) || 0) / 100, c = (Number(e.flt_film_contrast) || 0) / 100;
+  if (!t && !c) return null;
+  const q = (x, a, b, s) => x * (1 - s) * (1 - 2 * s) + a * 4 * s * (1 - s) + b * s * (2 * s - 1);
+  const P = new Float64Array(256);
+  for (let x = 0; x < 256; x++) P[x] = q(x, FILM_C50[x], FILM_C100[x], c);
+  const L = new Uint8Array(256);
+  for (let x = 0; x < 256; x++) {
+    const b = Math.min(255, Math.max(0, q(x, FILM_B50[x], FILM_B100[x], t)));
+    const i = Math.min(Math.floor(b), 254), f = b - i;
+    const v = Math.floor(P[i] * (1 - f) + P[i + 1] * f + 0.5);
+    L[x] = v < 0 ? 0 : v > 255 ? 255 : v;
+  }
+  return L;
+}
+
+/* Filter Perceptual Saturation, matched to reference grades (both max 1 level off):
    Warmth: per-channel gain, w = floor(rgb * g) (t = warmth/100; the warm side gains 1 + 0.17038|t|,
            the cool side 1 - 0.15062|t|, green a small quadratic, see warmGains)
    Saturation: grey y = (R + 2G + B) / 4, f = y + (w - y) * (1 + sat/100)
@@ -158,7 +224,7 @@ function psGrid(src, W, H, k) {
   return { g, gh, gw };
 }
 // Second pass when Perceptual Saturation is on: fin = filter input, fmid = after Warmth/Saturation
-function psPass(fin, fmid, out, W, H, BW, L0, L1, L2, hin, hout, hmx, hmn) {
+function psPass(fin, fmid, out, W, H, BW, L0, L1, L2, hin, hout, hmx, hmn, FM) {
   const { g, gh, gw } = psGrid(fmid, W, H, BW.psk);
   const t = BW.ps, op = BW.op, w = PS_W, mix = op !== 1;   // op = 1: mix gives q exactly
   const x0s = new Int32Array(W), x1s = new Int32Array(W), fxs = new Float64Array(W), rowv = new Float64Array(gw * 3);
@@ -184,11 +250,12 @@ function psPass(fin, fmid, out, W, H, BW, L0, L1, L2, hin, hout, hmx, hmn) {
       const ka = w[0] + w[1] * m + w[6] * nn + w[7] * nc, kb = w[2] + w[3] * m + w[4] * m * m + w[8] * nc, e = w[5] * (Y - YS);
       // x | 0 instead of Math.floor: they differ only below 0, which is clipped to 0 anyway
       let q = (f0 + t * (C0 * ka + D0 * kb + e) + 0.5) | 0; q = q <= 0 ? 0 : q >= 255 ? 255 : q;
-      let v = mix ? (fin[p] + (q - fin[p]) * op + 0.5) | 0 : q; const r = v <= 0 ? 0 : v >= 255 ? 255 : v;
+      let v = mix ? (fin[p] + (q - fin[p]) * op + 0.5) | 0 : q; let r = v <= 0 ? 0 : v >= 255 ? 255 : v;
       q = (f1 + t * (C1 * ka + D1 * kb + e) + 0.5) | 0; q = q <= 0 ? 0 : q >= 255 ? 255 : q;
-      v = mix ? (fin[p + 1] + (q - fin[p + 1]) * op + 0.5) | 0 : q; const gg = v <= 0 ? 0 : v >= 255 ? 255 : v;
+      v = mix ? (fin[p + 1] + (q - fin[p + 1]) * op + 0.5) | 0 : q; let gg = v <= 0 ? 0 : v >= 255 ? 255 : v;
       q = (f2 + t * (C2 * ka + D2 * kb + e) + 0.5) | 0; q = q <= 0 ? 0 : q >= 255 ? 255 : q;
-      v = mix ? (fin[p + 2] + (q - fin[p + 2]) * op + 0.5) | 0 : q; const b = v <= 0 ? 0 : v >= 255 ? 255 : v;
+      v = mix ? (fin[p + 2] + (q - fin[p + 2]) * op + 0.5) | 0 : q; let b = v <= 0 ? 0 : v >= 255 ? 255 : v;
+      if (FM) { filmPx(FM, r, gg, b); r = FO[0]; gg = FO[1]; b = FO[2]; }
       hin[r]++; hin[256 + gg]++; hin[512 + b]++;
       const R = L0[r], G = L1[gg], B = L2[b];
       hout[R]++; hout[256 + G]++; hout[512 + B]++;
@@ -346,6 +413,7 @@ function processPixels(base, out, n, E, withHist, mdB, dims) {
   const pt = E.point, lumOn = E.k !== 1 || E.o !== 0, k = E.k, o = E.o;
   const gOn = !!E.gains, g0 = gOn ? E.gains[0] : 1, g1 = gOn ? E.gains[1] : 1, g2 = gOn ? E.gains[2] : 1;
   const BG = E.boost, TN = E.tones, SG = E.sat, WB = E.wb, CT = E.con;
+  const FM = E.film;
   const BW = E.bw, bwS = BW ? BW.s : 1, bwO = BW ? BW.op : 1, bwW = BW ? BW.w : null;
   const wR = bwW ? bwW[0] : 1, wG = bwW ? bwW[1] : 1, wB = bwW ? bwW[2] : 1;
   // Perceptual Saturation needs the whole filter input first (two passes); needs the image size
@@ -428,7 +496,7 @@ function processPixels(base, out, n, E, withHist, mdB, dims) {
       v = y + (g - y) * SG; g = v <= 0 ? 0 : v >= 255 ? 255 : v | 0;
       v = y + (b - y) * SG; b = v <= 0 ? 0 : v >= 255 ? 255 : v | 0;
     }
-    if (BW) {                       // Filter Brilliance / Warmth - must match apply_edit()
+    if (BW) {                       // Filter Perceptual Saturation - must match apply_edit()
       let wr = r, wg = g, wb = b;
       if (bwW) {
         wr = Math.floor(r * wR); wr = wr >= 255 ? 255 : wr;
@@ -451,6 +519,7 @@ function processPixels(base, out, n, E, withHist, mdB, dims) {
       f = y + (wb - y) * bwS; f = f <= 0 ? 0 : f >= 255 ? 255 : f;
       v = Math.floor(b + (f - b) * bwO + 0.5); b = v <= 0 ? 0 : v >= 255 ? 255 : v;
     }
+    if (FM) { filmPx(FM, r, g, b); r = FO[0]; g = FO[1]; b = FO[2]; }
     hin[r]++; hin[256 + g]++; hin[512 + b]++;
     const R = L0[r], G = L1[g], B = L2[b];
     hout[R]++; hout[256 + G]++; hout[512 + B]++;
@@ -458,7 +527,7 @@ function processPixels(base, out, n, E, withHist, mdB, dims) {
     hmn[R < G ? (R < B ? R : B) : (G < B ? G : B)]++;
     out[j] = R; out[j + 1] = G; out[j + 2] = B; out[j + 3] = 255;
   }
-  if (PS) psPass(fin, fmid, out, dims.w, dims.h, BW, L0, L1, L2, hin, hout, hmx, hmn);
+  if (PS) psPass(fin, fmid, out, dims.w, dims.h, BW, L0, L1, L2, hin, hout, hmx, hmn, FM);
 }
 
 /* ---------- Alt views ---------- */

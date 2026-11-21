@@ -13,7 +13,8 @@ function jobFor(f, isCur) {
     edit: { point: E.point, k: E.k, o: E.o, gains: E.gains, luts: E.luts.map(a => Array.from(a)),
       boost: E.boost ? Array.from(E.boost) : null,
       tones: E.tones ? E.tones.map(t => ({ T: Array.from(t.T), ratio: t.ratio })) : null, sat: E.sat, wb: E.wb,
-      con: E.con ? Array.from(E.con) : null, md: E.md || 0, bw: E.bw },
+      con: E.con ? Array.from(E.con) : null, md: E.md || 0, bw: E.bw,
+      film: E.film ? { n: E.film.n, d: E.film.d ? Array.from(E.film.d) : null, t1: E.film.t1 ? Array.from(E.film.t1) : null, op: E.film.op } : null },
   };
 }
 

@@ -31,6 +31,7 @@ Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/J
 - Output histogram with clipping percentages
 - Automatic colour balance: Percentile White-Patch and Gray-Edge, each with a strength control
 - **Adjustments** modelled on DaVinci Resolve's Primaries: Color Boost, Shadows, Highlights, Saturation, Temp, Tint, Contrast + Pivot and Mid/Detail, matched to Resolve's output within about half a level (0–255) on reference grades
+- **Filters** (the Filters button rolls out the individual filters): Brilliance / Warmth with Saturation and Warmth matched to the reference filter within 1 level (0–255), Perceptual Saturation (marked ≈) as an **approximation** that pushes colours away from their surroundings but does not match the reference exactly, and Opacity to blend the result
 - Jog-wheel controls: drag the wheel left/right (`Shift` fine, `Ctrl` coarse), double-click to reset. Every number box can also be dragged left/right
 - Tool pills in the viewport show or hide each tool's card
 
@@ -146,12 +147,23 @@ python fast_image_editor.py --debug     # opens the web inspector
 ## Project layout
 
 ```
-fast_image_editor.py   # back end: image pipeline, encoders, pywebview API, local HTTP server
+fast_image_editor.py   # entry point
+fastedit/              # Python back end
+├── config.py          # paths, defaults, per-image stage parameters
+├── geometry.py        # resize presets, crop / rotate / flip
+├── colour.py          # White-Patch, Gray-Edge
+├── edit.py            # full-resolution edit math (mirrors ui/js/edit-math.js)
+├── engine.py          # image loading, stage cache, thumbnails
+├── proc.py            # running external encoders (cancellable preview encodes)
+├── jpeg.py, avif.py   # JPEG (jpegli) and AVIF (SVT-AV1 + container muxer, aom fallback)
+├── output.py          # WEBP, lossy dispatch, saving
+├── api.py             # JS API used by the UI
+└── app.py             # local HTTP server, window, drag and drop
 ui/
 ├── index.html
 ├── style.css
-├── app.js             # live preview, point correction, curves, split compare
-└── crop.js            # crop & rotate mode
+└── js/                # state, edit-math, render, compare, stage, view, curves,
+                       # controls, files, tools, process, init, crop (loaded in that order)
 encoders/              # cjpegli.exe, SvtAv1EncApp.exe (from the release)
 run.bat
 requirements.txt

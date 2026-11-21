@@ -142,6 +142,20 @@ button.primary:hover { background: #f5c375; border-color: #f5c375; }
   background: var(--accent); display: none; }
 .pill.active i { display: block; }
 .pill.on.active i { background: #fff; }
+/* nested pill group: the group pill rolls a tray of sub-pills out to its right */
+.pgroup { display: flex; align-items: center; }
+.pgroup .ptray { display: flex; gap: 6px; padding: 4px; margin: -4px 0; max-width: 0; opacity: 0; overflow: hidden;
+  transform: translateX(-8px); pointer-events: none;
+  transition: max-width .28s cubic-bezier(.2,.8,.2,1), opacity .2s, transform .28s cubic-bezier(.2,.8,.2,1), padding .28s; }
+.pgroup.open .ptray { max-width: 400px; opacity: 1; transform: none; pointer-events: auto; padding-left: 10px; }
+.pgroup .ptray .pill { width: 32px; height: 32px; border-radius: 9px; }
+.pgroup .ptray .pill svg { width: 16px; height: 16px; }
+/* thin connector between the group pill and its tray */
+.pgroup.open .ptray::before { content: ""; align-self: center; width: 6px; height: 1px; margin-left: -10px; margin-right: -2px;
+  background: rgba(240, 179, 90, .55); }
+.pill .chev { position: absolute; right: 3px; bottom: 3px; width: 0; height: 0;
+  border-left: 4px solid transparent; border-bottom: 4px solid currentColor; opacity: .55; transition: transform .2s; }
+.pgroup.open .pill .chev { transform: scaleX(-1); }
 #panel .card.sec { display: none; }
 #panel .card.sec.show { display: block; }
 #modeChip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px;
@@ -195,6 +209,12 @@ button.primary:hover { background: #f5c375; border-color: #f5c375; }
 .field.wheel .jog { grid-column: 1 / -1; width: 100%; height: 22px; display: block; cursor: ew-resize;
   touch-action: none; }
 .field input[type=number]:not(:focus) { cursor: ew-resize; }
+/* number box with a unit suffix (e.g. %) */
+.numw { position: relative; display: block; min-width: 0; }
+.field .numw input { width: 100%; padding-right: 17px; }
+.numw::after { content: attr(data-unit); position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  font-size: 11px; color: var(--muted); pointer-events: none; }
+.fsep { height: 1px; background: var(--line2, rgba(255,255,255,.08)); margin: 4px 0 10px; }
 body.scrubbing, body.scrubbing * { cursor: ew-resize !important; user-select: none; }
 /* reset icons: per value (in each slider row) and reset-all (card header) */
 .rst { width: 18px; height: 18px; padding: 0; display: grid; place-items: center; background: none; border: none;

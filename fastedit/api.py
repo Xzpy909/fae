@@ -1,0 +1,222 @@
+"""JS API exposed to the UI (window.pywebview.api.*)."""
+from __future__ import annotations
+
+import io
+import json
+import os
+import subprocess
+import sys
+import numpy as np
+from PIL import Image
+from .config import IMAGE_EXTS, PREVIEW_MAX, SETTINGS_PATH, StageParams
+from .geometry import fit_scale
+from .edit import apply_edit, apply_mid_detail, md_base, md_radius, rgb_luma01
+from .engine import ENGINE, Entry, collect
+from .proc import Cancelled, _PREV, _TL, check_cancel, preview_begin
+from .jpeg import jpegli_available
+from .avif import avif_available, svt_available
+from .output import encode_lossy, norm_fmt, save_image
+
+
+# ---------------------------------------------------------------------------
+# JS API (window.pywebview.api.*)
+# ---------------------------------------------------------------------------
+class Api:
+    def __init__(self, initial_paths=None):
+        self._window = None
+        self._initial = collect(initial_paths or [])
+
+    def set_window(self, w):
+        self._window = w
+
+    # ---- settings ---------------------------------------------------------
+    def get_settings(self):
+        try:
+            with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def save_settings(self, data):
+        try:
+            with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
+        return True
+
+    def initial_files(self):
+        return self._initial
+
+    # ---- files ------------------------------------------------------------
+    def _dialog(self, kind, multiple=False):
+        import webview
+        fd = getattr(webview, "FileDialog", None)
+        if kind == "open":
+            t = fd.OPEN if fd else webview.OPEN_DIALOG
+            types = ("Images (" + ";".join(f"*{e}" for e in sorted(IMAGE_EXTS)) + ")", "All files (*.*)")
+            return self._window.create_file_dialog(t, allow_multiple=multiple, file_types=types)
+        t = fd.FOLDER if fd else webview.FOLDER_DIALOG
+        return self._window.create_file_dialog(t)
+
+    def pick_files(self):
+        res = self._dialog("open", True)
+        return collect(list(res or []))
+
+    def pick_folder(self):
+        res = self._dialog("folder")
+        return collect(list(res or []))
+
+    def expand_paths(self, paths):
+        return collect(paths)
+
+    def reveal(self, path):
+        try:
+            if sys.platform.startswith("win"):
+                subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", "-R", path])
+            else:
+                subprocess.Popen(["xdg-open", os.path.dirname(path)])
+        except Exception:
+            pass
+        return True
+
+    # ---- stage / preview --------------------------------------------------
+    def load_stage(self, path, params, req_id):
+        try:
+            P = StageParams.from_dict(params)
+            e, img = ENGINE.stage(path, P)
+            rgb = np.ascontiguousarray(np.asarray(img.convert("RGB")))
+            w, h = img.size
+            pv = img.convert("RGB")
+            if max(w, h) > PREVIEW_MAX:
+                s = PREVIEW_MAX / max(w, h)
+                pv = pv.resize((max(1, round(w * s)), max(1, round(h * s))), Image.Resampling.LANCZOS)
+            pw, ph = pv.size
+            rgba = np.empty((ph, pw, 4), dtype=np.uint8)
+            rgba[..., :3] = np.asarray(pv)
+            rgba[..., 3] = 255
+            token = ENGINE.put_preview(rgba.tobytes(), pw, ph)
+            # Mid/Detail smoothing at preview size (radius scaled from the full output height)
+            pv_rgb = rgba[..., :3]
+            mdb = md_base(rgb_luma01(pv_rgb), md_radius(ph))
+            md_token = ENGINE.put_preview(mdb.astype(np.float32).tobytes(), pw, ph)
+            with ENGINE.lock:
+                if req_id >= ENGINE.latest_req:
+                    ENGINE.latest_req = req_id
+                    ENGINE.current = {"path": path, "rgb": rgb, "req": req_id}
+            return {
+                "ok": True, "req_id": req_id, "token": token, "md_token": md_token,
+                "w": w, "h": h, "pw": pw, "ph": ph,
+                "src_w": e.base.size[0], "src_h": e.base.size[1],
+                "alpha": img.mode == "RGBA",
+                "scale": round(fit_scale(e.geometried(P).size, P), 4),
+                "geo_w": e.geometried(P).size[0], "geo_h": e.geometried(P).size[1],
+            }
+        except Exception as ex:
+            return {"ok": False, "req_id": req_id, "error": f"{type(ex).__name__}: {ex}"}
+
+    def load_source(self, path):
+        """Oriented, un-cropped source for crop mode (downscaled for display)."""
+        try:
+            e = ENGINE.entry(path)
+            img = e.base.convert("RGB")
+            W, H = img.size
+            if max(W, H) > PREVIEW_MAX:
+                s = PREVIEW_MAX / max(W, H)
+                img = img.resize((max(1, round(W * s)), max(1, round(H * s))), Image.Resampling.BILINEAR)
+            pw, ph = img.size
+            rgba = np.empty((ph, pw, 4), dtype=np.uint8)
+            rgba[..., :3] = np.asarray(img)
+            rgba[..., 3] = 255
+            token = ENGINE.put_preview(rgba.tobytes(), pw, ph)
+            return {"ok": True, "token": token, "W": W, "H": H, "pw": pw, "ph": ph}
+        except Exception as ex:
+            return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
+
+    def sample(self, nx, ny):
+        """3x3 median of the full-resolution stage image (input to point correction)."""
+        cur = ENGINE.current
+        if not cur:
+            return None
+        a = cur["rgb"]
+        h, w = a.shape[:2]
+        x = int(min(w - 1, max(0, nx * w)))
+        y = int(min(h - 1, max(0, ny * h)))
+        patch = a[max(0, y - 1):min(h, y + 2), max(0, x - 1):min(w, x + 2)]
+        return [int(v) for v in np.median(patch.reshape(-1, 3), axis=0)]
+
+    # ---- processing -------------------------------------------------------
+    @staticmethod
+    def _render_full(job) -> tuple[Entry, Image.Image]:
+        """Stage + point correction + curves at full resolution (what Process writes)."""
+        P = StageParams.from_dict(job.get("stage"))
+        e, img = ENGINE.stage(job.get("path"), P)
+        alpha = img.getchannel("A") if img.mode == "RGBA" else None
+        rgb = np.ascontiguousarray(np.asarray(img.convert("RGB")))
+        md = (job.get("edit") or {}).get("md")
+        if md:
+            rgb = apply_mid_detail(rgb, float(md))
+        out = Image.fromarray(apply_edit(rgb, job.get("edit")))
+        if alpha is not None:
+            out.putalpha(alpha)
+        return e, out
+
+    def encoder_info(self):
+        return {"jpegli": jpegli_available(), "avif": avif_available(), "svt": svt_available()}
+
+    def lossy_preview(self, job, fmt, opts, req_id):
+        """Encode the fully edited image with the lossy format, decode it again, hand back preview pixels."""
+        preview_begin(req_id)
+        _TL.preview_req = req_id
+        try:
+            check_cancel()
+            fmt = norm_fmt(fmt)
+            e, out = self._render_full(job)
+            check_cancel()
+            data, enc, used = encode_lossy(out, fmt, opts, e.icc)
+            check_cancel()
+            with Image.open(io.BytesIO(data)) as jim:
+                jim.load()
+                pv = jim.convert("RGB")
+            w, h = pv.size
+            if max(w, h) > PREVIEW_MAX:
+                s = PREVIEW_MAX / max(w, h)
+                pv = pv.resize((max(1, round(w * s)), max(1, round(h * s))), Image.Resampling.LANCZOS)
+            pw, ph = pv.size
+            rgba = np.empty((ph, pw, 4), dtype=np.uint8)
+            rgba[..., :3] = np.asarray(pv)
+            rgba[..., 3] = 255
+            token = ENGINE.put_preview(rgba.tobytes(), pw, ph)
+            return {"ok": True, "req_id": req_id, "token": token, "pw": pw, "ph": ph,
+                    "bytes": len(data), "encoder": enc, "fmt": fmt, "opts": used}
+        except Cancelled:
+            return {"ok": False, "req_id": req_id, "cancelled": True}
+        except Exception as ex:
+            if req_id < _PREV["latest"]:
+                return {"ok": False, "req_id": req_id, "cancelled": True}
+            return {"ok": False, "req_id": req_id, "error": f"{type(ex).__name__}: {ex}"}
+        finally:
+            _TL.preview_req = None
+
+    def process(self, jobs, fmt="WEBP", opts=None):
+        fmt = norm_fmt(fmt)
+        results = []
+        n = len(jobs or [])
+        for i, job in enumerate(jobs or []):
+            path = job.get("path")
+            try:
+                e, out = self._render_full(job)
+                out_path = save_image(out, path, fmt, e.icc, opts)
+                r = {"path": path, "ok": True, "out": out_path}
+            except Exception as ex:
+                r = {"path": path, "ok": False, "error": f"{type(ex).__name__}: {ex}"}
+            results.append(r)
+            if self._window is not None and n > 1:
+                try:
+                    self._window.evaluate_js(
+                        f"window.onProcessProgress && window.onProcessProgress({i + 1},{n},{json.dumps(r)})")
+                except Exception:
+                    pass
+        return results

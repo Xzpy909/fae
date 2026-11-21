@@ -22,3 +22,7 @@ desktop.ini
 build/
 dist/
 *.spec
+
+# local leftovers from refactoring
+_backup_before_split/
+_to_delete/

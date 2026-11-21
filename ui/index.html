@@ -72,6 +72,13 @@
       <button class="pill" data-sec="curves" title="Curves"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M6.5 17.5C11 17.5 10 6.5 17.5 6.5"/></svg><i></i></button>
       <button class="pill" data-sec="resize" title="Resize"><svg viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg><i></i></button>
       <button class="pill" data-sec="color" title="Color Balance"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path class="fill" d="M12 3a9 9 0 0 0 0 18z"/></svg><i></i></button>
+      <!-- nested group: the Filters pill rolls out the individual filters -->
+      <div class="pgroup" id="pgFilters">
+        <button class="pill gp" title="Filters"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="6"/><circle cx="15" cy="15" r="6"/></svg><b class="chev"></b><i></i></button>
+        <div class="ptray">
+          <button class="pill" data-sec="f_bw" title="Brilliance / Warmth"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg><i></i></button>
+        </div>
+      </div>
     </div>
     <div id="modeChip"></div>
     <canvas id="loupe" width="132" height="132"></canvas>
@@ -138,6 +145,12 @@
         </div>
         <div id="pointFields"></div>
         <div class="hint">Tool stays active: keep clicking to refine. Hold <kbd>Alt</kbd> for clipping view, scroll to move the threshold. <kbd>Esc</kbd> drops the tool.</div>
+      </section>
+
+      <section class="card sec" data-sec="f_bw">
+        <div class="card-head"><span>Filter · Brilliance / Warmth</span><button id="resetBW" class="rst all" title="Reset Brilliance / Warmth"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
+        <div id="bwFields"></div>
+        <div class="hint">≈ Perceptual Saturation is an approximation: it behaves like the reference filter (pushes colours away from their surroundings) but does not match it exactly. Opacity sets how strongly the finished filter is applied.</div>
       </section>
 
       <section class="card sec" data-sec="adjust">
@@ -240,7 +253,18 @@
 
 <div id="toast"></div>
 <div id="dropZone"></div>
-<script src="app.js"></script>
-<script src="crop.js"></script>
+<script src="js/state.js"></script>
+<script src="js/edit-math.js"></script>
+<script src="js/render.js"></script>
+<script src="js/compare.js"></script>
+<script src="js/stage.js"></script>
+<script src="js/view.js"></script>
+<script src="js/curves.js"></script>
+<script src="js/controls.js"></script>
+<script src="js/files.js"></script>
+<script src="js/tools.js"></script>
+<script src="js/process.js"></script>
+<script src="js/init.js"></script>
+<script src="js/crop.js"></script>
 </body>
 </html>

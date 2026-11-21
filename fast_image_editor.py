@@ -380,17 +380,76 @@ def white_patch_enhance(img: Image.Image, percentile: float = 99.0,
 # ---------------------------------------------------------------------------
 # Point correction + curves (must match computeEdit/render in ui/app.js)
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Mid/Detail (matched to reference grades within ~0.55/255 at +-50 / +-100):
+#   smooth = guided filter of luma (radius 26 px at 1440p, scaled with image height, eps 0.01)
+#   dY     = amount/100 * 0.952 * min(1, (Y / 0.706)^0.662) * (Y - smooth)   (fades out in shadows)
+#   rgb   += dY * 255 on all channels, clip, truncate.   Applied first, before point correction.
+# The preview gets `smooth` from md_base() at preview size; ui/app.js applies the same formula.
+# ---------------------------------------------------------------------------
+MD_RADIUS_1440, MD_EPS, MD_GAIN, MD_K, MD_GAMMA = 26.0, 0.01, 0.952, 0.706, 0.662
+
+
+def md_radius(height: int) -> int:
+    return max(1, int(round(MD_RADIUS_1440 * height / 1440.0)))
+
+
+def md_base(y: np.ndarray, radius: int) -> np.ndarray:
+    """Guided filter (self-guided) of float32 luma 0..1."""
+    k = (2 * radius + 1, 2 * radius + 1)
+    m = cv2.boxFilter(y, -1, k)
+    v = cv2.boxFilter(y * y, -1, k) - m * m
+    a = v / (v + MD_EPS)
+    b = m - a * m
+    return cv2.boxFilter(a, -1, k) * y + cv2.boxFilter(b, -1, k)
+
+
+def rgb_luma01(rgb: np.ndarray) -> np.ndarray:
+    f = rgb.astype(np.float32)
+    return ((0.2126 * f[..., 0] + 0.7152 * f[..., 1] + 0.0722 * f[..., 2]) / 255.0).astype(np.float32)
+
+
+def apply_mid_detail(rgb: np.ndarray, amount: float, base: np.ndarray | None = None) -> np.ndarray:
+    if not amount:
+        return rgb
+    if base is None:
+        base = md_base(rgb_luma01(rgb), md_radius(rgb.shape[0]))
+    out = np.empty_like(rgb)
+    for r0 in range(0, rgb.shape[0], 512):          # strips keep float64 memory small
+        f = rgb[r0:r0 + 512].astype(np.float64)
+        y = (0.2126 * f[..., 0] + 0.7152 * f[..., 1] + 0.0722 * f[..., 2]) / 255.0
+        w = np.minimum(1.0, np.power(np.maximum(y, 0.0) / MD_K, MD_GAMMA))
+        d = (amount * MD_GAIN * w * (y - base[r0:r0 + 512]) * 255.0)[..., None]
+        out[r0:r0 + 512] = np.clip(f + d, 0, 255).astype(np.uint8)
+    return out
+
+
 def apply_edit(rgb: np.ndarray, edit: dict | None, strip_rows: int = 512) -> np.ndarray:
     """
     rgb  : HxWx3 uint8
     edit : {"point": bool, "k": float, "o": float, "gains": [3] | None,
             "luts": [[256], [256], [256]]}   (computed by the UI)
     Per pixel:  lum' = clip(lum*k + o)  ->  rgb *= lum'/max(lum,1)  ->  rgb *= gains
-                ->  clip, truncate to uint8  ->  per-channel LUT (master curve folded in)
+                ->  clip, truncate to uint8
+                ->  Temp / Tint: rgb = M @ rgb (Bradford white-balance matrix)  ->  clip, truncate
+                ->  Contrast / Pivot: rgb = f(rgb) + f(y) - luma(f(rgb))  ->  clip, truncate
+                ->  Shadows, then Highlights: y' = table[y]; lift: rgb *= y'/y, darken: rgb += y' - y
+                    (each: clip, truncate)
+                ->  Color Boost: rgb = y + (rgb - y) * boost[max - min]  ->  clip, truncate
+                ->  Saturation: rgb = y + (rgb - y) * sat / 50  ->  clip, truncate
+                ->  per-channel LUT (master curve folded in)
     """
     if not edit:
         return rgb
     luts = [np.asarray(l, dtype=np.uint8) for l in edit.get("luts") or []]
+    boost = edit.get("boost")
+    boost = None if boost is None else np.asarray(boost, dtype=np.float64)
+    tones = [(np.asarray(t["T"], dtype=np.float64), bool(t.get("ratio"))) for t in (edit.get("tones") or [])]
+    sat = edit.get("sat")
+    wb = edit.get("wb")
+    wb = None if wb is None else np.asarray(wb, dtype=np.float64)
+    con = edit.get("con")
+    con = None if con is None else np.asarray(con, dtype=np.float64)
     if len(luts) != 3:
         luts = [np.arange(256, dtype=np.uint8)] * 3
     point = bool(edit.get("point"))
@@ -413,6 +472,41 @@ def apply_edit(rgb: np.ndarray, edit: dict | None, strip_rows: int = 512) -> np.
             idx = np.clip(f, 0, 255).astype(np.uint8)
         else:
             idx = src
+        if wb is not None:
+            # Temp / Tint (3x3 white-balance matrix on gamma-encoded RGB, computed in ui/app.js wbMatrix)
+            f = idx.astype(np.float64)
+            f = f[..., 0:1] * wb[:, 0] + f[..., 1:2] * wb[:, 1] + f[..., 2:3] * wb[:, 2]
+            idx = np.clip(f, 0, 255).astype(np.uint8)
+        if con is not None:
+            # Contrast / Pivot (table computed in ui/app.js contrastTable): rgb' = f(rgb) + f(Y) - Y(f(rgb))
+            o = con[idx.astype(np.intp) * 16]
+            f = idx.astype(np.float64)
+            y = 0.2126 * f[..., 0] + 0.7152 * f[..., 1] + 0.0722 * f[..., 2]
+            d = con[np.minimum(np.floor(y * 16 + 0.5), 4095).astype(np.intp)] \
+                - (0.2126 * o[..., 0] + 0.7152 * o[..., 1] + 0.0722 * o[..., 2])
+            idx = np.clip(o + d[..., None], 0, 255).astype(np.uint8)
+        for tone_t, tone_ratio in tones:
+            # Shadows, then Highlights (tone tables on luma, computed in ui/app.js toneTable)
+            f = idx.astype(np.float64)
+            y = 0.2126 * f[..., 0] + 0.7152 * f[..., 1] + 0.0722 * f[..., 2]
+            y2 = tone_t[np.minimum(np.floor(y * 16 + 0.5), 4095).astype(np.intp)]
+            if tone_ratio:
+                f = f * (y2 / np.maximum(y, 0.5))[..., None]
+            else:
+                f = f + (y2 - y)[..., None]
+            idx = np.clip(f, 0, 255).astype(np.uint8)
+        if boost is not None:
+            # Color Boost (gain table by s = max - min, computed in ui/app.js boostGains)
+            s = idx.max(axis=2).astype(np.intp) - idx.min(axis=2)
+            gn = boost[s][..., None]
+            f = idx.astype(np.float64)
+            y = (0.2126 * f[..., 0] + 0.7152 * f[..., 1] + 0.0722 * f[..., 2])[..., None]
+            idx = np.clip(y + (f - y) * gn, 0, 255).astype(np.uint8)
+        if sat is not None:
+            # Saturation (luma-preserving gain, Rec.709)
+            f = idx.astype(np.float64)
+            y = (0.2126 * f[..., 0] + 0.7152 * f[..., 1] + 0.0722 * f[..., 2])[..., None]
+            idx = np.clip(y + (f - y) * float(sat), 0, 255).astype(np.uint8)
         dst = out[y0:y0 + strip_rows]
         for c in range(3):
             dst[..., c] = luts[c][idx[..., c]]
@@ -496,7 +590,7 @@ class Engine:
         token = uuid.uuid4().hex
         with self.lock:
             self.previews[token] = (rgba, w, h)
-            while len(self.previews) > 4:
+            while len(self.previews) > 8:   # image + Mid/Detail base per load
                 self.previews.popitem(last=False)
         return token
 
@@ -1110,12 +1204,16 @@ class Api:
             rgba[..., :3] = np.asarray(pv)
             rgba[..., 3] = 255
             token = ENGINE.put_preview(rgba.tobytes(), pw, ph)
+            # Mid/Detail smoothing at preview size (radius scaled from the full output height)
+            pv_rgb = rgba[..., :3]
+            mdb = md_base(rgb_luma01(pv_rgb), md_radius(ph))
+            md_token = ENGINE.put_preview(mdb.astype(np.float32).tobytes(), pw, ph)
             with ENGINE.lock:
                 if req_id >= ENGINE.latest_req:
                     ENGINE.latest_req = req_id
                     ENGINE.current = {"path": path, "rgb": rgb, "req": req_id}
             return {
-                "ok": True, "req_id": req_id, "token": token,
+                "ok": True, "req_id": req_id, "token": token, "md_token": md_token,
                 "w": w, "h": h, "pw": pw, "ph": ph,
                 "src_w": e.base.size[0], "src_h": e.base.size[1],
                 "alpha": img.mode == "RGBA",
@@ -1163,6 +1261,9 @@ class Api:
         e, img = ENGINE.stage(job.get("path"), P)
         alpha = img.getchannel("A") if img.mode == "RGBA" else None
         rgb = np.ascontiguousarray(np.asarray(img.convert("RGB")))
+        md = (job.get("edit") or {}).get("md")
+        if md:
+            rgb = apply_mid_detail(rgb, float(md))
         out = Image.fromarray(apply_edit(rgb, job.get("edit")))
         if alpha is not None:
             out.putalpha(alpha)

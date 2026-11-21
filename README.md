@@ -30,6 +30,9 @@ Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/J
 - Master + R/G/B curves (monotone cubic) with live input histogram
 - Output histogram with clipping percentages
 - Automatic colour balance: Percentile White-Patch and Gray-Edge, each with a strength control
+- **Adjustments** modelled on DaVinci Resolve's Primaries: Color Boost, Shadows, Highlights, Saturation, Temp, Tint, Contrast + Pivot and Mid/Detail, matched to Resolve's output within about half a level (0–255) on reference grades
+- Jog-wheel controls: drag the wheel left/right (`Shift` fine, `Ctrl` coarse), double-click to reset. Every number box can also be dragged left/right
+- Tool pills in the viewport show or hide each tool's card
 
 **Resize**
 - **Preset**: aspect ratio (16:9, 21:9, 4:3, 3:2, 1:1, 4:5, 9:16) × resolution (2160p, 1440p, 1080p, 720p, 480p, 360p; the p-number is the short side), cover-crop

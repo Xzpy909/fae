@@ -18,10 +18,24 @@ const DEFAULT_STAGE = {
   ge_on: false, ge_p: 1, ge_sigma: 2.0, ge_strength: 1.0,
 };
 const ident = () => [[0, 0], [255, 255]];
+/* Adjustments (modelled on DaVinci Resolve Primaries, see the formulas below). [key, label, default, min, max, step, decimals] */
+const ADJUST = [
+  ['adj_boost', 'Color Boost', 0, -100, 100, 1, 2],
+  ['adj_shadows', 'Shadows', 0, -100, 100, 1, 2],
+  ['adj_highlights', 'Highlights', 0, -100, 100, 1, 2],
+  ['adj_sat', 'Saturation', 50, 0, 100, 1, 2],
+  ['adj_temp', 'Temp', 0, -4000, 4000, 10, 1],
+  ['adj_tint', 'Tint', 0, -100, 100, 1, 2],
+  ['adj_contrast', 'Contrast', 1, 0, 2, 0.001, 3],
+  ['adj_pivot', 'Pivot', 0.435, 0, 1, 0.001, 3],
+  ['adj_middetail', 'Mid/Detail', 0, -100, 100, 1, 2],
+];
+const defaultAdjust = () => Object.fromEntries(ADJUST.map(a => [a[0], a[2]]));
 const defaultEdit = () => ({
   black: null, gray: null, white: null,
   tBlack: 0, tWhite: 255, strength: 1,
   curves: { m: ident(), r: ident(), g: ident(), b: ident() },
+  ...defaultAdjust(),
 });
 const DEFAULT_EDIT_JSON = JSON.stringify(defaultEdit());
 const defaultGeom = () => ({ q: 0, angle: 0, flip: false, crop: null, aspect: null });
@@ -129,7 +143,152 @@ function computeEdit(e) {
   const lc = [curveLut(e.curves.r), curveLut(e.curves.g), curveLut(e.curves.b)];
   const luts = lc.map(cl => { const L = new Uint8Array(256); for (let i = 0; i < 256; i++) L[i] = cl[lm[i]]; return L; });
   const point = k !== 1 || o !== 0 || !!gains;
-  return { k, o, gains, luts, point };
+  const tones = [toneTable('shadows', e.adj_shadows), toneTable('highlights', e.adj_highlights)].filter(Boolean);
+  // Saturation: plain luma-preserving gain, Rec.709 weights, 50 = unchanged (measured: exactly sat/50)
+  const satv = e.adj_sat == null ? 50 : Number(e.adj_sat);
+  return { k, o, gains, luts, point, wb: wbMatrix(e.adj_temp, e.adj_tint), con: contrastTable(e.adj_contrast, e.adj_pivot),
+    tones: tones.length ? tones : null,
+    boost: boostGains(e.adj_boost), sat: satv === 50 ? null : satv / 50,
+    md: (Number(e.adj_middetail) || 0) / 100 };
+}
+
+/* Temp / Tint: white balance as Resolve does it (both matched to reference grades within rounding):
+   Bradford chromatic adaptation from the black-body white at 6500 K to a target white,
+   turned into a Rec.709 RGB matrix, applied to the gamma-encoded values, and scaled so
+   white keeps its luma.
+     Temp : target on the black-body curve at (6500 - Temp) K        (positive = warmer)
+     Tint : target moved Tint * 0.0001 (Duv) across the curve in CIE 1960 uv (positive = magenta)
+   Black-body chromaticity: Kang et al. 2002. */
+const M_RGB2XYZ = [[0.4124564, 0.3575761, 0.1804375], [0.2126729, 0.7151522, 0.0721750], [0.0193339, 0.1191920, 0.9503041]];
+const M_BRADFORD = [[0.8951, 0.2664, -0.1614], [-0.7502, 1.7135, 0.0367], [0.0389, -0.0685, 1.0296]];
+const mmul = (A, B) => A.map(r => B[0].map((_, j) => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
+const mvec = (A, v) => A.map(r => r[0] * v[0] + r[1] * v[1] + r[2] * v[2]);
+function minv(m) {
+  const [[a, b, c], [d, e, f], [g, h, i]] = m;
+  const A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g, det = a * A + b * B + c * C;
+  return [[A / det, -(b * i - c * h) / det, (b * f - c * e) / det],
+          [B / det, (a * i - c * g) / det, -(a * f - c * d) / det],
+          [C / det, -(a * h - b * g) / det, (a * e - b * d) / det]];
+}
+const xy2uv = ([x, y]) => { const d = -2 * x + 12 * y + 3; return [4 * x / d, 6 * y / d]; };
+const uv2xy = ([u, v]) => { const d = 2 * u - 8 * v + 4; return [3 * u / d, 2 * v / d]; };
+const xyToXYZ = ([x, y]) => [x / y, 1, (1 - x - y) / y];
+function planckXY(T) {
+  T = Math.min(25000, Math.max(1667, T));
+  const x = T <= 4000 ? -0.2661239e9 / T ** 3 - 0.2343589e6 / T ** 2 + 0.8776956e3 / T + 0.179910
+                      : -3.0258469e9 / T ** 3 + 2.1070379e6 / T ** 2 + 0.2226347e3 / T + 0.240390;
+  const y = T <= 2222 ? -1.1063814 * x ** 3 - 1.34811020 * x ** 2 + 2.18555832 * x - 0.20219683
+          : T <= 4000 ? -0.9549476 * x ** 3 - 1.37418593 * x ** 2 + 2.09137015 * x - 0.16748867
+          : 3.0817580 * x ** 3 - 5.87338670 * x ** 2 + 3.75112997 * x - 0.37001483;
+  return [x, y];
+}
+function wbMatrix(temp, tint) {
+  const t = Number(temp) || 0, n = Number(tint) || 0;
+  if (!t && !n) return null;
+  const T0 = 6500, T = T0 - t;
+  let dst = planckXY(T);
+  if (n) {                                   // move across the black-body curve (Duv) at T
+    const a = xy2uv(planckXY(T + 1)), b = xy2uv(planckXY(T - 1)), uv = xy2uv(dst);
+    const tu = a[0] - b[0], tv = a[1] - b[1], len = Math.hypot(tu, tv);
+    dst = uv2xy([uv[0] - n * 1e-4 * tv / len, uv[1] + n * 1e-4 * tu / len]);
+  }
+  const ws = mvec(M_BRADFORD, xyToXYZ(planckXY(T0))), wd = mvec(M_BRADFORD, xyToXYZ(dst));
+  const D = [[wd[0] / ws[0], 0, 0], [0, wd[1] / ws[1], 0], [0, 0, wd[2] / ws[2]]];
+  const m = mmul(minv(M_RGB2XYZ), mmul(minv(M_BRADFORD), mmul(D, mmul(M_BRADFORD, M_RGB2XYZ))));
+  const s = [0.2126, 0.7152, 0.0722].reduce((acc, w, i) => acc + w * (m[i][0] + m[i][1] + m[i][2]), 0);
+  return m.map(r => r.map(x => x / s));
+}
+
+/* Contrast / Pivot (matched to reference grades within ~0.5/255, Contrast 0.5 .. 1.75):
+   a curve f on each channel, and the result's luma replaced by f(luma):
+       rgb' = f(rgb) + f(Y) - Y(f(rgb))           (contrast does not change saturation)
+   Contrast <= 1 : f is a straight line through the pivot, slope = Contrast.
+   Contrast  > 1 : f is an S-curve with slope 1/(2 - Contrast) at the pivot. On each side the
+                   distance to the pivot, normalised to 0..1, is pushed along the flow
+                   da/dt = a (1 - a)^1.211 (1 + 2.2542 a) for t = ln(1/(2 - Contrast)), capped at 4.2
+                   (Resolve's Contrast 2.0 is a very steep curve, not a true step).
+   Table: 4096 entries, x in 1/16 steps (0 .. 255.94). Shared with Python. */
+const CON_FIT = { b: 1.211, g: 2.2542, tmax: 4.2 };
+function contrastTable(cv, pv) {
+  const c = cv == null ? 1 : Number(cv), p = pv == null ? 0.435 : Math.min(0.999, Math.max(0.001, Number(pv)));
+  if (c === 1 || !isFinite(c)) return null;
+  const T = new Float64Array(4096);
+  if (c < 1) {
+    for (let i = 0; i < 4096; i++) T[i] = (p + (i / 16 / 255 - p) * c) * 255;
+    return T;
+  }
+  const t = Math.min(CON_FIT.tmax, Math.log(1 / Math.max(1e-6, 2 - c))), steps = 48, h = t / steps;
+  const V = a => { a = a < 0 ? 0 : a > 1 ? 1 : a; return a * Math.pow(1 - a, CON_FIT.b) * (1 + CON_FIT.g * a); };
+  for (let i = 0; i < 4096; i++) {
+    const x = Math.min(1, i / 16 / 255), lo = x < p;
+    let a = lo ? (p - x) / p : (x - p) / (1 - p);
+    for (let s = 0; s < steps; s++) {
+      const k1 = V(a), k2 = V(a + h / 2 * k1), k3 = V(a + h / 2 * k2), k4 = V(a + h * k3);
+      a += h / 6 * (k1 + 2 * k2 + 2 * k3 + k4);
+    }
+    a = a < 0 ? 0 : a > 1 ? 1 : a;
+    T[i] = (lo ? p - a * p : p + a * (1 - p)) * 255;
+  }
+  return T;
+}
+
+/* Shadows / Highlights: tone moves on luma Y, fitted to reference grades at +-50 / +-100.
+   The amounts behave like a flow: +100 = +50 applied twice, -50 ~ undoes +50. So Y' is the
+   solution of dY/dt = V(Y) for t = amount/100, with V(y) = k * y^a * (1 - y)^b (y = Y/255),
+   one field for lifting and one for darkening.
+     Shadows    : peaks around Y 60-100, fades towards black and white
+     Highlights : works from the upper midtones up; darkening also pulls white down
+     lift   : RGB *= Y'/Y          (colour scales with the brightness)
+     darken : RGB += Y' - Y        (colour keeps its absolute offset)
+   Applied in order: Shadows, then Highlights.
+   Table: 4096 entries, Y in 1/16 steps. Shared with Python so preview and output match. */
+const TONE_FIT = {
+  shadows: { pos: [0.5822167, 0.7119431, 1.4011680], neg: [0.3470188, 0.4093353, 0.9991983] },
+  highlights: { pos: [0.4334345, 1.6821352, 0.1206327], neg: [0.4169995, 1.9857309, 0.1087127] },
+};
+function toneFlow(field, t, n = 4096, steps = 16) {
+  const [k, a, b] = field, T = new Float64Array(n), h = t / steps;
+  const V = y => { y = y < 1e-6 ? 1e-6 : y > 1 - 1e-6 ? 1 - 1e-6 : y; return k * Math.pow(y, a) * Math.pow(1 - y, b); };
+  for (let i = 0; i < n; i++) {
+    let y = i / 16 / 255;
+    for (let s = 0; s < steps; s++) {
+      const k1 = V(y), k2 = V(y + h / 2 * k1), k3 = V(y + h / 2 * k2), k4 = V(y + h * k3);
+      y += h / 6 * (k1 + 2 * k2 + 2 * k3 + k4);
+    }
+    T[i] = y * 255;
+  }
+  return T;
+}
+function toneTable(name, v) {
+  const a = (Number(v) || 0) / 100;
+  if (!a) return null;
+  const F = TONE_FIT[name];
+  return { T: toneFlow(a > 0 ? F.pos : F.neg, a), ratio: a > 0 };
+}
+
+/* Color Boost: luma-preserving chroma scaling whose gain depends on the pixel's distance from
+   grey, s = max(R,G,B) - min(R,G,B) (0..1). Fitted to reference grades (+50, +100, -50):
+     + : s' = s + a * c  * s^q                     a = amount / 100, 0..1
+     - : s' = max(0, s - |a| * cn * s^qn)          weak colours reach grey first
+   Both sides are exactly linear in the amount (checked at +-50 and +-100).
+   The gain table (256 entries, by integer s) is shared with Python so preview and output match. */
+const BOOST_FIT = { c: 0.4266654, q: 0.4008857, cn: 0.5967640, qn: 0.3847268 };
+function boostGains(v) {
+  const a = (Number(v) || 0) / 100;
+  if (!a) return null;
+  const F = BOOST_FIT, G = new Float64Array(256);
+  G[0] = 1;
+  for (let s = 1; s < 256; s++) {
+    const x = s / 255;
+    let y;
+    if (a > 0) {
+      y = x + a * F.c * Math.pow(x, F.q);
+    } else {
+      y = Math.max(0, x + a * F.cn * Math.pow(x, F.qn));
+    }
+    G[s] = y / x;
+  }
+  return G;
 }
 
 /* ======================================================================
@@ -156,7 +315,7 @@ function render() {
   const I = S.img;
   if (!I || !S.E) { drawCurve(); drawHisto(); return; }
   const n = I.pw * I.ph;
-  processPixels(I.base, S.outData.data, n, S.E, true);
+  processPixels(I.base, S.outData.data, n, S.E, true, I.mdB);
   S.n = n;
   const mode = viewMode();
   let disp = S.outData;
@@ -318,16 +477,30 @@ function fmtChanged() {
 })();
 
 /* Point correction + curves. Must match apply_edit() in fast_image_editor.py. */
-function processPixels(base, out, n, E, withHist) {
+function processPixels(base, out, n, E, withHist, mdB) {
+  // Mid/Detail needs the smoothed luma of this exact image (not available e.g. in crop mode)
+  const MDa = E.md && mdB && mdB.length === n ? E.md : 0;
   const L0 = E.luts[0], L1 = E.luts[1], L2 = E.luts[2];
   const pt = E.point, lumOn = E.k !== 1 || E.o !== 0, k = E.k, o = E.o;
   const gOn = !!E.gains, g0 = gOn ? E.gains[0] : 1, g1 = gOn ? E.gains[1] : 1, g2 = gOn ? E.gains[2] : 1;
+  const BG = E.boost, TN = E.tones, SG = E.sat, WB = E.wb, CT = E.con;
+  const w00 = WB ? WB[0][0] : 1, w01 = WB ? WB[0][1] : 0, w02 = WB ? WB[0][2] : 0,
+        w10 = WB ? WB[1][0] : 0, w11 = WB ? WB[1][1] : 1, w12 = WB ? WB[1][2] : 0,
+        w20 = WB ? WB[2][0] : 0, w21 = WB ? WB[2][1] : 0, w22 = WB ? WB[2][2] : 1;
   const H = withHist;
   const hin = H ? S.hin : new Uint32Array(768), hout = H ? S.hout : new Uint32Array(768);
   const hmx = H ? S.hmx : new Uint32Array(256), hmn = H ? S.hmn : new Uint32Array(256);
   hin.fill(0); hout.fill(0); hmx.fill(0); hmn.fill(0);
   for (let j = 0, end = n * 4; j < end; j += 4) {
     let r = base[j], g = base[j + 1], b = base[j + 2];
+    if (MDa) {                      // Mid/Detail - must match apply_mid_detail() in fast_image_editor.py
+      const y = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+      const w = Math.min(1, Math.pow((y > 0 ? y : 0) / 0.706, 0.662));
+      const d = MDa * 0.952 * w * (y - mdB[j >> 2]) * 255;
+      let v = r + d; r = v <= 0 ? 0 : v >= 255 ? 255 : v | 0;
+      v = g + d; g = v <= 0 ? 0 : v >= 255 ? 255 : v | 0;
+      v = b + d; b = v <= 0 ? 0 : v >= 255 ? 255 : v | 0;
+    }
     if (pt) {
       let fr = r, fg = g, fb = b;
       if (lumOn) {
@@ -341,6 +514,51 @@ function processPixels(base, out, n, E, withHist) {
       r = fr <= 0 ? 0 : fr >= 255 ? 255 : fr | 0;
       g = fg <= 0 ? 0 : fg >= 255 ? 255 : fg | 0;
       b = fb <= 0 ? 0 : fb >= 255 ? 255 : fb | 0;
+    }
+    if (WB) {                       // Temp - must match apply_edit() in fast_image_editor.py
+      const fr = w00 * r + w01 * g + w02 * b, fg = w10 * r + w11 * g + w12 * b, fb = w20 * r + w21 * g + w22 * b;
+      r = fr <= 0 ? 0 : fr >= 255 ? 255 : fr | 0;
+      g = fg <= 0 ? 0 : fg >= 255 ? 255 : fg | 0;
+      b = fb <= 0 ? 0 : fb >= 255 ? 255 : fb | 0;
+    }
+    if (CT) {                       // Contrast / Pivot - must match apply_edit() in fast_image_editor.py
+      const o0 = CT[r * 16], o1 = CT[g * 16], o2 = CT[b * 16];
+      const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      let yi = Math.floor(y * 16 + 0.5); yi = yi > 4095 ? 4095 : yi;
+      const d = CT[yi] - (0.2126 * o0 + 0.7152 * o1 + 0.0722 * o2);
+      const fr = o0 + d, fg = o1 + d, fb = o2 + d;
+      r = fr <= 0 ? 0 : fr >= 255 ? 255 : fr | 0;
+      g = fg <= 0 ? 0 : fg >= 255 ? 255 : fg | 0;
+      b = fb <= 0 ? 0 : fb >= 255 ? 255 : fb | 0;
+    }
+    if (TN) {                       // Shadows, Highlights - must match apply_edit() in fast_image_editor.py
+      for (let t = 0; t < TN.length; t++) {
+        const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        let yi = Math.floor(y * 16 + 0.5); yi = yi > 4095 ? 4095 : yi;
+        const y2 = TN[t].T[yi];
+        let fr, fg, fb;
+        if (TN[t].ratio) { const q = y2 / (y > 0.5 ? y : 0.5); fr = r * q; fg = g * q; fb = b * q; }
+        else { const d = y2 - y; fr = r + d; fg = g + d; fb = b + d; }
+        r = fr <= 0 ? 0 : fr >= 255 ? 255 : fr | 0;
+        g = fg <= 0 ? 0 : fg >= 255 ? 255 : fg | 0;
+        b = fb <= 0 ? 0 : fb >= 255 ? 255 : fb | 0;
+      }
+    }
+    if (BG) {                       // Color Boost - must match apply_edit() in fast_image_editor.py
+      const mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+      const gn = BG[mx - mn];
+      if (gn !== 1) {
+        const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        let v = y + (r - y) * gn; r = v <= 0 ? 0 : v >= 255 ? 255 : v | 0;
+        v = y + (g - y) * gn; g = v <= 0 ? 0 : v >= 255 ? 255 : v | 0;
+        v = y + (b - y) * gn; b = v <= 0 ? 0 : v >= 255 ? 255 : v | 0;
+      }
+    }
+    if (SG !== null && SG !== undefined) {   // Saturation - must match apply_edit()
+      const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      let v = y + (r - y) * SG; r = v <= 0 ? 0 : v >= 255 ? 255 : v | 0;
+      v = y + (g - y) * SG; g = v <= 0 ? 0 : v >= 255 ? 255 : v | 0;
+      v = y + (b - y) * SG; b = v <= 0 ? 0 : v >= 255 ? 255 : v | 0;
     }
     hin[r]++; hin[256 + g]++; hin[512 + b]++;
     const R = L0[r], G = L1[g], B = L2[b];
@@ -460,7 +678,10 @@ async function loadStage() {
   spinner(false);
   const sizeChanged = !S.img || S.img.pw !== r.pw || S.img.ph !== r.ph;
   const base = new Uint8ClampedArray(buf);
-  S.img = Object.assign({}, r, { base, path: f.path });
+  let mdB = null;                   // Mid/Detail smoothed luma (float32, preview size)
+  try { if (r.md_token) mdB = new Float32Array(await (await fetch('/preview/' + r.md_token)).arrayBuffer()); } catch (_) {}
+  if (id !== S.reqId) return;
+  S.img = Object.assign({}, r, { base, path: f.path, mdB });
   if (sizeChanged) {
     canvas.width = r.pw; canvas.height = r.ph;
     S.outData = new ImageData(r.pw, r.ph);
@@ -893,9 +1114,17 @@ function makeField(parent, spec) {
   const { obj, key, label, min, max, step, dec } = spec;
   const smin = spec.smin ?? min, smax = spec.smax ?? max;
   const row = document.createElement('div');
-  row.className = 'field';
-  row.innerHTML = `<label>${label}</label><input type="range" min="${smin}" max="${smax}" step="${step}"><input type="number" min="${min}" max="${max}" step="${step}">`;
-  const rng = row.children[1], num = row.children[2];
+  row.className = spec.wheel ? 'field wheel' : 'field';
+  const defTxt = spec.def == null ? '' : Number(spec.def).toFixed(dec);
+  const ctl = spec.wheel ? `<canvas class="jog" title="Drag left/right (Shift fine, Ctrl coarse), double-click to reset"></canvas>`
+                         : `<input type="range" min="${smin}" max="${smax}" step="${step}">`;
+  row.innerHTML = `<label>${label}</label>${spec.wheel ? '' : ctl}<input type="number" min="${min}" max="${max}" step="${step}">`
+    + `<button class="rst" title="Reset to ${defTxt}"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>`
+    + (spec.wheel ? ctl : '');
+  const rng = row.querySelector('input[type=range], canvas'), num = row.querySelector('input[type=number]'), rst = row.querySelector('.rst');
+  // value change per pixel of mouse travel (wheel 1:1 with the ridges; number scrub a bit faster)
+  const perPx = spec.perPx ?? (max - min) / 800;
+  const jog = spec.wheel ? makeJog(rng, () => (S[obj][key] - (spec.def ?? 0)) / perPx) : null;
   const set = (v, fin) => {
     v = clamp(Number(v), min, max);
     if (!isFinite(v)) return;
@@ -907,13 +1136,25 @@ function makeField(parent, spec) {
   };
   const sync = () => {
     const v = S[obj][key];
-    rng.value = v; num.value = Number(v).toFixed(dec);
-    rng.style.setProperty('--p', ((clamp(v, smin, smax) - smin) / (smax - smin) * 100) + '%');
+    num.value = Number(v).toFixed(dec);
+    if (jog) jog.draw();
+    else { rng.value = v; rng.style.setProperty('--p', ((clamp(v, smin, smax) - smin) / (smax - smin) * 100) + '%'); }
+    rst.classList.toggle('at-def', spec.def == null || Number(v) === Number(spec.def));
     if (spec.enabled) row.classList.toggle('disabled', !spec.enabled());
   };
-  rng.addEventListener('input', () => set(rng.value, false));
-  rng.addEventListener('change', () => commit());
-  rng.addEventListener('dblclick', () => set(spec.def, true));
+  if (jog) {
+    dragScrub(rng, perPx, { get: () => S[obj][key], set, onDrag: on => jog.active(on), lo: min, hi: max });
+    rng.addEventListener('wheel', e => {
+      e.preventDefault();
+      set(S[obj][key] + (e.deltaY < 0 ? 1 : -1) * step * (e.shiftKey ? 0.1 : e.ctrlKey ? 10 : 1), true);
+    }, { passive: false });
+  } else {
+    rng.addEventListener('input', () => set(rng.value, false));
+    rng.addEventListener('change', () => commit());
+  }
+  rng.addEventListener('dblclick', () => { if (spec.def != null) set(spec.def, true); });
+  dragScrub(num, perPx * 2, { get: () => S[obj][key], set, field: true, lo: min, hi: max });
+  rst.addEventListener('click', () => { if (spec.def != null) set(spec.def, true); });
   num.addEventListener('change', () => set(num.value, true));
   num.addEventListener('keydown', e => { if (e.key === 'Enter') num.blur(); e.stopPropagation(); });
   num.addEventListener('wheel', e => {
@@ -922,6 +1163,82 @@ function makeField(parent, spec) {
   }, { passive: false });
   parent.appendChild(row);
   FIELDS.push({ sync });
+}
+
+/* Horizontal drag that changes a value: Shift = fine (x0.1), Ctrl = coarse (x10).
+   On a number box a plain click (no drag) still focuses it for typing. */
+function dragScrub(el, perPx, { get, set, onDrag, field, lo = -Infinity, hi = Infinity }) {
+  let x0 = null, acc = 0, moved = false;
+  el.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || (field && document.activeElement === el)) return;
+    e.preventDefault();
+    x0 = e.clientX; acc = Number(get()); moved = false;
+    el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener('pointermove', e => {
+    if (x0 === null) return;
+    const dx = e.clientX - x0;
+    if (!moved && Math.abs(dx) < 3) return;
+    if (!moved) { moved = true; onDrag?.(true); document.body.classList.add('scrubbing'); }
+    x0 = e.clientX;
+    acc += dx * perPx * (e.shiftKey ? 0.1 : e.ctrlKey ? 10 : 1);
+    acc = clamp(acc, lo, hi);           // no dead zone when coming back from an end stop
+    set(acc, false);
+  });
+  const end = e => {
+    if (x0 === null) return;
+    x0 = null;
+    if (moved) { onDrag?.(false); document.body.classList.remove('scrubbing'); commit(); }
+    else if (field) { el.focus(); el.select(); }
+  };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+}
+
+/* Jog wheel: a ridged cylinder seen from the front. pos() = surface travel in px (value / perPx),
+   so the ridges under the cursor follow the mouse 1:1. */
+function makeJog(cv, pos) {
+  const ctx = cv.getContext('2d');
+  let on = false;
+  const draw = () => {
+    const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+    if (!W || !H) return;
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) {
+      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const R = W / 2 - 3, cx = W / 2, rr = H / 2;
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(0.5, 0.5, W - 1, H - 1, rr); ctx.clip();
+    let g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#202328'); g.addColorStop(0.5, '#15171a'); g.addColorStop(1, '#0b0c0e');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // ridges every 6 px of arc at the centre
+    const dA = 6 / R, phase = (((pos() / R) % dA) + dA) % dA;
+    for (let a = -Math.PI / 2 + phase; a < Math.PI / 2; a += dA) {
+      const c = Math.cos(a), x = cx + R * Math.sin(a), w = Math.max(0.5, 2.2 * c);
+      const lit = 0.10 + 0.55 * c * c;
+      ctx.fillStyle = `rgba(0,0,0,${0.55 * c})`;
+      ctx.fillRect(x + w * 0.5, 4, Math.max(0.5, 1.6 * c), H - 8);
+      ctx.fillStyle = on ? `rgba(240,179,90,${lit})` : `rgba(200,206,214,${lit})`;
+      ctx.fillRect(x - w * 0.5, 4, w, H - 8);
+    }
+    // cylinder shading towards the ends + top sheen
+    g = ctx.createLinearGradient(0, 0, W, 0);
+    g.addColorStop(0, 'rgba(8,9,10,.95)'); g.addColorStop(0.2, 'rgba(8,9,10,.15)');
+    g.addColorStop(0.5, 'rgba(8,9,10,0)'); g.addColorStop(0.8, 'rgba(8,9,10,.15)'); g.addColorStop(1, 'rgba(8,9,10,.95)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, 'rgba(255,255,255,.07)'); g.addColorStop(0.35, 'rgba(255,255,255,0)');
+    g.addColorStop(1, 'rgba(0,0,0,.35)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+    ctx.strokeStyle = on ? 'rgba(240,179,90,.55)' : 'rgba(255,255,255,.09)';
+    ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(0.5, 0.5, W - 1, H - 1, rr); ctx.stroke();
+  };
+  new ResizeObserver(draw).observe(cv);
+  return { draw, active(v) { on = v; draw(); } };
 }
 
 function valueChanged(obj) {
@@ -933,6 +1250,9 @@ function valueChanged(obj) {
 makeField($('#pointFields'), { obj: 'edit', key: 'tBlack', label: 'Black target', min: 0, max: 255, step: 1, dec: 0, def: 0 });
 makeField($('#pointFields'), { obj: 'edit', key: 'tWhite', label: 'White target', min: 0, max: 255, step: 1, dec: 0, def: 255 });
 makeField($('#pointFields'), { obj: 'edit', key: 'strength', label: 'Strength', min: 0.05, max: 1, step: 0.05, dec: 2, def: 1 });
+for (const [key, label, def, min, max, step, dec] of ADJUST)
+  makeField($('#adjFields'), { obj: 'edit', key, label, min, max, step, dec, def, wheel: true });
+$('#resetAdjust').addEventListener('click', () => { Object.assign(S.edit, defaultAdjust()); syncPanel(); editChanged(); commit(); });
 makeField($('#jpegQ'), { obj: 'prefs', key: 'jpeg_q', label: 'Quality', min: 1, max: 100, smin: 50, smax: 100, step: 1, dec: 0, def: 90 });
 makeField($('#jpegD'), { obj: 'prefs', key: 'jpeg_d', label: 'Distance', min: 0, max: 25, smin: 0.3, smax: 4, step: 0.05, dec: 2, def: 1 });
 makeField($('#webpQ'), { obj: 'prefs', key: 'webp_q', label: 'Quality', min: 0, max: 100, smin: 50, smax: 100, step: 1, dec: 0, def: 90 });
@@ -1180,7 +1500,7 @@ function markCurrentEdited() {
    Each pill toggles its own card, so any number can be open at once.
    The dot on a pill means that tool is doing something to the current image.
    ====================================================================== */
-const SECS = ['crop', 'point', 'curves', 'resize', 'color'];
+const SECS = ['crop', 'point', 'adjust', 'curves', 'resize', 'color'];
 function syncSections() {
   const on = new Set(S.prefs.secs || []);
   document.querySelectorAll('#panel .card.sec').forEach(c => c.classList.toggle('show', on.has(c.dataset.sec)));
@@ -1193,6 +1513,7 @@ function updatePills() {
     crop: !isDefaultGeom(S.geom),
     point: !!(S.edit.black || S.edit.gray || S.edit.white),
     curves: !['m', 'r', 'g', 'b'].every(c => ident(S.edit.curves[c])),
+    adjust: ADJUST.some(([k, , def]) => S.edit[k] !== undefined && S.edit[k] !== def),
     resize: S.stage.resize_on !== false,
     color: !!(S.stage.wp_on || S.stage.ge_on),
   };
@@ -1289,7 +1610,10 @@ function jobFor(f, isCur) {
   const E = computeEdit(st.edit);
   return {
     path: f.path, stage: stageParams(st.stage, st.geom),
-    edit: { point: E.point, k: E.k, o: E.o, gains: E.gains, luts: E.luts.map(a => Array.from(a)) },
+    edit: { point: E.point, k: E.k, o: E.o, gains: E.gains, luts: E.luts.map(a => Array.from(a)),
+      boost: E.boost ? Array.from(E.boost) : null,
+      tones: E.tones ? E.tones.map(t => ({ T: Array.from(t.T), ratio: t.ratio })) : null, sat: E.sat, wb: E.wb,
+      con: E.con ? Array.from(E.con) : null, md: E.md || 0 },
   };
 }
 

@@ -23,6 +23,6 @@ export function toParams(fe, E, filmD) {
   if (FM) p.set_film(FM.n, FM.d ? f64(filmD) : undefined, FM.t1 ? f64(FM.t1) : undefined, FM.op);
   const SC = E.sc;
   if (SC) p.set_sc(SC.cast, SC.cc, SC.dyn, SC.op, f64(SC.dk || []), SC.shl ? f64(SC.shl) : undefined);
-  if (E.sharp) p.set_sharp(E.sharp.st || 0);
+  if (E.sharp) p.set_sharp(E.sharp.st || 0, E.sharp.lc || 0, E.sharp.scale || 1);
   return p;
 }

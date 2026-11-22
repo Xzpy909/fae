@@ -49,8 +49,17 @@ const WP = (() => {
     }
   }
 
-  // E as the worker gets it: Film preset tables are sent once and then referred to by id
-  function pack(E) {
+  // preview pixels per output pixel: the live image (pw of w), or crop mode's uncropped source
+  function outScale(img) {
+    if (img.w) return img.pw / img.w;
+    if (img.W && typeof S !== 'undefined' && S.img) return img.pw / img.W * (S.img.scale || 1);
+    return 1;
+  }
+
+  // E as the worker gets it: Film preset tables are sent once and then referred to by id; Sharpen gets
+  // the preview's scale
+  function pack(E, img) {
+    if (E.sharp) E = Object.assign({}, E, { sharp: Object.assign({}, E.sharp, { scale: outScale(img) }) });
     if (!E.film || !E.film.d) return E;
     let id = filmIds.get(E.film.d);
     if (!id) { id = nextFilm++; filmIds.set(E.film.d, id); }
@@ -69,7 +78,7 @@ const WP = (() => {
     }
     job.seq = ++seq;
     busy = job;
-    worker.postMessage({ type: 'render', seq: job.seq, E: pack(job.E) });
+    worker.postMessage({ type: 'render', seq: job.seq, E: pack(job.E, job.img) });
   }
 
   start();

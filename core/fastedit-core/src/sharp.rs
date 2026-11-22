@@ -40,17 +40,37 @@ pub const ST_LIM_NEG: f64 = 20.0;
 const TQ: f64 = 4.0;
 const TN: usize = 4096;
 
-/// Sharpen settings (all -1..1, 0 = off).
-#[derive(Clone, Copy, Default)]
+/// Sharpen settings (sliders -1..1, 0 = off).
+#[derive(Clone, Copy)]
 pub struct Sharp {
     pub structure: f64,
+    pub local_contrast: f64,
+    /// pixels of this image per output pixel (1 for Process; the preview passes its own scale, so
+    /// the fixed-size Local Contrast blur covers the same part of the picture)
+    pub scale: f64,
+}
+
+impl Default for Sharp {
+    fn default() -> Self {
+        Sharp { structure: 0.0, local_contrast: 0.0, scale: 1.0 }
+    }
 }
 
 impl Sharp {
     pub fn active(&self) -> bool {
-        self.structure != 0.0
+        self.structure != 0.0 || self.local_contrast != 0.0
     }
 }
+
+/// Local Contrast (fitted to reference renders at -100 / -50 / 50 / 100 on three images, mean error
+/// 0.25-0.52 levels): per channel, out_c = c + g * (c - gauss(c, LC_SIGMA)), g = LC_POS * s for
+/// s > 0 (unsharp mask with a wide radius), LC_NEG * s for s < 0 (mix towards the blur: a glow).
+/// The blur is a fixed size in output pixels.
+pub const LC_SIGMA: f64 = 20.0;
+pub const LC_POS: f64 = 0.51;
+pub const LC_NEG: f64 = 0.75;
+/// the blur runs on a copy shrunk so that sigma is about this many pixels
+const LC_SMALL_SIGMA: f64 = 4.0;
 
 /// Coarse Structure radius for an image `height` pixels high.
 pub fn st_radius(height: usize) -> usize {
@@ -159,11 +179,117 @@ fn u8r(v: f32) -> u8 {
     (v.clamp(0.0, 255.0) + 0.5) as u8
 }
 
-/// In place on `buf` (`ob` = 3 or 4 bytes per pixel, alpha left alone), `width` pixels per row.
+/// In place on `buf` (`ob` = 3 or 4 bytes per pixel, alpha left alone), `width` pixels per row:
+/// Structure, then Local Contrast.
 pub fn apply(buf: &mut [u8], width: usize, height: usize, ob: usize, sp: &Sharp) {
     if !sp.active() || width == 0 || height == 0 {
         return;
     }
+    if sp.structure != 0.0 {
+        structure(buf, width, height, ob, sp.structure);
+    }
+    if sp.local_contrast != 0.0 {
+        let s = sp.local_contrast;
+        let g = if s > 0.0 { LC_POS * s } else { LC_NEG * s };
+        local_contrast(buf, width, height, ob, g as f32, LC_SIGMA * sp.scale.clamp(1e-3, 1.0e3));
+    }
+}
+
+/// Gaussian blur of each channel (sigma in pixels of this image) on a shrunk copy, scaled back up
+/// bilinearly while it is used: out_c = c + g * (c - blur_c).
+pub fn local_contrast(buf: &mut [u8], w: usize, h: usize, ob: usize, g: f32, sigma: f64) {
+    let k = ((sigma / LC_SMALL_SIGMA).round() as usize).max(1);
+    let (w2, h2) = (w.div_ceil(k), h.div_ceil(k));
+    // block means, 3 planes
+    let mut sm = vec![0f32; w2 * h2 * 3];
+    crate::for_each_band_t(&mut sm, w2 * 3, 16, |band, r0| {
+        for (i, row) in band.chunks_exact_mut(w2 * 3).enumerate() {
+            let by = r0 + i;
+            let (y0, y1) = (by * k, ((by + 1) * k).min(h));
+            for bx in 0..w2 {
+                let (x0, x1) = (bx * k, ((bx + 1) * k).min(w));
+                let mut acc = [0f32; 3];
+                for yy in y0..y1 {
+                    for p in buf[(yy * w + x0) * ob..(yy * w + x1) * ob].chunks_exact(ob) {
+                        acc[0] += p[0] as f32;
+                        acc[1] += p[1] as f32;
+                        acc[2] += p[2] as f32;
+                    }
+                }
+                let n = ((y1 - y0) * (x1 - x0)) as f32;
+                row[bx * 3] = acc[0] / n;
+                row[bx * 3 + 1] = acc[1] / n;
+                row[bx * 3 + 2] = acc[2] / n;
+            }
+        }
+    });
+    // separable Gaussian on the small copy (the block mean already blurred by about sqrt((k^2-1)/12))
+    let s2 = ((sigma * sigma - ((k * k - 1) as f64) / 12.0).max(1e-6)).sqrt() / k as f64;
+    let rad = ((3.0 * s2).ceil() as usize).max(1);
+    let mut ker: Vec<f32> = (0..=2 * rad).map(|i| { let d = i as f64 - rad as f64; (-0.5 * d * d / (s2 * s2)).exp() as f32 }).collect();
+    let ks: f32 = ker.iter().sum();
+    ker.iter_mut().for_each(|v| *v /= ks);
+    let refl = |i: isize, n: usize| -> usize {
+        if n == 1 { return 0; }
+        let p = 2 * n as isize - 2;
+        let i = i.abs() % p;
+        (if i >= n as isize { p - i } else { i }) as usize
+    };
+    let mut tmp = vec![0f32; w2 * h2 * 3];
+    crate::for_each_band_t(&mut tmp, w2 * 3, 16, |band, r0| {
+        for (i, row) in band.chunks_exact_mut(w2 * 3).enumerate() {
+            let src = &sm[(r0 + i) * w2 * 3..][..w2 * 3];
+            for x in 0..w2 {
+                let mut acc = [0f32; 3];
+                for (t, kv) in ker.iter().enumerate() {
+                    let xx = refl(x as isize + t as isize - rad as isize, w2);
+                    acc[0] += kv * src[xx * 3];
+                    acc[1] += kv * src[xx * 3 + 1];
+                    acc[2] += kv * src[xx * 3 + 2];
+                }
+                row[x * 3..x * 3 + 3].copy_from_slice(&acc);
+            }
+        }
+    });
+    let mut bl = vec![0f32; w2 * h2 * 3];
+    crate::for_each_band_t(&mut bl, w2 * 3, 16, |band, r0| {
+        for (i, row) in band.chunks_exact_mut(w2 * 3).enumerate() {
+            let y = r0 + i;
+            for (t, kv) in ker.iter().enumerate() {
+                let yy = refl(y as isize + t as isize - rad as isize, h2);
+                let src = &tmp[yy * w2 * 3..][..w2 * 3];
+                row.iter_mut().zip(src).for_each(|(o, v)| *o += kv * v);
+            }
+        }
+    });
+    drop(tmp);
+    drop(sm);
+    let pos = |p: usize, n2: usize| -> (usize, usize, f32) {
+        let f = ((p as f32 + 0.5) / k as f32 - 0.5).max(0.0);
+        let i0 = (f as usize).min(n2 - 1);
+        (i0, (i0 + 1).min(n2 - 1), f - i0 as f32)
+    };
+    let xs: Vec<(usize, usize, f32)> = (0..w).map(|x| pos(x, w2)).collect();
+    crate::for_each_band(buf, w * ob, |band, row0| {
+        for (i, row) in band.chunks_exact_mut(w * ob).enumerate() {
+            let (j0, j1, fy) = pos(row0 + i, h2);
+            let (r0, r1) = (&bl[j0 * w2 * 3..][..w2 * 3], &bl[j1 * w2 * 3..][..w2 * 3]);
+            for (x, px) in row.chunks_exact_mut(ob).enumerate() {
+                let (i0, i1, fx) = xs[x];
+                for c in 0..3 {
+                    let top = r0[i0 * 3 + c] + (r0[i1 * 3 + c] - r0[i0 * 3 + c]) * fx;
+                    let bot = r1[i0 * 3 + c] + (r1[i1 * 3 + c] - r1[i0 * 3 + c]) * fx;
+                    let b = top + (bot - top) * fy;
+                    let v = px[c] as f32;
+                    px[c] = u8r(v + g * (v - b));
+                }
+            }
+        }
+    });
+}
+
+/// Structure (see the top of this file), in place.
+fn structure(buf: &mut [u8], width: usize, height: usize, ob: usize, s: f64) {
     let mut y = vec![0f32; width * height];
     crate::for_each_band_t(&mut y, width, crate::BAND_ROWS, |band, r0| {
         let src = &buf[r0 * width * ob..][..band.len() * ob];
@@ -171,7 +297,6 @@ pub fn apply(buf: &mut [u8], width: usize, height: usize, ob: usize, sp: &Sharp)
             *o = (0.2126f32 * p[0] as f32 + 0.7152f32 * p[1] as f32 + 0.0722f32 * p[2] as f32) / 255.0f32;
         }
     });
-    let s = sp.structure;
     let (g, lim) = if s > 0.0 { (s * ST_POS_GAIN, ST_LIM_POS) } else { (s, ST_LIM_NEG) };
     let fine = fine3(&y, width, height, ST_EPS_A, ST_EPS_B, ST_C1A, ST_C1B);
     let r = st_radius(height);
@@ -207,7 +332,7 @@ mod tests {
         let (w, h) = (9, 7);
         let mut a: Vec<u8> = (0..w * h * 3).map(|i| (i * 37 % 256) as u8).collect();
         let orig = a.clone();
-        apply(&mut a, w, h, 3, &Sharp { structure: 0.0 });
+        apply(&mut a, w, h, 3, &Sharp { structure: 0.0, ..Default::default() });
         assert_eq!(a, orig);
         let yv: Vec<f32> = (0..w * h).map(|i| ((i * 7919) % 251) as f32 / 251.0).collect();
         let f = fine3(&yv, w, h, 1e-3, 1e-2, 0.7, -0.3);
@@ -218,7 +343,7 @@ mod tests {
             assert!((f[i] - want).abs() < 1e-5);
         }
         let mut flat = vec![120u8; w * h * 4];
-        apply(&mut flat, w, h, 4, &Sharp { structure: 1.0 });
+        apply(&mut flat, w, h, 4, &Sharp { structure: 1.0, ..Default::default() });
         assert!(flat.iter().all(|&v| v == 120));
     }
 
@@ -228,10 +353,27 @@ mod tests {
         let src: Vec<u8> = (0..w * h).flat_map(|i| { let v = if (i % w + i / w) % 2 == 0 { 110 } else { 130 }; [v, v, v] }).collect();
         let spread = |a: &[u8]| a.iter().map(|&v| (v as i32 - 120).abs()).sum::<i32>();
         let mut up = src.clone();
-        apply(&mut up, w, h, 3, &Sharp { structure: 1.0 });
+        apply(&mut up, w, h, 3, &Sharp { structure: 1.0, ..Default::default() });
         let mut dn = src.clone();
-        apply(&mut dn, w, h, 3, &Sharp { structure: -1.0 });
+        apply(&mut dn, w, h, 3, &Sharp { structure: -1.0, ..Default::default() });
         assert!(spread(&up) > spread(&src));
         assert!(spread(&dn) < spread(&src));
+    }
+
+    #[test]
+    fn local_contrast_flat_and_sign() {
+        let (w, h) = (120, 90);
+        let mut flat = vec![90u8; w * h * 3];
+        apply(&mut flat, w, h, 3, &Sharp { local_contrast: 1.0, ..Default::default() });
+        assert!(flat.iter().all(|&v| v == 90));
+        // left half dark, right half bright: + pushes them apart near the edge, - pulls them together
+        let src: Vec<u8> = (0..w * h).flat_map(|i| { let v = if i % w < w / 2 { 80 } else { 160 }; [v, v, v] }).collect();
+        let at = |a: &[u8], x: usize| a[(45 * w + x) * 3] as i32;
+        let mut up = src.clone();
+        apply(&mut up, w, h, 3, &Sharp { local_contrast: 1.0, ..Default::default() });
+        let mut dn = src.clone();
+        apply(&mut dn, w, h, 3, &Sharp { local_contrast: -1.0, ..Default::default() });
+        assert!(at(&up, w / 2 - 3) < 80 && at(&up, w / 2 + 3) > 160);
+        assert!(at(&dn, w / 2 - 3) > 80 && at(&dn, w / 2 + 3) < 160);
     }
 }

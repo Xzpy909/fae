@@ -64,7 +64,8 @@ kbd { font: 10px var(--mono); padding: 1px 4px; border-radius: 3px; border: 1px 
 .tb-left { display: flex; align-items: center; gap: 16px; min-width: 0; }
 .brand { flex: none; }
 #fileDims { white-space: nowrap; }
-#topbar > .tb-group:last-child { justify-self: end; }
+/* right column: Compare next to Zoom, the edit actions in the right corner */
+.tb-right { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .tb-label { font-size: 12px; color: var(--muted); padding: 0 4px; }
 #topbar button.icon.on { background: rgba(0, 240, 190, .18); border-color: rgba(0, 240, 190, .6); }
 #topbar button.icon.on svg { stroke: #fff; }

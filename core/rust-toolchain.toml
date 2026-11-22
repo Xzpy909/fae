@@ -1,0 +1,7 @@
+# Pinned so a Rust update can't break the threaded WASM build: it uses -C target-feature=+atomics
+# with RUSTC_BOOTSTRAP + build-std (build_core.bat), which newer compilers warn will become an error.
+# To move to a newer Rust: change the version here, run build_core.bat, then the parity tests.
+[toolchain]
+channel = "1.100.0"
+components = ["rust-src"]
+targets = ["wasm32-unknown-unknown"]

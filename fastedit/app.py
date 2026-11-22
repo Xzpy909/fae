@@ -10,13 +10,20 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .config import UI_DIR
 from .engine import ENGINE, collect, make_thumb
 from .api import Api
+from . import core
 
 
 # ---------------------------------------------------------------------------
 # Local HTTP server: UI files, raw preview pixels, thumbnails
 # ---------------------------------------------------------------------------
 MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-        ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png"}
+        ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png",
+        ".wasm": "application/wasm"}
+
+# Cross-origin isolation: lets the page use SharedArrayBuffer, which the multithreaded WebAssembly
+# preview needs. Everything is served from this server, so nothing cross-origin gets blocked.
+# FASTEDIT_COI=0 turns it off (the self-test page then shows "not isolated").
+COI = os.environ.get("FASTEDIT_COI", "1") != "0"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -28,6 +35,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "max-age=3600" if cache else "no-store")
+        if COI:
+            self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+            self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+            self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         self.end_headers()
         self.wfile.write(body)
 
@@ -74,10 +85,21 @@ def main():
 
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     debug = "--debug" in sys.argv
+    selftest = "--selftest" in sys.argv
+    page = "selftest.html" if selftest else ""     # Rust core / WASM / isolation checks
+    if not core.available() and not selftest:      # no NumPy fallback any more: say how to build it
+        msg = (core.error() or "").replace("&", "&amp;").replace("<", "&lt;")
+        webview.create_window("Fast Image Editor", html=(
+            "<body style='background:#0e0f11;color:#ddd;font:15px system-ui;margin:40px'>"
+            "<h2 style='font-weight:600'>The Rust core is missing</h2>"
+            f"<p>{msg}</p><p style='color:#888'>Then start the editor again.</p></body>"),
+            width=760, height=300, background_color="#0e0f11")
+        webview.start()
+        return
     api = Api(args)
     port = start_server()
     window = webview.create_window(
-        "Fast Image Editor", f"http://127.0.0.1:{port}/", js_api=api,
+        "Fast Image Editor", f"http://127.0.0.1:{port}/{page}", js_api=api,
         width=1560, height=940, min_size=(1100, 680), background_color="#0e0f11",
     )
     api.set_window(window)

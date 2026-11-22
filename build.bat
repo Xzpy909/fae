@@ -6,6 +6,9 @@ cd /d "%~dp0"
 python -m pip install -U pyinstaller || goto :fail
 python -m pip install -r requirements.txt || goto :fail
 
+rem Rust core (required: the app has no NumPy / JS fallback)
+call core\build_core.bat || goto :fail
+
 set ICON=
 if exist app.ico set ICON=--icon app.ico
 

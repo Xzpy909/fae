@@ -24,8 +24,28 @@ function editChanged() {
 function render() {
   const I = S.img;
   if (!I || !S.E) { drawCurve(); drawHisto(); return; }
-  const n = I.pw * I.ph;
-  processPixels(I.base, S.outData.data, n, S.E, true, I.mdB, { w: I.pw, h: I.ph });
+  const n = I.pw * I.ph, E = S.E;
+  // same image and edit as the pixels in S.outData (only the view changed: before, Alt, compare line)
+  if (S.rendered && S.rendered.I === I && S.rendered.E === E) { present(n); return; }
+  if (!WP.ready()) {                // the core is starting (it asks for a render when ready) or missing
+    if (WP.failed()) {              // missing: show the unedited image (WP has said why)
+      S.outData.data.set(I.base);
+      S.hin.fill(0); S.hout.fill(0); S.hmx.fill(0); S.hmn.fill(0);
+      present(n);
+    }
+    return;
+  }
+  WP.render(I, E, r => {            // the Rust core in its worker (wasm-preview.js); shown when it's done
+    if (S.img !== I || !S.outData || r.out.byteLength !== S.outData.data.length) return;   // image changed meanwhile
+    S.outData.data.set(new Uint8Array(r.out));
+    S.hin.set(r.hin); S.hout.set(r.hout); S.hmx.set(r.hmx); S.hmn.set(r.hmn);
+    S.rendered = { I, E };
+    present(n);
+  });
+}
+
+// everything after the pixels: view modes, canvas, histogram, curve, HUD, loupe, compare
+function present(n) {
   S.n = n;
   const mode = viewMode();
   let disp = S.outData;

@@ -1,0 +1,13 @@
+[package]
+name = "fastedit-wasm"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+fastedit-core = { path = "../fastedit-core", features = ["parallel"] }
+wasm-bindgen = "0.2"
+# thread pool from Web Workers over shared memory (needs the atomics build, see build_core.bat)
+wasm-bindgen-rayon = { version = "1.3", features = ["no-bundler"] }

@@ -26,3 +26,11 @@ dist/
 # local leftovers from refactoring
 _backup_before_split/
 _to_delete/
+
+# Rust core build output (core\build_core.bat)
+core/target/
+ui/wasm/
+
+# parity tests: generated cases, golden PNGs, own test images
+tests/parity/.work/
+tests/parity/images/

@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 from .config import HIRES_MAX_MP, IMAGE_EXTS, PREVIEW_MAX, SETTINGS_PATH, StageParams
 from .geometry import fit_scale
-from .edit import apply_edit, apply_mid_detail, md_base, md_radius, rgb_luma01
+from . import core
 from .engine import ENGINE, Entry, collect
 from .proc import Cancelled, _PREV, _TL, check_cancel, preview_begin
 from .jpeg import jpegli_available
@@ -108,17 +108,13 @@ class Api:
             rgba = np.empty((ph, pw, 4), dtype=np.uint8)
             rgba[..., :3] = np.asarray(pv)
             rgba[..., 3] = 255
-            token = ENGINE.put_preview(rgba.tobytes(), pw, ph)
-            # Mid/Detail smoothing at preview size (radius scaled from the full output height)
-            pv_rgb = rgba[..., :3]
-            mdb = md_base(rgb_luma01(pv_rgb), md_radius(ph))
-            md_token = ENGINE.put_preview(mdb.astype(np.float32).tobytes(), pw, ph)
+            token = ENGINE.put_preview(rgba.tobytes(), pw, ph)   # the preview core does Mid/Detail itself
             with ENGINE.lock:
                 if req_id >= ENGINE.latest_req:
                     ENGINE.latest_req = req_id
                     ENGINE.current = {"path": path, "rgb": rgb, "req": req_id}
             return {
-                "ok": True, "req_id": req_id, "token": token, "md_token": md_token,
+                "ok": True, "req_id": req_id, "token": token,
                 "w": w, "h": h, "pw": pw, "ph": ph, "lo_pw": _pv_size(w, h)[0], "full": bool(full),
                 "src_w": e.base.size[0], "src_h": e.base.size[1],
                 "alpha": img.mode == "RGBA",
@@ -166,13 +162,17 @@ class Api:
         e, img = ENGINE.stage(job.get("path"), P)
         alpha = img.getchannel("A") if img.mode == "RGBA" else None
         rgb = np.ascontiguousarray(np.asarray(img.convert("RGB")))
-        md = (job.get("edit") or {}).get("md")
-        if md:
-            rgb = apply_mid_detail(rgb, float(md))
-        out = Image.fromarray(apply_edit(rgb, job.get("edit")))
+        out = Image.fromarray(core.render(rgb, job.get("edit")))     # Rust core where it can, else NumPy
         if alpha is not None:
             out.putalpha(alpha)
         return e, out
+
+    def core_info(self):
+        """Rust core status + a quick NumPy comparison (self-test page)."""
+        try:
+            return core.selftest()
+        except Exception as ex:
+            return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
 
     def encoder_info(self):
         return {"jpegli": jpegli_available(), "avif": avif_available(), "svt": svt_available()}

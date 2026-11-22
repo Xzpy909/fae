@@ -45,6 +45,8 @@ const TN: usize = 4096;
 pub struct Sharp {
     /// Adaptive Sharpening 0..1
     pub adaptive: f64,
+    /// Balance Sharpening -1 (areas) .. 1 (edges), shifts Adaptive Sharpening
+    pub balance: f64,
     pub structure: f64,
     pub local_contrast: f64,
     pub focus: f64,
@@ -55,7 +57,7 @@ pub struct Sharp {
 
 impl Default for Sharp {
     fn default() -> Self {
-        Sharp { adaptive: 0.0, structure: 0.0, local_contrast: 0.0, focus: 0.0, scale: 1.0 }
+        Sharp { adaptive: 0.0, balance: 0.0, structure: 0.0, local_contrast: 0.0, focus: 0.0, scale: 1.0 }
     }
 }
 
@@ -93,6 +95,46 @@ pub const FO_MIX: f32 = 0.96;
 pub const AS_SIGMA: f64 = 1.93;
 pub const AS_GAIN: f64 = 1.78;
 pub const AS_RAMP: f64 = 0.85;
+
+/// Balance Sharpening (shape taken from a second program's renders at balance -100 / 0 / 100, as a
+/// ratio to its own balance 0): Adaptive Sharpening's gain is multiplied per pixel by
+/// w = 1 + |b| * (W(t) - 1), t = log2(1 + |grad luma|) (Sobel / 8, 0..255 scale),
+///   b > 0 (edges): W = BS_P0 + BS_P1 * t            (flat ~0.8, strong edges ~2.2)
+///   b < 0 (areas): W = BS_M0 * exp(-BS_MK * t) + BS_MC + BS_MD * t   (flat ~2.2, strong edges < 0: softened)
+pub const BS_P0: f32 = 0.634;
+pub const BS_P1: f32 = 0.283;
+pub const BS_M0: f32 = 4.942;
+pub const BS_MK: f32 = 2.257;
+pub const BS_MC: f32 = 1.102;
+pub const BS_MD: f32 = -0.285;
+
+/// Per pixel Balance weight (see BS_*), from the luma gradient of `buf`.
+fn balance_weights(buf: &[u8], w: usize, h: usize, ob: usize, b: f32) -> Vec<f32> {
+    let mut yl = vec![0f32; w * h];
+    crate::for_each_band_t(&mut yl, w.max(1), crate::BAND_ROWS, |band, r0| {
+        let src = &buf[r0 * w * ob..][..band.len() * ob];
+        for (o, p) in band.iter_mut().zip(src.chunks_exact(ob)) {
+            *o = 0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32;
+        }
+    });
+    let lum = |x: usize, y: usize| -> f32 { yl[y * w + x] };
+    let mut out = vec![1f32; w * h];
+    crate::for_each_band_t(&mut out, w.max(1), crate::BAND_ROWS, |band, r0| {
+        for (i, row) in band.chunks_exact_mut(w).enumerate() {
+            let y = r0 + i;
+            let (ym, yp) = (refl101(y as isize - 1, h), refl101(y as isize + 1, h));
+            for (x, o) in row.iter_mut().enumerate() {
+                let (xm, xp) = (refl101(x as isize - 1, w), refl101(x as isize + 1, w));
+                let gx = (lum(xp, ym) + 2.0 * lum(xp, y) + lum(xp, yp) - lum(xm, ym) - 2.0 * lum(xm, y) - lum(xm, yp)) / 8.0;
+                let gy = (lum(xm, yp) + 2.0 * lum(x, yp) + lum(xp, yp) - lum(xm, ym) - 2.0 * lum(x, ym) - lum(xp, ym)) / 8.0;
+                let t = (1.0 + (gx * gx + gy * gy).sqrt()).log2();
+                let wt = if b > 0.0 { BS_P0 + BS_P1 * t } else { BS_M0 * (-BS_MK * t).exp() + BS_MC + BS_MD * t };
+                *o = 1.0 + b.abs() * (wt - 1.0);
+            }
+        }
+    });
+    out
+}
 
 /// Coarse Structure radius for an image `height` pixels high.
 pub fn st_radius(height: usize) -> usize {
@@ -211,9 +253,12 @@ pub fn apply(buf: &mut [u8], width: usize, height: usize, ob: usize, sp: &Sharp)
         let a = sp.adaptive.min(1.0);
         let g = (AS_GAIN * (a / 0.5).min(1.0).powf(AS_RAMP)) as f32;
         let id: [f32; 256] = core::array::from_fn(|i| i as f32);
-        blur_map(buf, width, height, ob, AS_SIGMA * a * sp.scale.clamp(1e-3, 1.0e3), &id, |c, b| {
+        let bal = sp.balance.clamp(-1.0, 1.0) as f32;
+        let wts = if bal != 0.0 { balance_weights(buf, width, height, ob, bal) } else { Vec::new() };
+        blur_map(buf, width, height, ob, AS_SIGMA * a * sp.scale.clamp(1e-3, 1.0e3), &id, |c, b, j| {
             let v = c as f32;
-            u8r(v + g * (v - b))
+            let gw = if wts.is_empty() { g } else { g * wts[j] };
+            u8r(v + gw * (v - b))
         });
     }
     if sp.structure != 0.0 {
@@ -256,7 +301,7 @@ fn refl101(i: isize, n: usize) -> usize {
 /// bilinearly.
 pub fn blur_map<F>(buf: &mut [u8], w: usize, h: usize, ob: usize, sigma: f64, tab: &[f32; 256], f: F)
 where
-    F: Fn(u8, f32) -> u8 + Sync + Send,
+    F: Fn(u8, f32, usize) -> u8 + Sync + Send,
 {
     let src = buf.to_vec();
     let k = if sigma >= 3.0 { ((sigma / 1.5).round() as usize).max(1) } else { 1 };
@@ -292,10 +337,11 @@ where
                     let l = &hb[(i + j) * w * 3..][..w * 3];
                     acc.iter_mut().zip(l).for_each(|(o, v)| *o += kv * v);
                 }
+                let p0 = (row0 + i) * w;
                 for (x, px) in orow.chunks_exact_mut(ob).enumerate() {
-                    px[0] = f(px[0], acc[x * 3]);
-                    px[1] = f(px[1], acc[x * 3 + 1]);
-                    px[2] = f(px[2], acc[x * 3 + 2]);
+                    px[0] = f(px[0], acc[x * 3], p0 + x);
+                    px[1] = f(px[1], acc[x * 3 + 1], p0 + x);
+                    px[2] = f(px[2], acc[x * 3 + 2], p0 + x);
                 }
             }
         });
@@ -363,12 +409,13 @@ where
         for (i, row) in band.chunks_exact_mut(w * ob).enumerate() {
             let (j0, j1, fy) = pos(row0 + i, h2);
             let (r0, r1) = (&bl[j0 * w2 * 3..][..w2 * 3], &bl[j1 * w2 * 3..][..w2 * 3]);
+            let p0 = (row0 + i) * w;
             for (x, px) in row.chunks_exact_mut(ob).enumerate() {
                 let (i0, i1, fx) = xs[x];
                 for c in 0..3 {
                     let top = r0[i0 * 3 + c] + (r0[i1 * 3 + c] - r0[i0 * 3 + c]) * fx;
                     let bot = r1[i0 * 3 + c] + (r1[i1 * 3 + c] - r1[i0 * 3 + c]) * fx;
-                    px[c] = f(px[c], top + (bot - top) * fy);
+                    px[c] = f(px[c], top + (bot - top) * fy, p0 + x);
                 }
             }
         }
@@ -380,7 +427,7 @@ pub fn focus(buf: &mut [u8], w: usize, h: usize, ob: usize, s: f64, scale: f64) 
     if s > 0.0 {
         let id: [f32; 256] = core::array::from_fn(|i| i as f32);
         let g = FO_POS * s as f32;
-        blur_map(buf, w, h, ob, FO_SIGMA_POS * scale, &id, |c, b| {
+        blur_map(buf, w, h, ob, FO_SIGMA_POS * scale, &id, |c, b, _| {
             let v = c as f32;
             u8r(v + g * (v - b))
         });
@@ -390,7 +437,7 @@ pub fn focus(buf: &mut [u8], w: usize, h: usize, ob: usize, s: f64, scale: f64) 
     let fwd: [f32; 256] = core::array::from_fn(|v| libm::pow(v as f64 / 255.0, FO_GAMMA) as f32);
     const NB: usize = 4096;
     let back: Vec<f32> = (0..=NB).map(|i| (255.0 * libm::pow(i as f64 / NB as f64, 4.0 / FO_GAMMA)) as f32).collect();
-    blur_map(buf, w, h, ob, FO_SIGMA_NEG * (-s).powf(FO_SIGMA_EXP) * scale, &fwd, |c, b| {
+    blur_map(buf, w, h, ob, FO_SIGMA_NEG * (-s).powf(FO_SIGMA_EXP) * scale, &fwd, |c, b, _| {
         let q = b.max(0.0).sqrt().sqrt() * NB as f32;
         let qi = (q as usize).min(NB - 1);
         let bs = back[qi] + (back[qi + 1] - back[qi]) * (q - qi as f32);
@@ -595,7 +642,7 @@ mod tests {
         let id: [f32; 256] = core::array::from_fn(|i| i as f32);
         for sigma in [3.0, 5.0] {
             let mut a = ramp.clone();
-            blur_map(&mut a, w, h, 3, sigma, &id, |_, b| (b + 0.5) as u8);
+            blur_map(&mut a, w, h, 3, sigma, &id, |_, b, _| (b + 0.5) as u8);
             for y in 10..h - 10 {
                 for x in 16..w - 16 {
                     let i = (y * w + x) * 3;

@@ -337,11 +337,11 @@ function scParams(e) {
   return (cast > 0 || cc > 0 || dyn > 0 || shl) && op > 0 ? { cast, cc, dyn, op, dk: DC_KERNEL, shl } : null;
 }
 
-/* Sharpen tool (core: sharp.rs, after everything else); null = off. All four sliders are live (Type has
-   only Display so far). The preview adds its own scale (wasm-preview.js), because the blurs are a fixed
+/* Sharpen tool (core: sharp.rs, after everything else); null = off. All sliders are live (Balance
+   Sharpening shifts Adaptive Sharpening between flat areas and edges). The preview adds its own scale (wasm-preview.js), because the blurs are a fixed
    size in output pixels. */
 function sharpParams(e) {
-  const as = (Number(e.shp_adaptive) || 0) / 100, st = (Number(e.shp_structure) || 0) / 100,
+  const as = (Number(e.shp_adaptive) || 0) / 100, bs = (Number(e.shp_balance) || 0) / 100, st = (Number(e.shp_structure) || 0) / 100,
     lc = (Number(e.shp_local) || 0) / 100, fo = (Number(e.shp_focus) || 0) / 100;
-  return as || st || lc || fo ? { as, st, lc, fo } : null;
+  return as || st || lc || fo ? { as, bs, st, lc, fo } : null;      // Balance only shifts Adaptive Sharpening
 }

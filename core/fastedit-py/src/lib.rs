@@ -74,7 +74,7 @@ fn md_base<'py>(py: Python<'py>, rgb: PyReadonlyArray3<'py, u8>) -> PyResult<Bou
     Ok(PyArray2::from_owned_array(py, numpy::ndarray::Array2::from_shape_vec((h, w), b).unwrap()))
 }
 
-/// apply_edit(rgb, luts, point, k, o, gains, wb, con, tones, boost, sat, bw, film, sc, md=None, hist=False, adaptive=0.0, structure=0.0, local_contrast=0.0, focus=0.0, sharp_scale=1.0)
+/// apply_edit(rgb, luts, point, k, o, gains, wb, con, tones, boost, sat, bw, film, sc, md=None, hist=False, adaptive=0.0, balance=0.0, structure=0.0, local_contrast=0.0, focus=0.0, sharp_scale=1.0)
 ///   -> HxWx3 uint8, or (image, hin, hout, hmx, hmn) with hist=True
 ///
 /// The whole edit after the stage: Mid/Detail (md = amount; the smoothing is computed here),
@@ -83,11 +83,11 @@ fn md_base<'py>(py: Python<'py>, rgb: PyReadonlyArray3<'py, u8>) -> PyResult<Bou
 ///   rgb HxWx3 uint8 (C-contiguous), luts 3x256 uint8, gains [3] | None, wb 3x3 float64 | None,
 ///   con / boost float64 arrays | None, tones [(float64 array, ratio)], sat float | None,
 ///   bw (s, op, [3] | None, ps, psk | None) | None, film (n, d | None, t1 | None, op) | None,
-///   sc (cast, cc, dyn, op, dk | None, shl | None) | None, adaptive (0..1) / structure / local_contrast / focus (-1..1) = Sharpen sliders (0 = off),
+///   sc (cast, cc, dyn, op, dk | None, shl | None) | None, adaptive (0..1), balance (-1 areas..1 edges) / structure / local_contrast / focus (-1..1) = Sharpen sliders (0 = off),
 ///   sharp_scale = pixels of this image per output pixel (1 for Process)
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
-#[pyo3(signature = (rgb, luts, point, k, o, gains, wb, con, tones, boost, sat, bw, film, sc, md=None, hist=false, adaptive=0.0, structure=0.0, local_contrast=0.0, focus=0.0, sharp_scale=1.0))]
+#[pyo3(signature = (rgb, luts, point, k, o, gains, wb, con, tones, boost, sat, bw, film, sc, md=None, hist=false, adaptive=0.0, balance=0.0, structure=0.0, local_contrast=0.0, focus=0.0, sharp_scale=1.0))]
 fn apply_edit<'py>(
     py: Python<'py>,
     rgb: PyReadonlyArray3<'py, u8>,
@@ -107,6 +107,7 @@ fn apply_edit<'py>(
     md: Option<f64>,
     hist: bool,
     adaptive: f64,
+    balance: f64,
     structure: f64,
     local_contrast: f64,
     focus: f64,
@@ -189,7 +190,7 @@ fn apply_edit<'py>(
             None => None,
         },
         luts: fe::luts_from_flat(lv).unwrap(),
-        sharp: fe::sharp::Sharp { adaptive, structure, local_contrast, focus, scale: sharp_scale },
+        sharp: fe::sharp::Sharp { adaptive, balance, structure, local_contrast, focus, scale: sharp_scale },
     };
     edit.validate().map_err(PyValueError::new_err)?;
     let mut buf = vec![0u8; src.len()];

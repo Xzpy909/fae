@@ -67,11 +67,11 @@ const FILTERS = [
 ];
 /* Sharpen: a main tool of its own (pill after Resize, not inside the Filters group), same field format as FILTERS
    plus { head } sub-headings. All sliders are live (sharpParams in edit-math.js); Structure is an
-   approximation (≈). Balance Sharpening is a PLACEHOLDER (stored, not applied yet). */
+   approximation (≈); Balance Sharpening shifts Adaptive Sharpening between areas and edges. */
 const SHARPEN = { sec: 'sharpen', fields: [
   { head: 'Sharpening' },
   ['shp_adaptive', 'Adaptive Sharpening', 0, 0, 100, 1, 0, '%'],
-  ['shp_balance', 'Balance Sharpening', 0, -100, 100, 1, 0, '%'],      // -100 areas … 100 edges (not applied yet)
+  ['shp_balance', 'Balance Sharpening', 0, -100, 100, 1, 0, '%'],      // -100 areas … 100 edges (shifts Adaptive Sharpening)
   { head: 'Sharpening+' },
   ['shp_structure', 'Structure ≈', 0, -100, 100, 1, 0, '%'],
   ['shp_local', 'Local Contrast', 0, -100, 100, 1, 0, '%'],

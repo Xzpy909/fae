@@ -66,8 +66,8 @@ const FILTERS = [
   ] },
 ];
 /* Sharpen: a main tool of its own (pill after Resize, not inside the Filters group), same field format as FILTERS
-   plus { head } sub-headings. Structure (an approximation: ≈), Local Contrast and Focus are live (sharpParams
-   in edit-math.js); Adaptive Sharpening is a PLACEHOLDER so far: stored per image, not applied. */
+   plus { head } sub-headings. All sliders are live (sharpParams in edit-math.js); Structure is an
+   approximation (≈). Type has only Display so far. */
 const SHARPEN = { sec: 'sharpen', fields: [
   { head: 'Sharpening' },
   { type: 'select', key: 'shp_type', label: 'Type', def: 'display', options: [['display', 'Display']] },

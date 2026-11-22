@@ -43,6 +43,8 @@ const TN: usize = 4096;
 /// Sharpen settings (sliders -1..1, 0 = off).
 #[derive(Clone, Copy)]
 pub struct Sharp {
+    /// Adaptive Sharpening 0..1
+    pub adaptive: f64,
     pub structure: f64,
     pub local_contrast: f64,
     pub focus: f64,
@@ -53,13 +55,13 @@ pub struct Sharp {
 
 impl Default for Sharp {
     fn default() -> Self {
-        Sharp { structure: 0.0, local_contrast: 0.0, focus: 0.0, scale: 1.0 }
+        Sharp { adaptive: 0.0, structure: 0.0, local_contrast: 0.0, focus: 0.0, scale: 1.0 }
     }
 }
 
 impl Sharp {
     pub fn active(&self) -> bool {
-        self.structure != 0.0 || self.local_contrast != 0.0 || self.focus != 0.0
+        self.adaptive > 0.0 || self.structure != 0.0 || self.local_contrast != 0.0 || self.focus != 0.0
     }
 }
 
@@ -84,6 +86,13 @@ pub const FO_GAMMA: f64 = 3.8;
 pub const FO_SIGMA_NEG: f64 = 5.44;
 pub const FO_SIGMA_EXP: f64 = 1.86;
 pub const FO_MIX: f32 = 0.96;
+
+/// Adaptive Sharpening, Type Display (fitted to reference renders at 25 / 50 / 75 / 100 on one image,
+/// 100 on two more; mean error 0.4-3 levels): per channel unsharp mask whose radius grows with the
+/// slider, sigma = AS_SIGMA * s px, gain = AS_GAIN * min(1, s / 0.5)^AS_RAMP. Fixed size in output px.
+pub const AS_SIGMA: f64 = 1.93;
+pub const AS_GAIN: f64 = 1.78;
+pub const AS_RAMP: f64 = 0.85;
 
 /// Coarse Structure radius for an image `height` pixels high.
 pub fn st_radius(height: usize) -> usize {
@@ -193,10 +202,19 @@ fn u8r(v: f32) -> u8 {
 }
 
 /// In place on `buf` (`ob` = 3 or 4 bytes per pixel, alpha left alone), `width` pixels per row:
-/// Structure, then Local Contrast.
+/// Adaptive Sharpening, Structure, Local Contrast, Focus.
 pub fn apply(buf: &mut [u8], width: usize, height: usize, ob: usize, sp: &Sharp) {
     if !sp.active() || width == 0 || height == 0 {
         return;
+    }
+    if sp.adaptive > 0.0 {
+        let a = sp.adaptive.min(1.0);
+        let g = (AS_GAIN * (a / 0.5).min(1.0).powf(AS_RAMP)) as f32;
+        let id: [f32; 256] = core::array::from_fn(|i| i as f32);
+        blur_map(buf, width, height, ob, AS_SIGMA * a * sp.scale.clamp(1e-3, 1.0e3), &id, |c, b| {
+            let v = c as f32;
+            u8r(v + g * (v - b))
+        });
     }
     if sp.structure != 0.0 {
         structure(buf, width, height, ob, sp.structure);

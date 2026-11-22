@@ -227,7 +227,7 @@
       <section class="card sec" data-sec="sharpen">
         <div class="card-head"><span>Sharpen</span><button id="resetShp" class="rst all" title="Reset Sharpen"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
         <div id="shpFields"></div>
-        <div class="hint">Runs last, on the output pixels. Structure ≈ is an approximation of the reference (fine texture and local structure, edges kept); Local Contrast and Focus match it closely (Local Contrast: a wide unsharp mask, negative values give a soft glow; Focus: fine sharpening, negative values a lens-like blur). Order: Structure, Local Contrast, Focus. Adaptive Sharpening is a placeholder: saved, not applied yet.</div>
+        <div class="hint">Runs last, on the output pixels. Structure ≈ is an approximation of the reference (fine texture and local structure, edges kept); Local Contrast and Focus match it closely (Local Contrast: a wide unsharp mask, negative values give a soft glow; Focus: fine sharpening, negative values a lens-like blur). Adaptive Sharpening: an unsharp mask whose radius grows with the amount. Order: Adaptive Sharpening, Structure, Local Contrast, Focus.</div>
       </section>
 
       <section class="card sec" data-sec="color">

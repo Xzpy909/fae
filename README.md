@@ -6,7 +6,7 @@ Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/J
 
 ## Preview
 
-![img](https://github.com/Xzpy909/fast-image-editor/blob/main/preview%201.jpg?raw=true)
+![img](https://github.com/Xzpy909/fast-image-editor/blob/main/preview%201.webp?raw=true)
 
 ## Features
 

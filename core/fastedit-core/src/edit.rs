@@ -67,6 +67,8 @@ pub struct Edit<'a> {
     pub film: Option<Film<'a>>,
     pub sc: Option<Sc<'a>>,
     pub luts: [[u8; 256]; 3],
+    /// Sharpen tool, after everything else (sharp.rs); off when not active
+    pub sharp: crate::sharp::Sharp,
 }
 
 impl Edit<'_> {
@@ -368,10 +370,28 @@ pub fn apply_ex(src: &[u8], dst: &mut [u8], width: usize, ob: usize, e: &Edit, w
             hist
         })),
     };
-    match &e.sc {
+    let h = match &e.sc {
         Some(sc) => crate::sc::finish(dst, width, height, ob, sc, &e.luts, want_hist),
         None => h,
+    };
+    if !e.sharp.active() {
+        return h;
     }
+    // Sharpen works on the finished pixels; the output histograms are counted again afterwards
+    crate::sharp::apply(dst, width, height, ob, &e.sharp);
+    h.map(|mut h| {
+        h.hout.fill(0);
+        h.hmx.fill(0);
+        h.hmn.fill(0);
+        for p in dst.chunks_exact(ob) {
+            h.hout[p[0] as usize] += 1;
+            h.hout[256 + p[1] as usize] += 1;
+            h.hout[512 + p[2] as usize] += 1;
+            h.hmx[p[0].max(p[1]).max(p[2]) as usize] += 1;
+            h.hmn[p[0].min(p[1]).min(p[2]) as usize] += 1;
+        }
+        h
+    })
 }
 
 #[cfg(test)]
@@ -385,7 +405,7 @@ mod tests {
 
     fn empty<'a>() -> Edit<'a> {
         Edit { md: None, point: false, k: 1.0, o: 0.0, gains: None, wb: None, con: None, tones: vec![], boost: None,
-               sat: None, bw: None, film: None, sc: None, luts: ident() }
+               sat: None, bw: None, film: None, sc: None, luts: ident(), sharp: Default::default() }
     }
 
     #[test]

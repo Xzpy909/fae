@@ -12,6 +12,7 @@ pub mod edit;
 pub mod md;
 pub mod ps;
 pub mod sc;
+pub mod sharp;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

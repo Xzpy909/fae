@@ -66,13 +66,14 @@ const FILTERS = [
   ] },
 ];
 /* Sharpen: a main tool of its own (pill after Resize, not inside the Filters group), same field format as FILTERS
-   plus { head } sub-headings. PLACEHOLDER: the values are stored per image but not applied yet (no math). */
+   plus { head } sub-headings. Structure is live (sharpParams in edit-math.js, an approximation: ≈);
+   the other sliders are PLACEHOLDERS so far: stored per image, not applied. */
 const SHARPEN = { sec: 'sharpen', fields: [
   { head: 'Sharpening' },
   { type: 'select', key: 'shp_type', label: 'Type', def: 'display', options: [['display', 'Display']] },
   ['shp_adaptive', 'Adaptive Sharpening', 0, 0, 100, 1, 0, '%'],
   { head: 'Sharpening+' },
-  ['shp_structure', 'Structure', 0, -100, 100, 1, 0, '%'],
+  ['shp_structure', 'Structure ≈', 0, -100, 100, 1, 0, '%'],
   ['shp_local', 'Local Contrast', 0, -100, 100, 1, 0, '%'],
   ['shp_focus', 'Focus', 0, -100, 100, 1, 0, '%'],
 ] };

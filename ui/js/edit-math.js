@@ -77,7 +77,8 @@ function computeEdit(e) {
   return { k, o, gains, luts, point, wb: wbMatrix(e.adj_temp, e.adj_tint), con: contrastTable(e.adj_contrast, e.adj_pivot),
     tones: tones.length ? tones : null,
     boost: boostGains(e.adj_boost), sat: satv === 50 ? null : satv / 50,
-    md: (Number(e.adj_middetail) || 0) / 100, bw: bwParams(e), film: filmParams(e), sc: scParams(e) };
+    md: (Number(e.adj_middetail) || 0) / 100, bw: bwParams(e), film: filmParams(e), sc: scParams(e),
+    sharp: sharpParams(e) };
 }
 /* Filter Film Effect - Brightness and Contrast, measured from reference renders (Brightness exact,
    Contrast within 1 level on 97-99% of pixels). Both are one tone curve for all three channels:
@@ -334,4 +335,11 @@ function scParams(e) {
   const shl = shLut((Number(e.flt_sc_shadows) || 0) / 100, (Number(e.flt_sc_highlights) || 0) / 100);
   const op = e.flt_sc_opacity == null ? 1 : Number(e.flt_sc_opacity) / 100;
   return (cast > 0 || cc > 0 || dyn > 0 || shl) && op > 0 ? { cast, cc, dyn, op, dk: DC_KERNEL, shl } : null;
+}
+
+/* Sharpen tool (core: sharp.rs, after everything else). Only Structure is live so far; null = off.
+   Adaptive Sharpening, Local Contrast and Focus are still placeholders (stored, not applied). */
+function sharpParams(e) {
+  const st = (Number(e.shp_structure) || 0) / 100;
+  return st ? { st } : null;
 }

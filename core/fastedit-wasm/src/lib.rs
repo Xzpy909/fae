@@ -63,6 +63,7 @@ pub struct Params {
     bw: Option<BwP>,
     film: Option<FilmP>,
     sc: Option<ScP>,
+    structure: f64,
 }
 
 #[wasm_bindgen]
@@ -130,6 +131,11 @@ impl Params {
         self.film = Some((n, d, t1, op));
     }
 
+    /// Sharpen: Structure -1..1 (0 = off)
+    pub fn set_sharp(&mut self, structure: f64) {
+        self.structure = structure;
+    }
+
     pub fn set_sc(&mut self, cast: f64, cc: f64, dyn_: f64, op: f64, dk: Vec<f64>, shl: Option<Vec<f64>>) {
         self.sc = Some((cast, cc, dyn_, op, dk, shl));
     }
@@ -172,6 +178,7 @@ impl Params {
                 let id: [u8; 256] = core::array::from_fn(|i| i as u8);
                 [id, id, id]
             }),
+            sharp: fastedit_core::sharp::Sharp { structure: self.structure },
         };
         e.validate().map_err(|m| JsError::new(&m))?;
         Ok(e)

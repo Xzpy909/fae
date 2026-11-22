@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-REQUIRED = (0, 4)          # extension version this file needs (bump with the API)
+REQUIRED = (0, 5)          # extension version this file needs (bump with the API)
 BUILD_HINT = r"run core\build_core.bat (needs Rust from https://rustup.rs)"
 
 try:
@@ -95,7 +95,8 @@ def render(rgb: np.ndarray, edit: dict | None, hist: bool = False):
     fc = _need()
     rgb = np.ascontiguousarray(rgb)
     md = float((edit or {}).get("md") or 0) or None
-    return fc.apply_edit(rgb, *_args(edit or {}), md, hist)
+    sharp = (edit or {}).get("sharp") or {}
+    return fc.apply_edit(rgb, *_args(edit or {}), md, hist, structure=float(sharp.get("st") or 0))
 
 
 def selftest() -> dict:

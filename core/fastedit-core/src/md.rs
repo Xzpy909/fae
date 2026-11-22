@@ -40,10 +40,16 @@ pub fn box_mean(src: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
             for t in -ri..=ri {
                 s += row[refl(t, w)] as f64;
             }
+            // mirrored indices only near the edges; same sums in the same order as refl() everywhere
             for (x, o) in out.iter_mut().enumerate() {
                 *o = s as f32;
-                let xi = x as isize;
-                s += row[refl(xi + ri + 1, w)] as f64 - row[refl(xi - ri, w)] as f64;
+                let (add, sub) = if x >= r && x + r + 1 < w {
+                    (x + r + 1, x - r)
+                } else {
+                    let xi = x as isize;
+                    (refl(xi + ri + 1, w), refl(xi - ri, w))
+                };
+                s += row[add] as f64 - row[sub] as f64;
             }
         }
     });
@@ -72,6 +78,11 @@ pub fn box_mean(src: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
 
 /// The smoothed luma Mid/Detail subtracts: guided filter of `y` (luma 0..1) with itself.
 pub fn guided(y: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
+    guided_eps(y, w, h, r, MD_EPS)
+}
+
+/// Self-guided filter with radius `r` and regularisation `eps` (also used by sharp.rs).
+pub fn guided_eps(y: &[f32], w: usize, h: usize, r: usize, eps: f32) -> Vec<f32> {
     let m = box_mean(y, w, h, r);
     let yy: Vec<f32> = y.iter().map(|v| v * v).collect();
     let mut a = box_mean(&yy, w, h, r);
@@ -79,7 +90,7 @@ pub fn guided(y: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
     let mut b = vec![0f32; y.len()];
     for i in 0..y.len() {
         let v = a[i] - m[i] * m[i];
-        let ai = v / (v + MD_EPS);
+        let ai = v / (v + eps);
         a[i] = ai;
         b[i] = m[i] - ai * m[i];
     }
@@ -87,6 +98,70 @@ pub fn guided(y: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
     let ma = box_mean(&a, w, h, r);
     let mb = box_mean(&b, w, h, r);
     ma.iter().zip(&mb).zip(y).map(|((a, b), y)| a * y + b).collect()
+}
+
+/// Fast guided filter (He & Sun 2015): the coefficients a, b are computed on a copy shrunk by
+/// `k` (k x k block means, radius r / k) and scaled back up bilinearly; out = a * y + b at full size.
+/// Close to guided_eps for large radii at about 1/k^2 of the box-filter work. Used by sharp.rs.
+pub fn guided_fast(y: &[f32], w: usize, h: usize, r: usize, eps: f32, k: usize) -> Vec<f32> {
+    if k <= 1 {
+        return guided_eps(y, w, h, r, eps);
+    }
+    let (w2, h2) = (w.div_ceil(k), h.div_ceil(k));
+    // block means (partial blocks at the right / bottom edge average what they have)
+    let mut sm = vec![0f32; w2 * h2];
+    crate::for_each_band_t(&mut sm, w2, 16, |band, r0| {
+        for (i, row) in band.chunks_exact_mut(w2).enumerate() {
+            let by = r0 + i;
+            let (y0, y1) = (by * k, ((by + 1) * k).min(h));
+            for (bx, o) in row.iter_mut().enumerate() {
+                let (x0, x1) = (bx * k, ((bx + 1) * k).min(w));
+                let mut s = 0f32;
+                for yy in y0..y1 {
+                    s += y[yy * w + x0..yy * w + x1].iter().sum::<f32>();
+                }
+                *o = s / ((y1 - y0) * (x1 - x0)) as f32;
+            }
+        }
+    });
+    let r2 = ((r as f64 / k as f64).round() as usize).max(1);
+    let m = box_mean(&sm, w2, h2, r2);
+    let yy: Vec<f32> = sm.iter().map(|v| v * v).collect();
+    let mut a = box_mean(&yy, w2, h2, r2);
+    let mut b = vec![0f32; sm.len()];
+    for i in 0..sm.len() {
+        let v = a[i] - m[i] * m[i];
+        let ai = v / (v + eps);
+        a[i] = ai;
+        b[i] = m[i] - ai * m[i];
+    }
+    let ma = box_mean(&a, w2, h2, r2);
+    let mb = box_mean(&b, w2, h2, r2);
+    // bilinear between block centres, clamped at the borders
+    let pos = |p: usize, n2: usize| -> (usize, usize, f32) {
+        let f = ((p as f32 + 0.5) / k as f32 - 0.5).max(0.0);
+        let i0 = (f as usize).min(n2 - 1);
+        let i1 = (i0 + 1).min(n2 - 1);
+        (i0, i1, f - i0 as f32)
+    };
+    let xs: Vec<(usize, usize, f32)> = (0..w).map(|x| pos(x, w2)).collect();
+    let mut out = vec![0f32; w * h];
+    crate::for_each_band_t(&mut out, w, BAND, |band, row0| {
+        for (i, row) in band.chunks_exact_mut(w).enumerate() {
+            let yi = row0 + i;
+            let (j0, j1, fy) = pos(yi, h2);
+            for (x, o) in row.iter_mut().enumerate() {
+                let (i0, i1, fx) = xs[x];
+                let lerp = |t: &[f32]| {
+                    let top = t[j0 * w2 + i0] + (t[j0 * w2 + i1] - t[j0 * w2 + i0]) * fx;
+                    let bot = t[j1 * w2 + i0] + (t[j1 * w2 + i1] - t[j1 * w2 + i0]) * fx;
+                    top + (bot - top) * fy
+                };
+                *o = lerp(&ma) * y[yi * w + x] + lerp(&mb);
+            }
+        }
+    });
+    out
 }
 
 /// Everything Mid/Detail needs from an RGB image: luma, then the guided filter at md_radius(h).

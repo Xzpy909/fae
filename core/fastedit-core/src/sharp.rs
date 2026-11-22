@@ -2,9 +2,11 @@
 //!
 //! Structure ≈ (APPROXIMATION, fitted to reference renders of a game screenshot at -100 / -50 / 50 / 100
 //! and a photo at 100, not pixel exact):
-//!   detail = 255 * (ST_C1A * (y - g3(y, ST_EPS_A)) + ST_C1B * (y - g3(y, ST_EPS_B)) + ST_C2 * (y - guided(y, R)))
+//!   detail = 255 * (ST_C1A * (y - g3(y, ST_EPS_A)) + ST_C1B * (y - g3(y, ST_EPS_B))
+//!                  + ST_CM * (y - guided(y, Rm)) + ST_C2 * (y - guided(y, R))) * exp(ST_TILT * (y - 0.5))
 //! g3 = 3x3 guided filter. The two fine terms together boost fine edges but not low-amplitude fine detail
-//! (sensor noise / grain stays as it is).
+//! (sensor noise / grain stays as it is). The tilt gives darker areas a little more detail than bright ones.
+//! Fitted on three images (two game screenshots, one photo).
 //!   g      = s * ST_POS_GAIN for s > 0, s for s < 0           (s = slider / 100)
 //!   d      = A * tanh(g * detail / A)                          (A = ST_LIM_POS / ST_LIM_NEG)
 //!   out_c  = c + d                                             (same offset on R, G, B)
@@ -20,14 +22,20 @@ pub const ST_EPS: f32 = 3e-3;
 pub const ST_R_1440: f64 = 29.0;
 /// the coarse filter runs on a copy shrunk so that its radius is about this many pixels
 pub const ST_FAST_R: usize = 12;
+/// same for the mid filter
+pub const ST_FAST_RM: usize = 8;
 pub const ST_EPS_A: f32 = 1e-3;
 pub const ST_EPS_B: f32 = 1e-2;
-pub const ST_C1A: f32 = -0.5;
-pub const ST_C1B: f32 = 1.0;
-pub const ST_C2: f32 = 1.4;
-pub const ST_POS_GAIN: f64 = 1.75;
-pub const ST_LIM_POS: f64 = 42.0;
-pub const ST_LIM_NEG: f64 = 18.0;
+pub const ST_C1A: f32 = -0.67;
+pub const ST_C1B: f32 = 0.88;
+pub const ST_CM: f32 = 0.52;
+pub const ST_C2: f32 = 0.94;
+pub const ST_TILT: f32 = -0.47;
+/// mid radius at 1440 px height
+pub const ST_RM_1440: f64 = 10.0;
+pub const ST_POS_GAIN: f64 = 2.0;
+pub const ST_LIM_POS: f64 = 38.0;
+pub const ST_LIM_NEG: f64 = 20.0;
 /// tanh table: TQ steps per level over detail -TN/TQ .. TN/TQ (beyond that d is constant)
 const TQ: f64 = 4.0;
 const TN: usize = 4096;
@@ -46,7 +54,11 @@ impl Sharp {
 
 /// Coarse Structure radius for an image `height` pixels high.
 pub fn st_radius(height: usize) -> usize {
-    ((ST_R_1440 * height as f64 / 1440.0).round_ties_even() as usize).max(1)
+    rad(ST_R_1440, height)
+}
+
+fn rad(at_1440: f64, height: usize) -> usize {
+    ((at_1440 * height as f64 / 1440.0).round_ties_even() as usize).max(1)
 }
 
 /// reflect-101 index for the 3x3 window
@@ -134,9 +146,17 @@ pub fn fine3(y: &[f32], w: usize, h: usize, eps_a: f32, eps_b: f32, ca: f32, cb:
     out
 }
 
+/// exp(ST_TILT * (y - 0.5)) for y in 0..1: |argument| <= 0.24, so 4 terms are within 1e-4
 #[inline(always)]
-fn u8r(v: f64) -> u8 {
-    (v + 0.5).floor().clamp(0.0, 255.0) as u8
+fn tilt(y: f32) -> f32 {
+    let u = ST_TILT * (y - 0.5);
+    1.0 + u * (1.0 + u * (0.5 + u * (1.0 / 6.0)))
+}
+
+/// round half up into 0..255 (clamp first, then truncate: no floor() call)
+#[inline(always)]
+fn u8r(v: f32) -> u8 {
+    (v.clamp(0.0, 255.0) + 0.5) as u8
 }
 
 /// In place on `buf` (`ob` = 3 or 4 bytes per pixel, alpha left alone), `width` pixels per row.
@@ -156,20 +176,24 @@ pub fn apply(buf: &mut [u8], width: usize, height: usize, ob: usize, sp: &Sharp)
     let fine = fine3(&y, width, height, ST_EPS_A, ST_EPS_B, ST_C1A, ST_C1B);
     let r = st_radius(height);
     let coarse = guided_fast(&y, width, height, r, ST_EPS, (r / ST_FAST_R).max(1));
+    let rm = rad(ST_RM_1440, height);
+    let mid = guided_fast(&y, width, height, rm, ST_EPS, (rm / ST_FAST_RM).max(1));
     // d(det) = lim * tanh(det * g / lim) as a table over det (TQ steps per level, linear in between)
     let k = g / lim;
-    let tab: Vec<f64> = (0..=2 * TN).map(|i| lim * libm::tanh(k * ((i as f64 - TN as f64) / TQ))).collect();
+    let tab: Vec<f32> = (0..=2 * TN).map(|i| (lim * libm::tanh(k * ((i as f64 - TN as f64) / TQ))) as f32).collect();
+    let (tq, tn) = (TQ as f32, TN as f32);
     crate::for_each_band(buf, width * ob, |band, row0| {
         let p0 = row0 * width;
         for (i, px) in band.chunks_exact_mut(ob).enumerate() {
             let j = p0 + i;
-            let det = 255.0 * (fine[j] + ST_C2 * (y[j] - coarse[j])) as f64;
-            let t = (det * TQ).clamp(-(TN as f64) + 1.0, TN as f64 - 1.0) + TN as f64;
+            let yj = y[j];
+            let det = 255.0 * (fine[j] + ST_CM * (yj - mid[j]) + ST_C2 * (yj - coarse[j])) * tilt(yj);
+            let t = (det * tq).clamp(1.0 - tn, tn - 1.0) + tn;
             let ti = t as usize;
-            let d = tab[ti] + (tab[ti + 1] - tab[ti]) * (t - ti as f64);
-            px[0] = u8r(px[0] as f64 + d);
-            px[1] = u8r(px[1] as f64 + d);
-            px[2] = u8r(px[2] as f64 + d);
+            let d = tab[ti] + (tab[ti + 1] - tab[ti]) * (t - ti as f32);
+            px[0] = u8r(px[0] as f32 + d);
+            px[1] = u8r(px[1] as f32 + d);
+            px[2] = u8r(px[2] as f32 + d);
         }
     });
 }

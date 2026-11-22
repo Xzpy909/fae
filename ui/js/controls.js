@@ -152,7 +152,7 @@ for (const [key, label, def, min, max, step, dec] of ADJUST)
   makeField($('#adjFields'), { obj: 'edit', key, label, min, max, step, dec, def, wheel: true });
 $('#resetAdjust').addEventListener('click', () => { Object.assign(S.edit, defaultAdjust()); syncPanel(); editChanged(); commit(); });
 const FILTER_UI = { f_bw: { fields: '#bwFields', reset: '#resetBW' }, f_film: { fields: '#filmFields', reset: '#resetFilm' },
-  f_sc: { fields: '#scFields', reset: '#resetSC' } };
+  f_sc: { fields: '#scFields', reset: '#resetSC' }, sharpen: { fields: '#shpFields', reset: '#resetShp' } };
 function makeSelectField(parent, a) {
   const row = document.createElement('div');
   row.className = 'field fsel';
@@ -163,9 +163,10 @@ function makeSelectField(parent, a) {
   parent.appendChild(row);
   FIELDS.push({ sync: () => { sel.value = S.edit[a.key] ?? a.def; } });
 }
-for (const f of FILTERS) {
+for (const f of PANELS) {
   const ui = FILTER_UI[f.sec];
   for (const a of f.fields) {
+    if (a.head) { $(ui.fields).insertAdjacentHTML('beforeend', `<div class="fhead">${a.head}</div>`); continue; }
     if (a === '---') { $(ui.fields).insertAdjacentHTML('beforeend', '<div class="fsep"></div>'); continue; }
     if (!Array.isArray(a)) { makeSelectField($(ui.fields), a); continue; }
     const [key, label, def, min, max, step, dec, unit] = a;

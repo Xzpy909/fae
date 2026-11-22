@@ -292,6 +292,8 @@ button.primary:hover { background: var(--grad); filter: brightness(1.08) saturat
 .field .numw input { width: 100%; padding-right: 17px; }
 .numw::after { content: attr(data-unit); position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
   font-size: 11px; color: var(--muted); pointer-events: none; }
+.fhead { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 2px 0 8px; }
+.fsep + .fhead, .field + .fhead { margin-top: 12px; }
 .fsep { height: 1px; background: var(--line2, rgba(255,255,255,.08)); margin: 4px 0 10px; }
 body.scrubbing, body.scrubbing * { cursor: ew-resize !important; user-select: none; }
 /* reset icons: per value (in each slider row) and reset-all (card header) */

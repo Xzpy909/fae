@@ -6,7 +6,7 @@
    Each pill toggles its own card, so any number can be open at once.
    The dot on a pill means that tool is doing something to the current image.
    ====================================================================== */
-const SECS = ['crop', 'point', 'adjust', 'curves', 'resize', 'color', ...FILTERS.map(f => f.sec)];
+const SECS = ['crop', 'point', 'adjust', 'curves', 'resize', 'color', ...PANELS.map(f => f.sec)];
 function syncSections() {
   const on = new Set(S.prefs.secs || []);
   document.querySelectorAll('#panel .card.sec').forEach(c => c.classList.toggle('show', on.has(c.dataset.sec)));
@@ -27,7 +27,7 @@ function secState() {
     resize: S.stage.resize_on !== false,
     color: !!(S.stage.wp_on || S.stage.ge_on),
   };
-  for (const f of FILTERS) st[f.sec] = filterActive(f, S.edit);
+  for (const f of PANELS) st[f.sec] = filterActive(f, S.edit);
   return st;
 }
 function updatePills() {

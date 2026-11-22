@@ -65,6 +65,19 @@ const FILTERS = [
     ['flt_sc_opacity', 'Opacity', 100, 0, 100, 1, 0, '%'],
   ] },
 ];
+/* Sharpen: a main tool of its own (pill after Resize, not inside the Filters group), same field format as FILTERS
+   plus { head } sub-headings. PLACEHOLDER: the values are stored per image but not applied yet (no math). */
+const SHARPEN = { sec: 'sharpen', fields: [
+  { head: 'Sharpening' },
+  { type: 'select', key: 'shp_type', label: 'Type', def: 'display', options: [['display', 'Display']] },
+  ['shp_adaptive', 'Adaptive Sharpening', 0, 0, 100, 1, 0, '%'],
+  { head: 'Sharpening+' },
+  ['shp_structure', 'Structure', 0, -100, 100, 1, 0, '%'],
+  ['shp_local', 'Local Contrast', 0, -100, 100, 1, 0, '%'],
+  ['shp_focus', 'Focus', 0, -100, 100, 1, 0, '%'],
+] };
+/* every per-image tool built from a field list: the Filters group, then the stand-alone tools */
+const PANELS = [...FILTERS, SHARPEN];
 /* gradient tracks for the filter sliders (what the slider does, left to right) */
 const FILTER_GRADS = {
   flt_bw_sat: 'linear-gradient(90deg, #7c7c7c, #8f7a72 50%, #e8502e)',
@@ -79,10 +92,14 @@ const FILTER_GRADS = {
   flt_sc_dynamic: 'linear-gradient(90deg, rgba(120,120,120,1), rgba(120,120,120,0)), repeating-linear-gradient(90deg, #303030 0 5px, #c8c8c8 5px 10px)',
   flt_sc_shadows: 'linear-gradient(90deg, #050505, #5a5a5a)',
   flt_sc_highlights: 'linear-gradient(90deg, #ffffff, #a8a8a8)',
+  shp_adaptive: 'linear-gradient(90deg, rgba(120,120,120,1), rgba(120,120,120,0)), repeating-linear-gradient(90deg, #202020 0 1px, #d8d8d8 1px 2px)',
+  shp_structure: 'linear-gradient(90deg, #6f6f6f, #8a8a8a 50%, #3a3a3a 50%, #d0d0d0)',
+  shp_local: 'linear-gradient(90deg, #7a7a7a, #8a8a8a 50%, #202020 50%, #e8e8e8)',
+  shp_focus: 'linear-gradient(90deg, #5c6f80, #8a8a8a 50%, #8a8a8a 50%, #f2f2f2)',
   flt_sc_opacity: 'linear-gradient(90deg, rgba(235,235,235,0), #ebebeb), repeating-conic-gradient(#5a5a5a 0 25%, #2e2e2e 0 50%) 0 0 / 6px 6px',
 };
 const fieldKD = a => Array.isArray(a) ? [a[0], a[2]] : [a.key, a.def];
-const filterFields = f => f.fields.filter(a => a !== '---');
+const filterFields = f => f.fields.filter(a => Array.isArray(a) || (a && a.key));      // values only (no dividers / headings)
 const defaultFilter = f => Object.fromEntries(filterFields(f).map(fieldKD));
 const filterActive = (f, e) => filterFields(f).map(fieldKD).some(([k, def]) => e[k] !== undefined && e[k] !== def);
 const defaultEdit = () => ({
@@ -90,7 +107,7 @@ const defaultEdit = () => ({
   tBlack: 0, tWhite: 255, strength: 1,
   curves: { m: ident(), r: ident(), g: ident(), b: ident() },
   ...defaultAdjust(),
-  ...Object.assign({}, ...FILTERS.map(defaultFilter)),
+  ...Object.assign({}, ...PANELS.map(defaultFilter)),
   off: {},              // sections switched off on their island: { sec: true }; values are kept, the edit skips them
 });
 const DEFAULT_EDIT_JSON = JSON.stringify(defaultEdit());
@@ -114,7 +131,7 @@ const SEC_NEUTRAL = {
   point: () => ({ black: null, gray: null, white: null }),
   adjust: defaultAdjust,
   curves: () => ({ curves: { m: ident(), r: ident(), g: ident(), b: ident() } }),
-  ...Object.fromEntries(FILTERS.map(f => [f.sec, () => defaultFilter(f)])),
+  ...Object.fromEntries(PANELS.map(f => [f.sec, () => defaultFilter(f)])),
 };
 function effectiveEdit(e) {
   let out = e;

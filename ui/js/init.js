@@ -12,7 +12,6 @@ async function init() {
     if (s && typeof s === 'object') {
       if (s.fmt) S.prefs.fmt = s.fmt;
       if (Array.isArray(s.secs)) S.prefs.secs = s.secs.filter(x => SECS.includes(x));
-      if (typeof s.filtersOpen === 'boolean') S.prefs.filtersOpen = s.filtersOpen;
       if (s.jpeg_q != null) S.prefs.jpeg_q = clamp(Math.round(Number(s.jpeg_q)) || 90, 1, 100);
       if (s.jpeg_d != null && isFinite(Number(s.jpeg_d))) S.prefs.jpeg_d = clamp(Number(s.jpeg_d), 0, 25);
       if (s.jpeg_mode === 'q' || s.jpeg_mode === 'd') S.prefs.jpeg_mode = s.jpeg_mode;

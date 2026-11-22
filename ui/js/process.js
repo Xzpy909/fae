@@ -110,7 +110,7 @@ window.addEventListener('keydown', e => {
     case 'b': toggleTool('black'); break;
     case 'g': toggleTool('gray'); break;
     case 'w': toggleTool('white'); break;
-    case 'escape': setTool(null); break;
+    case 'escape': if (FilterPop.isOpen()) FilterPop.close(); else setTool(null); break;
     case 'c': if ((typeof Crop !== "undefined") && S.img) Crop.enter(); break;
     case '0': fitView(); break;
     case '1': zoom100(); break;

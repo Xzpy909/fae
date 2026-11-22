@@ -1,5 +1,5 @@
 'use strict';
-/* Tool pills and the nested Filters group. */
+/* Tool pills and the Filters popover. */
 
 /* ======================================================================
    Tool pills: each tool card in the right panel is shown only when its pill is on.
@@ -11,10 +11,7 @@ function syncSections() {
   const on = new Set(S.prefs.secs || []);
   document.querySelectorAll('#panel .card.sec').forEach(c => c.classList.toggle('show', on.has(c.dataset.sec)));
   document.querySelectorAll('#toolPills .pill[data-sec]').forEach(p => p.classList.toggle('on', on.has(p.dataset.sec)));
-  const fg = $('#pgFilters'), open = !!S.prefs.filtersOpen;
-  fg.classList.toggle('open', open);
-  fg.querySelector('.gp').classList.toggle('on', open);
-  fg.querySelectorAll('.ptray .pill').forEach(p => { p.tabIndex = open ? 0 : -1; });
+  if (typeof FilterPop !== 'undefined') FilterPop.sync();
   if (on.has('curves')) requestAnimationFrame(drawCurve);
 }
 function secState() {
@@ -37,9 +34,10 @@ function updatePills() {
     p.classList.toggle('active', !!st[sec] && on);
     p.classList.toggle('bypass', !!st[sec] && !on);     // has values but its island is switched off
   });
-  // the Filters pill shows a dot when any filter inside it is in use (handy while it is rolled up)
-  $('#pgFilters .gp').classList.toggle('active', FILTERS.some(f => st[f.sec] && secOn(f.sec)));
+  // the Filters pill shows a dot when any filter is in use
+  $('#filtersPill').classList.toggle('active', FILTERS.some(f => st[f.sec] && secOn(f.sec)));
   syncIslands();
+  if (typeof FilterPop !== 'undefined') FilterPop.sync();
 }
 
 /* ======================================================================
@@ -135,12 +133,89 @@ function syncIslands() {
   });
 }
 buildIslands();
-$('#pgFilters .gp').addEventListener('pointerdown', e => e.stopPropagation());
-$('#pgFilters .gp').addEventListener('click', e => {
-  e.stopPropagation();
-  S.prefs.filtersOpen = !S.prefs.filtersOpen;
-  syncSections(); savePrefsSoon();
-});
+
+/* ======================================================================
+   Filters popover: the Filters pill (top-right corner, next to the histogram) opens a centred,
+   scrollable grid of tiles, one per entry in FILTERS, with a search box for when the list grows.
+   Clicking a tile shows / hides that filter's island in the right panel (like a tool pill);
+   the switch on a tile mirrors the island's switch: on while the filter is open (or has values) and
+   switched on; turning it on opens the island too.
+   It stays open while you pick; Esc, the X, the pill or a click outside the box closes it.
+   ====================================================================== */
+const FilterPop = (() => {
+  const pop = $('#filterPop'), pill = $('#filtersPill'), grid = $('#fpTiles'), search = $('#fpSearch');
+  grid.innerHTML = FILTERS.map(f => `
+    <div class="fp-tile" data-sec="${f.sec}">
+      <button class="fp-tbtn" title="Show / hide its island"><svg viewBox="0 0 24 24">${f.icon || ''}</svg><span class="fp-lab"><span class="fp-name">${f.name || f.sec}</span><span class="fp-state"></span></span></button>
+      <label class="isw fp-sw" title="On / off: off keeps the values but leaves them out"><input type="checkbox"><span></span></label>
+    </div>`).join('');
+  const isOpen = () => pop.classList.contains('show');
+  function sync() {
+    const st = secState(), shown = new Set(S.prefs.secs || []);
+    let n = 0;
+    grid.querySelectorAll('.fp-tile').forEach(t => {
+      const sec = t.dataset.sec, has = !!st[sec], open = shown.has(sec), on = secOn(sec) && (open || has);
+      if (has && on) n++;
+      t.classList.toggle('sel', open);
+      t.classList.toggle('active', on);
+      t.classList.toggle('bypass', has && !on);
+      t.querySelector('.fp-state').textContent = has ? (on ? 'On' : 'Bypassed') : (open ? (on ? 'On · no edits yet' : 'Off') : 'No edits');
+      t.querySelector('.fp-sw input').checked = on;
+    });
+    const cnt = $('#fpCount');
+    cnt.textContent = n ? `${n} on` : ''; cnt.classList.toggle('show', n > 0);
+    pill.classList.toggle('on', isOpen());
+  }
+  function filter() {
+    const q = search.value.trim().toLowerCase();
+    let any = false;
+    grid.querySelectorAll('.fp-tile').forEach(t => {
+      const hit = !q || t.querySelector('.fp-name').textContent.toLowerCase().includes(q);
+      t.hidden = !hit; any = any || hit;
+    });
+    $('#fpEmpty').classList.toggle('show', !any);
+  }
+  function open() {
+    if (S.cropMode) return;
+    pop.classList.add('show'); search.value = ''; filter(); grid.scrollTop = 0; sync();
+    search.focus({ preventScroll: true });
+  }
+  function close() { if (!isOpen()) return; pop.classList.remove('show'); search.blur(); sync(); }
+
+  pill.addEventListener('pointerdown', e => e.stopPropagation());
+  pill.addEventListener('click', e => { e.stopPropagation(); isOpen() ? close() : open(); });
+  // the popover sits over the image: keep its clicks / scrolling away from pan, zoom and the eyedropper
+  let downOnBackdrop = false;
+  pop.addEventListener('pointerdown', e => { e.stopPropagation(); downOnBackdrop = e.target === pop || e.target.classList.contains('fp-veil'); });
+  pop.addEventListener('wheel', e => e.stopPropagation());
+  // fast repeated clicks on tiles / the pills must not reach the image's double-click zoom
+  for (const el of [pop, pill, $('#toolPills')]) el.addEventListener('dblclick', e => e.stopPropagation());
+  pop.addEventListener('click', e => { if ((e.target === pop || e.target.classList.contains('fp-veil')) && downOnBackdrop) close(); });
+  $('#fpClose').addEventListener('click', close);
+  search.addEventListener('input', filter);
+  search.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+  });
+  grid.addEventListener('click', e => {
+    const b = e.target.closest('.fp-tbtn'); if (!b) return;
+    const sec = b.parentElement.dataset.sec, cur = S.prefs.secs || [], add = !cur.includes(sec);
+    S.prefs.secs = add ? [...cur, sec] : cur.filter(x => x !== sec);
+    syncSections(); savePrefsSoon();
+    if (add) {
+      const card = document.querySelector(`#panel .card.sec[data-sec="${sec}"]`);
+      if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  });
+  grid.addEventListener('change', e => {
+    const cb = e.target.closest('.fp-sw input'); if (!cb) return;
+    const sec = cb.closest('.fp-tile').dataset.sec, cur = S.prefs.secs || [];
+    if (cb.checked && !cur.includes(sec)) {           // switching on a closed filter opens its island too
+      S.prefs.secs = [...cur, sec]; savePrefsSoon(); syncSections();
+    }
+    if (secOn(sec) !== cb.checked) setSecOn(sec, cb.checked); else sync();
+  });
+  return { open, close, isOpen, sync };
+})();
 document.querySelectorAll('#toolPills .pill[data-sec]').forEach(p => {
   p.addEventListener('pointerdown', e => e.stopPropagation());     // don't start a pan / eyedropper sample
   p.addEventListener('click', e => {

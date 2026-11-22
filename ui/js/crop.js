@@ -88,6 +88,7 @@ const Crop = (() => {
 
   /* ---------------- enter / exit ---------------- */
   async function enter() {
+    if (typeof FilterPop !== 'undefined') FilterPop.close();
     if (S.cropMode || !S.img || S.cur < 0) return;
     const f = S.files[S.cur];
     setTool(null); setAlt(false);

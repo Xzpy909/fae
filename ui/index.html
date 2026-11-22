@@ -86,14 +86,19 @@
       <button class="pill" data-sec="resize" title="Resize"><svg viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg><i></i></button>
       <button class="pill" data-sec="sharpen" title="Sharpen"><svg viewBox="0 0 24 24"><path d="M12 2.5 21.5 12 12 21.5 2.5 12z"/><path class="fill" d="M12 2.5 21.5 12H2.5z"/></svg><i></i></button>
       <button class="pill" data-sec="color" title="Color Balance"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path class="fill" d="M12 3a9 9 0 0 0 0 18z"/></svg><i></i></button>
-      <!-- nested group: the Filters pill rolls out the individual filters -->
-      <div class="pgroup" id="pgFilters">
-        <button class="pill gp" title="Filters"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="6"/><circle cx="15" cy="15" r="6"/></svg><b class="chev"></b><i></i></button>
-        <div class="ptray">
-          <button class="pill" data-sec="f_bw" title="Perceptual Saturation"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg><i></i></button>
-          <button class="pill" data-sec="f_film" title="Film Effect"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18"/><path d="M17 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg><i></i></button>
-          <button class="pill" data-sec="f_sc" title="Super Contrast"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path class="fill" d="M12 3a9 9 0 0 1 0 18z"/></svg></button>
+    </div>
+    <!-- Filters: its own pill in the top-right corner (next to the histogram); opens a centred, scrollable tile popover -->
+    <button id="filtersPill" class="pill" title="Filters"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="6"/><circle cx="15" cy="15" r="6"/></svg><i></i></button>
+    <div id="filterPop">
+      <div class="fp-veil"></div>
+      <div class="fp-box" role="dialog" aria-label="Filters">
+        <div class="fp-head">
+          <span class="fp-title">Filters</span><span id="fpCount" class="fp-count"></span>
+          <input id="fpSearch" type="search" placeholder="Search filters" spellcheck="false" autocomplete="off">
+          <button id="fpClose" class="isl-x" title="Close (Esc)"><svg class="xbtn" viewBox="0 0 20 20"><circle class="c" cx="10" cy="10" r="9.5"/><path class="x" d="M7 7l6 6M13 7l-6 6"/></svg></button>
         </div>
+        <div id="fpTiles" class="fp-tiles"></div>
+        <div id="fpEmpty" class="fp-empty">No filters match</div>
       </div>
     </div>
     <div id="modeChip"></div>

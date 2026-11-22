@@ -34,11 +34,13 @@ const ADJUST = [
   ['adj_middetail', 'Mid/Detail', 0, -100, 100, 1, 2],
 ];
 const defaultAdjust = () => Object.fromEntries(ADJUST.map(a => [a[0], a[2]]));
-/* Filters (nested under the Filters pill). Stored per image; bwParams() says which values are live.
-   sec = card / pill id, fields = [key, label, default, min, max, step, decimals, unit] or '---' (divider).
+/* Filters (picked from the Filters popover). Stored per image; bwParams() says which values are live.
+   sec = card id, name + icon (inner SVG, 24x24 viewBox) = its tile in the Filters popover, fields = [key, label, default, min, max, step, decimals, unit] or '---' (divider).
    Opacity mixes the filtered result with the image before the filter (100% = full effect). */
 const FILTERS = [
-  { sec: 'f_bw', fields: [
+  { sec: 'f_bw', name: 'Perceptual Saturation',
+    icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+    fields: [
     ['flt_bw_sat', 'Saturation', 0, -100, 100, 1, 1, '%'],
     ['flt_bw_warmth', 'Warmth', 0, -100, 100, 1, 1, '%'],
     ['flt_bw_psat', 'Perceptual Saturation ≈', 0, 0, 60, 1, 1, '%'],
@@ -46,7 +48,9 @@ const FILTERS = [
     ['flt_bw_opacity', 'Opacity', 100, 0, 100, 1, 0, '%'],
   ] },
   // Film Effect: preset table, then Brightness / Contrast, then Opacity (filmParams in edit-math.js)
-  { sec: 'f_film', fields: [
+  { sec: 'f_film', name: 'Film Effect',
+    icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18"/><path d="M17 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>',
+    fields: [
     { type: 'select', key: 'flt_film_preset', label: 'Film', def: 'none', options: [['none', 'None']] },   // presets add themselves (js/film/*.js)
     ['flt_film_bright', 'Brightness', 0, 0, 100, 1, 0, '%'],
     ['flt_film_contrast', 'Contrast', 0, 0, 100, 1, 0, '%'],
@@ -54,7 +58,9 @@ const FILTERS = [
     ['flt_film_opacity', 'Opacity', 100, 0, 100, 1, 0, '%'],
   ] },
   // Super Contrast: all live (scParams in edit-math.js); Dynamic Contrast is an approximation (≈); Shadows / Highlights use the shared shLut()
-  { sec: 'f_sc', fields: [
+  { sec: 'f_sc', name: 'Super Contrast',
+    icon: '<circle cx="12" cy="12" r="9"/><path class="fill" d="M12 3a9 9 0 0 1 0 18z"/>',
+    fields: [
     ['flt_sc_cast', 'Correct Color Cast', 0, 0, 100, 1, 0, '%'],
     ['flt_sc_contrast', 'Correct Contrast', 0, 0, 100, 1, 0, '%'],
     ['flt_sc_dynamic', 'Dynamic Contrast ≈', 0, 0, 100, 1, 0, '%'],

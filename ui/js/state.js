@@ -67,11 +67,11 @@ const FILTERS = [
 ];
 /* Sharpen: a main tool of its own (pill after Resize, not inside the Filters group), same field format as FILTERS
    plus { head } sub-headings. All sliders are live (sharpParams in edit-math.js); Structure is an
-   approximation (≈). Type has only Display so far. */
+   approximation (≈). Balance Sharpening is a PLACEHOLDER (stored, not applied yet). */
 const SHARPEN = { sec: 'sharpen', fields: [
   { head: 'Sharpening' },
-  { type: 'select', key: 'shp_type', label: 'Type', def: 'display', options: [['display', 'Display']] },
   ['shp_adaptive', 'Adaptive Sharpening', 0, 0, 100, 1, 0, '%'],
+  ['shp_balance', 'Balance Sharpening', 0, -100, 100, 1, 0, '%'],      // -100 areas … 100 edges (not applied yet)
   { head: 'Sharpening+' },
   ['shp_structure', 'Structure ≈', 0, -100, 100, 1, 0, '%'],
   ['shp_local', 'Local Contrast', 0, -100, 100, 1, 0, '%'],
@@ -94,6 +94,7 @@ const FILTER_GRADS = {
   flt_sc_shadows: 'linear-gradient(90deg, #050505, #5a5a5a)',
   flt_sc_highlights: 'linear-gradient(90deg, #ffffff, #a8a8a8)',
   shp_adaptive: 'linear-gradient(90deg, rgba(120,120,120,1), rgba(120,120,120,0)), repeating-linear-gradient(90deg, #202020 0 1px, #d8d8d8 1px 2px)',
+  shp_balance: 'linear-gradient(90deg, #8c8c8c, #b8b8b8 50%, #303030 50%, #f2f2f2)',
   shp_structure: 'linear-gradient(90deg, #6f6f6f, #8a8a8a 50%, #3a3a3a 50%, #d0d0d0)',
   shp_local: 'linear-gradient(90deg, #7a7a7a, #8a8a8a 50%, #202020 50%, #e8e8e8)',
   shp_focus: 'linear-gradient(90deg, #5c6f80, #8a8a8a 50%, #8a8a8a 50%, #f2f2f2)',

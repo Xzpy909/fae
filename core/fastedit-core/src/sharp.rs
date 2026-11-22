@@ -1,7 +1,10 @@
 //! Sharpen tool, the last step of the edit (after the curves, on the output pixels).
 //!
-//! Structure ≈ (APPROXIMATION, fitted to reference renders at -100 / -50 / 50 / 100, not pixel exact):
-//!   detail = 255 * (ST_C1 * (y - guided(y, 1)) + ST_C2 * (y - guided(y, R)))
+//! Structure ≈ (APPROXIMATION, fitted to reference renders of a game screenshot at -100 / -50 / 50 / 100
+//! and a photo at 100, not pixel exact):
+//!   detail = 255 * (ST_C1A * (y - g3(y, ST_EPS_A)) + ST_C1B * (y - g3(y, ST_EPS_B)) + ST_C2 * (y - guided(y, R)))
+//! g3 = 3x3 guided filter. The two fine terms together boost fine edges but not low-amplitude fine detail
+//! (sensor noise / grain stays as it is).
 //!   g      = s * ST_POS_GAIN for s > 0, s for s < 0           (s = slider / 100)
 //!   d      = A * tanh(g * detail / A)                          (A = ST_LIM_POS / ST_LIM_NEG)
 //!   out_c  = c + d                                             (same offset on R, G, B)
@@ -17,11 +20,14 @@ pub const ST_EPS: f32 = 3e-3;
 pub const ST_R_1440: f64 = 29.0;
 /// the coarse filter runs on a copy shrunk so that its radius is about this many pixels
 pub const ST_FAST_R: usize = 12;
-pub const ST_C1: f32 = 1.1;
-pub const ST_C2: f32 = 1.5;
-pub const ST_POS_GAIN: f64 = 2.0;
-pub const ST_LIM_POS: f64 = 40.0;
-pub const ST_LIM_NEG: f64 = 22.0;
+pub const ST_EPS_A: f32 = 1e-3;
+pub const ST_EPS_B: f32 = 1e-2;
+pub const ST_C1A: f32 = -0.5;
+pub const ST_C1B: f32 = 1.0;
+pub const ST_C2: f32 = 1.4;
+pub const ST_POS_GAIN: f64 = 1.75;
+pub const ST_LIM_POS: f64 = 42.0;
+pub const ST_LIM_NEG: f64 = 18.0;
 /// tanh table: TQ steps per level over detail -TN/TQ .. TN/TQ (beyond that d is constant)
 const TQ: f64 = 4.0;
 const TN: usize = 4096;
@@ -72,8 +78,9 @@ fn sum3(row: &[f32], s: &mut [f32], q: &mut [f32]) {
 }
 
 /// Self-guided filter with a 3x3 window (radius 1), fused band by band: the fine scale of Structure.
-/// Same formula as md::guided_eps(.., 1, eps), with f32 sums.
-pub fn guided3(y: &[f32], w: usize, h: usize, eps: f32) -> Vec<f32> {
+/// Same formula as md::guided_eps(.., 1, eps), with f32 sums. Returns
+/// ca * (y - g3(y, eps_a)) + cb * (y - g3(y, eps_b)) (both filters share the window statistics).
+pub fn fine3(y: &[f32], w: usize, h: usize, eps_a: f32, eps_b: f32, ca: f32, cb: f32) -> Vec<f32> {
     let mut out = vec![0f32; w * h];
     const B: usize = 64;
     crate::for_each_band_t(&mut out, w, B, |band, r0| {
@@ -81,8 +88,10 @@ pub fn guided3(y: &[f32], w: usize, h: usize, eps: f32) -> Vec<f32> {
         // a, b for rows r0-1 ..= r0+rows (mirrored), 3x3 means of y and y*y first
         let n = rows + 2;
         let (mut a, mut b) = (vec![0f32; n * w], vec![0f32; n * w]);
+        let (mut a2, mut b2) = (vec![0f32; n * w], vec![0f32; n * w]);
         let (mut hs, mut hq) = (vec![0f32; 3 * w], vec![0f32; 3 * w]);
         let (mut va, mut vb) = (vec![0f32; w], vec![0f32; w]);
+        let (mut va2, mut vb2) = (vec![0f32; w], vec![0f32; w]);
         for k in 0..n {
             let yr = rf(r0 as isize + k as isize - 1, h);
             for (t, dy) in (-1isize..=1).enumerate() {
@@ -94,9 +103,12 @@ pub fn guided3(y: &[f32], w: usize, h: usize, eps: f32) -> Vec<f32> {
                 let m = (hs[x] + hs[w + x] + hs[2 * w + x]) / 9.0;
                 let q = (hq[x] + hq[w + x] + hq[2 * w + x]) / 9.0;
                 let v = q - m * m;
-                let ai = v / (v + eps);
+                let ai = v / (v + eps_a);
                 a[k * w + x] = ai;
                 b[k * w + x] = m - ai * m;
+                let ai = v / (v + eps_b);
+                a2[k * w + x] = ai;
+                b2[k * w + x] = m - ai * m;
             }
         }
         for (i, o) in band.chunks_exact_mut(w).enumerate() {
@@ -105,12 +117,17 @@ pub fn guided3(y: &[f32], w: usize, h: usize, eps: f32) -> Vec<f32> {
             for x in 0..w {
                 va[x] = a[i * w + x] + a[(i + 1) * w + x] + a[(i + 2) * w + x];
                 vb[x] = b[i * w + x] + b[(i + 1) * w + x] + b[(i + 2) * w + x];
+                va2[x] = a2[i * w + x] + a2[(i + 1) * w + x] + a2[(i + 2) * w + x];
+                vb2[x] = b2[i * w + x] + b2[(i + 1) * w + x] + b2[(i + 2) * w + x];
             }
             let h3 = |v: &[f32], x: usize| -> f32 {
                 if x >= 1 && x + 1 < w { v[x - 1] + v[x] + v[x + 1] } else { v[rf(x as isize - 1, w)] + v[x] + v[rf(x as isize + 1, w)] }
             };
             for x in 0..w {
-                o[x] = h3(&va, x) / 9.0 * yrow[x] + h3(&vb, x) / 9.0;
+                let yv = yrow[x];
+                let ga = h3(&va, x) / 9.0 * yv + h3(&vb, x) / 9.0;
+                let gb = h3(&va2, x) / 9.0 * yv + h3(&vb2, x) / 9.0;
+                o[x] = ca * (yv - ga) + cb * (yv - gb);
             }
         }
     });
@@ -136,7 +153,7 @@ pub fn apply(buf: &mut [u8], width: usize, height: usize, ob: usize, sp: &Sharp)
     });
     let s = sp.structure;
     let (g, lim) = if s > 0.0 { (s * ST_POS_GAIN, ST_LIM_POS) } else { (s, ST_LIM_NEG) };
-    let fine = guided3(&y, width, height, ST_EPS);
+    let fine = fine3(&y, width, height, ST_EPS_A, ST_EPS_B, ST_C1A, ST_C1B);
     let r = st_radius(height);
     let coarse = guided_fast(&y, width, height, r, ST_EPS, (r / ST_FAST_R).max(1));
     // d(det) = lim * tanh(det * g / lim) as a table over det (TQ steps per level, linear in between)
@@ -146,7 +163,7 @@ pub fn apply(buf: &mut [u8], width: usize, height: usize, ob: usize, sp: &Sharp)
         let p0 = row0 * width;
         for (i, px) in band.chunks_exact_mut(ob).enumerate() {
             let j = p0 + i;
-            let det = 255.0 * (ST_C1 * (y[j] - fine[j]) + ST_C2 * (y[j] - coarse[j])) as f64;
+            let det = 255.0 * (fine[j] + ST_C2 * (y[j] - coarse[j])) as f64;
             let t = (det * TQ).clamp(-(TN as f64) + 1.0, TN as f64 - 1.0) + TN as f64;
             let ti = t as usize;
             let d = tab[ti] + (tab[ti + 1] - tab[ti]) * (t - ti as f64);
@@ -169,9 +186,13 @@ mod tests {
         apply(&mut a, w, h, 3, &Sharp { structure: 0.0 });
         assert_eq!(a, orig);
         let yv: Vec<f32> = (0..w * h).map(|i| ((i * 7919) % 251) as f32 / 251.0).collect();
-        let g1 = guided3(&yv, w, h, ST_EPS);
-        let g2 = crate::md::guided_eps(&yv, w, h, 1, ST_EPS);
-        assert!(g1.iter().zip(&g2).all(|(a, b)| (a - b).abs() < 1e-5));
+        let f = fine3(&yv, w, h, 1e-3, 1e-2, 0.7, -0.3);
+        let ga = crate::md::guided_eps(&yv, w, h, 1, 1e-3);
+        let gb = crate::md::guided_eps(&yv, w, h, 1, 1e-2);
+        for i in 0..w * h {
+            let want = 0.7 * (yv[i] - ga[i]) - 0.3 * (yv[i] - gb[i]);
+            assert!((f[i] - want).abs() < 1e-5);
+        }
         let mut flat = vec![120u8; w * h * 4];
         apply(&mut flat, w, h, 4, &Sharp { structure: 1.0 });
         assert!(flat.iter().all(|&v| v == 120));

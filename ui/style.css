@@ -50,7 +50,7 @@ kbd { font: 10px var(--mono); padding: 1px 4px; border-radius: 3px; border: 1px 
   grid-template-areas: "top top top" "side view panel" "status status status"; }
 
 /* ---------- top bar ---------- */
-#topbar { grid-area: top; display: flex; align-items: center; gap: 16px; padding: 0 12px;
+#topbar { grid-area: top; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr); align-items: center; gap: 16px; padding: 0 12px;
   background: var(--panel); border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 600; letter-spacing: .2px; width: 206px; }
 .logo { width: 22px; height: 22px; display: block; border-radius: 5px; box-shadow: 0 0 0 1px rgba(0,255,170,.12); }
@@ -60,6 +60,14 @@ kbd { font: 10px var(--mono); padding: 1px 4px; border-radius: 3px; border: 1px 
 .tb-group { display: flex; align-items: center; gap: 4px; }
 .sep { width: 1px; height: 20px; background: var(--line2); margin: 0 6px; }
 #zoomLabel { min-width: 48px; text-align: right; }
+/* three columns: brand + file | zoom (centred) | actions; the file name gives way (ellipsis) */
+.tb-left { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.brand { flex: none; }
+#fileDims { white-space: nowrap; }
+#topbar > .tb-group:last-child { justify-self: end; }
+.tb-label { font-size: 12px; color: var(--muted); padding: 0 4px; }
+#topbar button.icon.on { background: rgba(0, 240, 190, .18); border-color: rgba(0, 240, 190, .6); }
+#topbar button.icon.on svg { stroke: #fff; }
 
 button { background: var(--card2); border: 1px solid var(--line2); border-radius: 6px;
   padding: 5px 10px; cursor: pointer; transition: background .12s, border-color .12s; }
@@ -166,8 +174,6 @@ button.primary:hover { background: var(--grad); filter: brightness(1.08) saturat
 #modeChip.show { display: block; }
 
 /* ---------- tool pills (frosted) ---------- */
-/* view buttons, top-right of the viewport */
-#viewBtns { position: absolute; right: 14px; top: 14px; display: flex; flex-direction: column; gap: 6px; z-index: 3; }
 .seg button:disabled { opacity: .35; cursor: not-allowed; }
 #toolPills { position: absolute; left: 14px; top: 14px; display: flex; gap: 6px; flex-wrap: wrap; z-index: 3;
   max-width: calc(100% - 60px); }

@@ -337,10 +337,11 @@ function scParams(e) {
   return (cast > 0 || cc > 0 || dyn > 0 || shl) && op > 0 ? { cast, cc, dyn, op, dk: DC_KERNEL, shl } : null;
 }
 
-/* Sharpen tool (core: sharp.rs, after everything else); null = off. Structure and Local Contrast are live;
-   Adaptive Sharpening and Focus are still placeholders (stored, not applied). The preview adds its own
-   scale (wasm-preview.js), because Local Contrast's blur is a fixed size in output pixels. */
+/* Sharpen tool (core: sharp.rs, after everything else); null = off. Structure, Local Contrast and Focus are
+   live; Adaptive Sharpening is still a placeholder (stored, not applied). The preview adds its own scale
+   (wasm-preview.js), because Local Contrast's and Focus's blurs are a fixed size in output pixels. */
 function sharpParams(e) {
-  const st = (Number(e.shp_structure) || 0) / 100, lc = (Number(e.shp_local) || 0) / 100;
-  return st || lc ? { st, lc } : null;
+  const st = (Number(e.shp_structure) || 0) / 100, lc = (Number(e.shp_local) || 0) / 100,
+    fo = (Number(e.shp_focus) || 0) / 100;
+  return st || lc || fo ? { st, lc, fo } : null;
 }

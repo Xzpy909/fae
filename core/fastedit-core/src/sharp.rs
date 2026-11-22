@@ -45,6 +45,7 @@ const TN: usize = 4096;
 pub struct Sharp {
     pub structure: f64,
     pub local_contrast: f64,
+    pub focus: f64,
     /// pixels of this image per output pixel (1 for Process; the preview passes its own scale, so
     /// the fixed-size Local Contrast blur covers the same part of the picture)
     pub scale: f64,
@@ -52,13 +53,13 @@ pub struct Sharp {
 
 impl Default for Sharp {
     fn default() -> Self {
-        Sharp { structure: 0.0, local_contrast: 0.0, scale: 1.0 }
+        Sharp { structure: 0.0, local_contrast: 0.0, focus: 0.0, scale: 1.0 }
     }
 }
 
 impl Sharp {
     pub fn active(&self) -> bool {
-        self.structure != 0.0 || self.local_contrast != 0.0
+        self.structure != 0.0 || self.local_contrast != 0.0 || self.focus != 0.0
     }
 }
 
@@ -71,6 +72,18 @@ pub const LC_POS: f64 = 0.51;
 pub const LC_NEG: f64 = 0.75;
 /// the blur runs on a copy shrunk so that sigma is about this many pixels
 const LC_SMALL_SIGMA: f64 = 4.0;
+
+/// Focus (fitted to reference renders at -100 / -50 / 50 / 100 on one image, +100 on two more):
+///   s > 0: per channel unsharp mask, out_c = c + FO_POS * s * (c - gauss(c, FO_SIGMA_POS))
+///   s < 0: per channel blur in a gamma-FO_GAMMA domain (bright parts bloom a little, like a lens),
+///          sigma = FO_SIGMA_NEG * |s|^FO_SIGMA_EXP, mixed in at FO_MIX.
+/// Sizes are fixed in output pixels.
+pub const FO_POS: f32 = 1.0;
+pub const FO_SIGMA_POS: f64 = 1.0;
+pub const FO_GAMMA: f64 = 3.8;
+pub const FO_SIGMA_NEG: f64 = 5.44;
+pub const FO_SIGMA_EXP: f64 = 1.86;
+pub const FO_MIX: f32 = 0.96;
 
 /// Coarse Structure radius for an image `height` pixels high.
 pub fn st_radius(height: usize) -> usize {
@@ -193,6 +206,179 @@ pub fn apply(buf: &mut [u8], width: usize, height: usize, ob: usize, sp: &Sharp)
         let g = if s > 0.0 { LC_POS * s } else { LC_NEG * s };
         local_contrast(buf, width, height, ob, g as f32, LC_SIGMA * sp.scale.clamp(1e-3, 1.0e3));
     }
+    if sp.focus != 0.0 {
+        focus(buf, width, height, ob, sp.focus, sp.scale.clamp(1e-3, 1.0e3));
+    }
+}
+
+fn gauss_kernel(sigma: f64) -> (Vec<f32>, usize) {
+    let rad = ((3.0 * sigma).ceil() as usize).max(1);
+    let mut ker: Vec<f32> = (0..=2 * rad).map(|i| { let d = i as f64 - rad as f64; (-0.5 * d * d / (sigma * sigma)).exp() as f32 }).collect();
+    let ks: f32 = ker.iter().sum();
+    ker.iter_mut().for_each(|v| *v /= ks);
+    (ker, rad)
+}
+
+#[inline(always)]
+fn refl101(i: isize, n: usize) -> usize {
+    if i >= 0 && (i as usize) < n {
+        return i as usize;
+    }
+    if n == 1 {
+        return 0;
+    }
+    let p = 2 * n as isize - 2;
+    let i = i.abs() % p;
+    (if i >= n as isize { p - i } else { i }) as usize
+}
+
+/// Per pixel and channel: out = f(c, blur_c), blur = Gaussian (sigma in pixels of this image,
+/// reflect-101) of tab[c] (a 256-entry input map, e.g. a gamma). Works band by band from a copy of
+/// the 8-bit pixels; large sigmas are blurred on a copy shrunk by block means and read back
+/// bilinearly.
+pub fn blur_map<F>(buf: &mut [u8], w: usize, h: usize, ob: usize, sigma: f64, tab: &[f32; 256], f: F)
+where
+    F: Fn(u8, f32) -> u8 + Sync + Send,
+{
+    let src = buf.to_vec();
+    let k = if sigma >= 3.0 { ((sigma / 1.5).round() as usize).max(1) } else { 1 };
+    if k == 1 {
+        let (ker, rad) = gauss_kernel(sigma);
+        crate::for_each_band(buf, w * ob, |band, row0| {
+            let rows = band.len() / (w * ob);
+            let n = rows + 2 * rad;
+            // horizontal pass for rows row0-rad .. row0+rows+rad (mirrored at the image edges)
+            let mut hb = vec![0f32; n * w * 3];
+            let mut line = vec![0f32; (w + 2 * rad) * 3];
+            for t in 0..n {
+                let yy = refl101(row0 as isize + t as isize - rad as isize, h);
+                let srow = &src[yy * w * ob..][..w * ob];
+                for xp in 0..w + 2 * rad {
+                    let xx = refl101(xp as isize - rad as isize, w);
+                    let p = &srow[xx * ob..];
+                    line[xp * 3] = tab[p[0] as usize];
+                    line[xp * 3 + 1] = tab[p[1] as usize];
+                    line[xp * 3 + 2] = tab[p[2] as usize];
+                }
+                let out = &mut hb[t * w * 3..][..w * 3];
+                for (j, kv) in ker.iter().enumerate() {
+                    let l = &line[j * 3..][..w * 3];
+                    out.iter_mut().zip(l).for_each(|(o, v)| *o += kv * v);
+                }
+            }
+            // vertical pass + output
+            let mut acc = vec![0f32; w * 3];
+            for (i, orow) in band.chunks_exact_mut(w * ob).enumerate() {
+                acc.fill(0.0);
+                for (j, kv) in ker.iter().enumerate() {
+                    let l = &hb[(i + j) * w * 3..][..w * 3];
+                    acc.iter_mut().zip(l).for_each(|(o, v)| *o += kv * v);
+                }
+                for (x, px) in orow.chunks_exact_mut(ob).enumerate() {
+                    px[0] = f(px[0], acc[x * 3]);
+                    px[1] = f(px[1], acc[x * 3 + 1]);
+                    px[2] = f(px[2], acc[x * 3 + 2]);
+                }
+            }
+        });
+        return;
+    }
+    // shrunk: block means of tab[c]
+    let (w2, h2) = (w.div_ceil(k), h.div_ceil(k));
+    let mut sm = vec![0f32; w2 * h2 * 3];
+    crate::for_each_band_t(&mut sm, w2 * 3, 16, |band, r0| {
+        for (i, row) in band.chunks_exact_mut(w2 * 3).enumerate() {
+            let by = r0 + i;
+            let (y0, y1) = (by * k, ((by + 1) * k).min(h));
+            for bx in 0..w2 {
+                let (x0, x1) = (bx * k, ((bx + 1) * k).min(w));
+                let mut a = [0f32; 3];
+                for yy in y0..y1 {
+                    for p in src[(yy * w + x0) * ob..(yy * w + x1) * ob].chunks_exact(ob) {
+                        a[0] += tab[p[0] as usize];
+                        a[1] += tab[p[1] as usize];
+                        a[2] += tab[p[2] as usize];
+                    }
+                }
+                let nn = ((y1 - y0) * (x1 - x0)) as f32;
+                row[bx * 3..bx * 3 + 3].copy_from_slice(&[a[0] / nn, a[1] / nn, a[2] / nn]);
+            }
+        }
+    });
+    drop(src);
+    let s2 = ((sigma * sigma - ((k * k - 1) as f64) / 12.0).max(1e-6)).sqrt() / k as f64;
+    let (ker, rad) = gauss_kernel(s2);
+    let mut tmp = vec![0f32; w2 * h2 * 3];
+    crate::for_each_band_t(&mut tmp, w2 * 3, 16, |band, r0| {
+        for (i, row) in band.chunks_exact_mut(w2 * 3).enumerate() {
+            let srow = &sm[(r0 + i) * w2 * 3..][..w2 * 3];
+            // mirrored copy of the row, then plain weighted sums (no index checks in the loop)
+            let mut line = vec![0f32; (w2 + 2 * rad) * 3];
+            for xp in 0..w2 + 2 * rad {
+                let xx = refl101(xp as isize - rad as isize, w2);
+                line[xp * 3..xp * 3 + 3].copy_from_slice(&srow[xx * 3..xx * 3 + 3]);
+            }
+            for (t, kv) in ker.iter().enumerate() {
+                let l = &line[t * 3..][..w2 * 3];
+                row.iter_mut().zip(l).for_each(|(o, v)| *o += kv * v);
+            }
+        }
+    });
+    let mut bl = vec![0f32; w2 * h2 * 3];
+    crate::for_each_band_t(&mut bl, w2 * 3, 16, |band, r0| {
+        for (i, row) in band.chunks_exact_mut(w2 * 3).enumerate() {
+            for (t, kv) in ker.iter().enumerate() {
+                let yy = refl101((r0 + i) as isize + t as isize - rad as isize, h2);
+                let srow = &tmp[yy * w2 * 3..][..w2 * 3];
+                row.iter_mut().zip(srow).for_each(|(o, v)| *o += kv * v);
+            }
+        }
+    });
+    drop(tmp);
+    let pos = |p: usize, n2: usize| -> (usize, usize, f32) {
+        let fl = ((p as f32 + 0.5) / k as f32 - 0.5).max(0.0);
+        let i0 = (fl as usize).min(n2 - 1);
+        (i0, (i0 + 1).min(n2 - 1), fl - i0 as f32)
+    };
+    let xs: Vec<(usize, usize, f32)> = (0..w).map(|x| pos(x, w2)).collect();
+    crate::for_each_band(buf, w * ob, |band, row0| {
+        for (i, row) in band.chunks_exact_mut(w * ob).enumerate() {
+            let (j0, j1, fy) = pos(row0 + i, h2);
+            let (r0, r1) = (&bl[j0 * w2 * 3..][..w2 * 3], &bl[j1 * w2 * 3..][..w2 * 3]);
+            for (x, px) in row.chunks_exact_mut(ob).enumerate() {
+                let (i0, i1, fx) = xs[x];
+                for c in 0..3 {
+                    let top = r0[i0 * 3 + c] + (r0[i1 * 3 + c] - r0[i0 * 3 + c]) * fx;
+                    let bot = r1[i0 * 3 + c] + (r1[i1 * 3 + c] - r1[i0 * 3 + c]) * fx;
+                    px[c] = f(px[c], top + (bot - top) * fy);
+                }
+            }
+        }
+    });
+}
+
+/// Focus (constants above), in place. `scale` = pixels of this image per output pixel.
+pub fn focus(buf: &mut [u8], w: usize, h: usize, ob: usize, s: f64, scale: f64) {
+    if s > 0.0 {
+        let id: [f32; 256] = core::array::from_fn(|i| i as f32);
+        let g = FO_POS * s as f32;
+        blur_map(buf, w, h, ob, FO_SIGMA_POS * scale, &id, |c, b| {
+            let v = c as f32;
+            u8r(v + g * (v - b))
+        });
+        return;
+    }
+    // gamma domain: v^G (table), blur, back through a table over the 4th root (nearly linear there)
+    let fwd: [f32; 256] = core::array::from_fn(|v| libm::pow(v as f64 / 255.0, FO_GAMMA) as f32);
+    const NB: usize = 4096;
+    let back: Vec<f32> = (0..=NB).map(|i| (255.0 * libm::pow(i as f64 / NB as f64, 4.0 / FO_GAMMA)) as f32).collect();
+    blur_map(buf, w, h, ob, FO_SIGMA_NEG * (-s).powf(FO_SIGMA_EXP) * scale, &fwd, |c, b| {
+        let q = b.max(0.0).sqrt().sqrt() * NB as f32;
+        let qi = (q as usize).min(NB - 1);
+        let bs = back[qi] + (back[qi + 1] - back[qi]) * (q - qi as f32);
+        let v = c as f32;
+        u8r(v + FO_MIX * (bs - v))
+    });
 }
 
 /// Gaussian blur of each channel (sigma in pixels of this image) on a shrunk copy, scaled back up
@@ -375,5 +561,29 @@ mod tests {
         apply(&mut dn, w, h, 3, &Sharp { local_contrast: -1.0, ..Default::default() });
         assert!(at(&up, w / 2 - 3) < 80 && at(&up, w / 2 + 3) > 160);
         assert!(at(&dn, w / 2 - 3) > 80 && at(&dn, w / 2 + 3) < 160);
+    }
+
+    #[test]
+    fn focus_flat_identity_and_blur3_matches_direct() {
+        let (w, h) = (64, 48);
+        let mut flat = vec![77u8; w * h * 3];
+        apply(&mut flat, w, h, 3, &Sharp { focus: -1.0, ..Default::default() });
+        assert!(flat.iter().all(|&v| (v as i32 - 77).abs() <= 1));
+        let mut flat = vec![77u8; w * h * 3];
+        apply(&mut flat, w, h, 3, &Sharp { focus: 1.0, ..Default::default() });
+        assert!(flat.iter().all(|&v| v == 77));
+        // the shrunk path (large sigma) and the direct one agree on a smooth ramp
+        let ramp: Vec<u8> = (0..w * h).flat_map(|i| { let v = 40 + (i % w) as u8 * 2; [v, v, v] }).collect();
+        let id: [f32; 256] = core::array::from_fn(|i| i as f32);
+        for sigma in [3.0, 5.0] {
+            let mut a = ramp.clone();
+            blur_map(&mut a, w, h, 3, sigma, &id, |_, b| (b + 0.5) as u8);
+            for y in 10..h - 10 {
+                for x in 16..w - 16 {
+                    let i = (y * w + x) * 3;
+                    assert!((a[i] as i32 - ramp[i] as i32).abs() <= 1, "sigma {sigma} x {x}");
+                }
+            }
+        }
     }
 }

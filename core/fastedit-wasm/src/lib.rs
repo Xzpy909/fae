@@ -63,7 +63,7 @@ pub struct Params {
     bw: Option<BwP>,
     film: Option<FilmP>,
     sc: Option<ScP>,
-    sharp: (f64, f64, f64),
+    sharp: (f64, f64, f64, f64),
 }
 
 #[wasm_bindgen]
@@ -131,10 +131,10 @@ impl Params {
         self.film = Some((n, d, t1, op));
     }
 
-    /// Sharpen: Structure, Local Contrast (-1..1, 0 = off) and the preview's scale (preview pixels
-    /// per output pixel, so fixed-size effects cover the same part of the picture as in Process)
-    pub fn set_sharp(&mut self, structure: f64, local_contrast: f64, scale: f64) {
-        self.sharp = (structure, local_contrast, scale);
+    /// Sharpen: Structure, Local Contrast, Focus (-1..1, 0 = off) and the preview's scale (preview
+    /// pixels per output pixel, so fixed-size effects cover the same part of the picture as in Process)
+    pub fn set_sharp(&mut self, structure: f64, local_contrast: f64, focus: f64, scale: f64) {
+        self.sharp = (structure, local_contrast, focus, scale);
     }
 
     pub fn set_sc(&mut self, cast: f64, cc: f64, dyn_: f64, op: f64, dk: Vec<f64>, shl: Option<Vec<f64>>) {
@@ -179,7 +179,7 @@ impl Params {
                 let id: [u8; 256] = core::array::from_fn(|i| i as u8);
                 [id, id, id]
             }),
-            sharp: fastedit_core::sharp::Sharp { structure: self.sharp.0, local_contrast: self.sharp.1, scale: if self.sharp.2 > 0.0 { self.sharp.2 } else { 1.0 } },
+            sharp: fastedit_core::sharp::Sharp { structure: self.sharp.0, local_contrast: self.sharp.1, focus: self.sharp.2, scale: if self.sharp.3 > 0.0 { self.sharp.3 } else { 1.0 } },
         };
         e.validate().map_err(|m| JsError::new(&m))?;
         Ok(e)

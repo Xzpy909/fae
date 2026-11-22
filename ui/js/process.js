@@ -7,7 +7,7 @@
 function jobFor(f, isCur) {
   const st = isCur ? { stage: S.stage, edit: S.edit, geom: S.geom }
     : (f.state || { stage: S.stage, edit: defaultEdit(), geom: defaultGeom() });
-  const E = computeEdit(st.edit);
+  const E = computeEdit(effectiveEdit(st.edit));
   return {
     path: f.path, stage: stageParams(st.stage, st.geom),
     edit: { point: E.point, k: E.k, o: E.o, gains: E.gains, luts: E.luts.map(a => Array.from(a)),

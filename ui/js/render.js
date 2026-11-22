@@ -12,7 +12,7 @@ function requestRender() {
 }
 
 function editChanged() {
-  S.E = computeEdit(S.edit);
+  S.E = computeEdit(effectiveEdit(S.edit));
   updateToolUI();
   updateMarkers();
   requestRender();

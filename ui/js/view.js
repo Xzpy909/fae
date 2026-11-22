@@ -178,7 +178,7 @@ function drawLoupe() {
   // 3x3 sample box (what the eyedropper medians)
   lctx.strokeStyle = 'rgba(0,0,0,.85)'; lctx.lineWidth = 3;
   lctx.strokeRect(12 * (half - 1), 12 * (half - 1), 36, 36);
-  lctx.strokeStyle = '#f0b35a'; lctx.lineWidth = 1.5;
+  lctx.strokeStyle = '#00f0be'; lctx.lineWidth = 1.5;
   lctx.strokeRect(12 * (half - 1), 12 * (half - 1), 36, 36);
 }
 
@@ -190,6 +190,7 @@ async function sampleAt(tool, nx, ny) {
   try { rgb = await api().sample(nx, ny); } catch (e) { toast(String(e), true); }
   if (!rgb) return;
   S.edit[tool] = { rgb, pos: [nx, ny] };
+  if (S.edit.off && S.edit.off.point) { S.edit.off = Object.assign({}, S.edit.off); delete S.edit.off.point; }   // picking turns the island on
   editChanged();
   commit();
   const names = { black: 'Black point', gray: 'Neutral gray', white: 'White point' };

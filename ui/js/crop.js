@@ -102,6 +102,7 @@ const Crop = (() => {
     }
     S.files.forEach(x => { if (x !== f) delete x.src; });   // keep memory in check
     if (S.files[S.cur] !== f) return;
+    if (S.geom && S.geom.off) setSecOn('crop', true);     // editing the crop turns its island back on
     const G = S.geom || defaultGeom();
     C = {
       W: f.src.W, H: f.src.H, info: f.src,
@@ -296,7 +297,7 @@ const Crop = (() => {
     if (!C) return;
     const d = dpr(), W = view.w, H = view.h;
     g.setTransform(d, 0, 0, d, 0, 0);
-    g.fillStyle = '#0b0c0d'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#051012'; g.fillRect(0, 0, W, H);
     // image
     g.save();
     g.translate(view.ox, view.oy); g.scale(view.z, view.z); g.rotate(theta()); g.scale(C.flip ? -1 : 1, 1);
@@ -305,7 +306,7 @@ const Crop = (() => {
     g.restore();
     // mask outside crop
     const c = C.crop, [x0, y0] = toS(c.x - c.w / 2, c.y - c.h / 2), sw = c.w * view.z, sh = c.h * view.z;
-    g.fillStyle = 'rgba(8,9,10,.66)';
+    g.fillStyle = 'rgba(2, 10, 12,.66)';
     g.beginPath(); g.rect(0, 0, W, H); g.rect(x0, y0, sw, sh); g.fill('evenodd');
     // grid
     const lines = rotating ? 10 : 3;
@@ -333,12 +334,12 @@ const Crop = (() => {
     g.fillRect(x0 + sw / 2 - E / 2, y0 - T, E, T); g.fillRect(x0 + sw / 2 - E / 2, y0 + sh, E, T);
     g.fillRect(x0 - T, y0 + sh / 2 - E / 2, T, E); g.fillRect(x0 + sw, y0 + sh / 2 - E / 2, T, E);
     // labels
-    g.font = '11px "Segoe UI", system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = '500 11px Inter, "Segoe UI", system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
     const pill = (txt, cx, cy) => {
       const tw = g.measureText(txt).width + 14;
       g.fillStyle = 'rgba(20,22,25,.82)'; g.beginPath();
       g.roundRect ? g.roundRect(cx - tw / 2, cy - 10, tw, 20, 4) : g.rect(cx - tw / 2, cy - 10, tw, 20);
-      g.fill(); g.fillStyle = '#e7e9ec'; g.fillText(txt, cx, cy + .5);
+      g.fill(); g.fillStyle = '#e4f5f3'; g.fillText(txt, cx, cy + .5);
     };
     if (C.aspect !== 'free' && sh > 60) pill(ASPECTS.find(a => a[0] === C.aspect)[1].replace(/ /g, ''), x0 + sw / 2, y0 + 22);
     if (sh > 40) pill(`${Math.round(c.w)} × ${Math.round(c.h)}`, x0 + sw / 2, y0 + sh - 22);
@@ -361,7 +362,7 @@ const Crop = (() => {
       else if (major) rg.fillRect(Math.round(x) - .75, H / 2 - 7, 1.5, 14);
       else { rg.beginPath(); rg.arc(x, H / 2, 1.3, 0, Math.PI * 2); rg.fill(); }
     }
-    rg.fillStyle = '#f0b35a';
+    rg.fillStyle = '#00f0be';
     rg.fillRect(cx - 1.5, H / 2 - 11, 3, 22);
     $('#angleLabel').textContent = (C.angle > 0 ? '+' : '') + C.angle.toFixed(1) + '°';
   }
@@ -386,7 +387,7 @@ const Crop = (() => {
     if (!C) return;
     const ra = resizeCropAspect(), cr = ratio();
     const warn = ra && (!cr || Math.abs(cr / ra.r - 1) > 0.005);
-    top.innerHTML = 'Crop &amp; rotate' + (warn ? ` &nbsp;·&nbsp; <span style="color:#f0b35a">${ra.label} output will still center-crop to that shape</span>` : '');
+    top.innerHTML = 'Crop &amp; rotate' + (warn ? ` &nbsp;·&nbsp; <span style="color:#00f0be">${ra.label} output will still center-crop to that shape</span>` : '');
   }
 
   function updateSummary() {

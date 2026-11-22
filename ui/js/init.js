@@ -35,7 +35,7 @@ async function init() {
   syncPanel(); editChanged(); updateInfo();
   try { const init = await api().initial_files(); if (init && init.length) addPaths(init); } catch (_) {}
 }
-S.E = computeEdit(S.edit);
+S.E = computeEdit(effectiveEdit(S.edit));
 syncPanel(); updateInfo();
 if (window.pywebview && window.pywebview.api) init();
 else window.addEventListener('pywebviewready', init);

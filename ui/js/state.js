@@ -18,6 +18,7 @@ const DEFAULT_STAGE = {
   preset_ar: '16:9', preset_res: 720, cw: 1920, ch: 1080, cmode: 'crop',
   wp_on: false, wp_pct: 99.0, wp_strength: 1.0,
   ge_on: false, ge_p: 1, ge_sigma: 2.0, ge_strength: 1.0,
+  color_on: true,       // island switch of Color balance (off = White-Patch / Gray-Edge skipped, settings kept)
 };
 const ident = () => [[0, 0], [255, 255]];
 /* Adjustments (modelled on DaVinci Resolve Primaries, see the formulas below). [key, label, default, min, max, step, decimals] */
@@ -90,17 +91,40 @@ const defaultEdit = () => ({
   curves: { m: ident(), r: ident(), g: ident(), b: ident() },
   ...defaultAdjust(),
   ...Object.assign({}, ...FILTERS.map(defaultFilter)),
+  off: {},              // sections switched off on their island: { sec: true }; values are kept, the edit skips them
 });
 const DEFAULT_EDIT_JSON = JSON.stringify(defaultEdit());
 const defaultGeom = () => ({ q: 0, angle: 0, flip: false, crop: null, aspect: null });
 const isDefaultGeom = g => !g || (!g.q && !g.angle && !g.flip && !g.crop);
 function geomParams(g) {
   g = g || defaultGeom();
+  if (g.off) g = defaultGeom();         // Crop island switched off: full image (the crop itself is kept)
   return { rot_q: g.q || 0, angle: g.angle || 0, flip: !!g.flip,
     crop_x: g.crop ? g.crop.x : 0, crop_y: g.crop ? g.crop.y : 0,
     crop_w: g.crop ? g.crop.w : 0, crop_h: g.crop ? g.crop.h : 0 };
 }
-const stageParams = (stage, geom) => Object.assign(clone(stage), geomParams(geom));
+function stageParams(stage, geom) {
+  const p = Object.assign(clone(stage), geomParams(geom));
+  if (p.color_on === false) { p.wp_on = false; p.ge_on = false; }
+  delete p.color_on;
+  return p;
+}
+/* What a switched-off island leaves of the edit: its values replaced by neutral ones. */
+const SEC_NEUTRAL = {
+  point: () => ({ black: null, gray: null, white: null }),
+  adjust: defaultAdjust,
+  curves: () => ({ curves: { m: ident(), r: ident(), g: ident(), b: ident() } }),
+  ...Object.fromEntries(FILTERS.map(f => [f.sec, () => defaultFilter(f)])),
+};
+function effectiveEdit(e) {
+  let out = e;
+  for (const sec in e.off || {}) {
+    if (!e.off[sec] || !SEC_NEUTRAL[sec]) continue;
+    if (out === e) out = Object.assign({}, e);
+    Object.assign(out, SEC_NEUTRAL[sec]());
+  }
+  return out;
+}
 
 const S = {
   files: [], cur: -1,

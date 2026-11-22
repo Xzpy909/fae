@@ -20,7 +20,7 @@ function p2c(px, py, w, h) {
   return [clamp(Math.round((px - CPAD) / (w - 2 * CPAD) * 255), 0, 255),
           clamp(Math.round((1 - (py - CPAD) / (h - 2 * CPAD)) * 255), 0, 255)];
 }
-const CH_COL = { m: '#e7e9ec', r: '#ff6b6b', g: '#5fd08a', b: '#6aa8ff' };
+const CH_COL = { m: '#e4f5f3', r: '#ff6b6b', g: '#5fd08a', b: '#6aa8ff' };
 const CH_FILL = { m: 'rgba(200,205,212,.16)', r: 'rgba(255,107,107,.2)', g: 'rgba(95,208,138,.2)', b: 'rgba(106,168,255,.22)' };
 
 function drawCurve() {
@@ -28,7 +28,7 @@ function drawCurve() {
   if (!w) return;
   const g = cctx;
   g.clearRect(0, 0, w, h);
-  g.fillStyle = '#111316'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#07171a'; g.fillRect(0, 0, w, h);
   // grid
   g.strokeStyle = '#22262c'; g.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
@@ -75,8 +75,8 @@ function drawCurve() {
     const [px, py] = c2p(pt[0], pt[1], w, h);
     const active = cdrag && cdrag.idx === i;
     g.beginPath(); g.arc(px, py, active ? 5.5 : 4.5, 0, Math.PI * 2);
-    g.fillStyle = active ? '#f0b35a' : '#111316'; g.fill();
-    g.lineWidth = 1.8; g.strokeStyle = active ? '#f0b35a' : CH_COL[ch]; g.stroke();
+    g.fillStyle = active ? '#00f0be' : '#07171a'; g.fill();
+    g.lineWidth = 1.8; g.strokeStyle = active ? '#00f0be' : CH_COL[ch]; g.stroke();
   });
 }
 
@@ -167,7 +167,7 @@ function drawHisto() {
   if (!w) return;
   const g = hctx;
   g.clearRect(0, 0, w, h);
-  g.fillStyle = '#111316'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#07171a'; g.fillRect(0, 0, w, h);
   if (!S.img || !S.n) { $('#clipLo').textContent = $('#clipHi').textContent = '0%'; return; }
   let mx = 1;
   for (let c = 0; c < 3; c++) for (let i = 1; i < 255; i++) mx = Math.max(mx, S.hout[c * 256 + i]);

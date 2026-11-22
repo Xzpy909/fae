@@ -9,7 +9,7 @@
 <div id="app">
 
   <header id="topbar">
-    <div class="brand"><span class="logo"></span><span>Fast Image Editor</span></div>
+    <div class="brand"><img class="logo" src="logo.svg" alt=""><span>Fast Image Editor</span></div>
     <div class="fileinfo">
       <span id="fileName">No image</span>
       <span id="fileDims" class="muted"></span>
@@ -42,8 +42,8 @@
     </div>
     <ul id="fileList"></ul>
     <div class="side-foot">
-      <button id="removeBtn" class="small ghost">Remove</button>
-      <button id="clearBtn" class="small ghost">Clear</button>
+      <button id="clearBtn" class="glass-pill" title="Remove all images from the list">
+        <svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>Clear</button>
     </div>
   </aside>
 
@@ -155,19 +155,19 @@
       </section>
 
       <section class="card sec" data-sec="f_bw">
-        <div class="card-head"><span>Filter · Perceptual Saturation</span><button id="resetBW" class="rst all" title="Reset Perceptual Saturation filter"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
+        <div class="card-head"><span>Perceptual Saturation</span><button id="resetBW" class="rst all" title="Reset Perceptual Saturation filter"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
         <div id="bwFields"></div>
         <div class="hint">≈ Perceptual Saturation is an approximation: it behaves like the reference filter (pushes colours away from their surroundings) but does not match it exactly. Opacity sets how strongly the finished filter is applied.</div>
       </section>
 
       <section class="card sec" data-sec="f_film">
-        <div class="card-head"><span>Filter · Film Effect</span><button id="resetFilm" class="rst all" title="Reset Film Effect"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
+        <div class="card-head"><span>Film Effect</span><button id="resetFilm" class="rst all" title="Reset Film Effect"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
         <div id="filmFields"></div>
         <div class="hint">Presets and Brightness / Contrast are fitted on reference renders. Colours that were not in the reference image are estimated.</div>
       </section>
 
       <section class="card sec" data-sec="f_sc">
-        <div class="card-head"><span>Filter · Super Contrast</span><button id="resetSC" class="rst all" title="Reset Super Contrast"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
+        <div class="card-head"><span>Super Contrast</span><button id="resetSC" class="rst all" title="Reset Super Contrast"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
         <div id="scFields"></div>
         <div class="hint">Matched to reference renders; Dynamic Contrast (≈) is an approximation of the same idea.</div>
       </section>
@@ -193,7 +193,7 @@
       </section>
 
       <section class="card sec" data-sec="resize">
-        <div class="card-head"><label class="toggle head"><input type="checkbox" id="resizeOn"><span class="tg"></span>Resize</label></div>
+        <div class="card-head"><span>Resize</span></div>
         <div id="resizeBody">
         <div class="seg" id="modeSeg"><button data-v="preset">Preset</button><button data-v="Mpix">Target Mpix</button><button data-v="custom">Custom</button></div>
         <div id="rzPreset" class="rz">

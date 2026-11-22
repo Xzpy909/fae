@@ -110,7 +110,7 @@ function makeJog(cv, pos) {
     ctx.save();
     ctx.beginPath(); ctx.roundRect(0.5, 0.5, W - 1, H - 1, rr); ctx.clip();
     let g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#202328'); g.addColorStop(0.5, '#15171a'); g.addColorStop(1, '#0b0c0e');
+    g.addColorStop(0, '#0f2a2d'); g.addColorStop(0.5, '#0a181b'); g.addColorStop(1, '#051012');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     // ridges every 6 px of arc at the centre
     const dA = 6 / R, phase = (((pos() / R) % dA) + dA) % dA;
@@ -119,20 +119,20 @@ function makeJog(cv, pos) {
       const lit = 0.10 + 0.55 * c * c;
       ctx.fillStyle = `rgba(0,0,0,${0.55 * c})`;
       ctx.fillRect(x + w * 0.5, 4, Math.max(0.5, 1.6 * c), H - 8);
-      ctx.fillStyle = on ? `rgba(240,179,90,${lit})` : `rgba(200,206,214,${lit})`;
+      ctx.fillStyle = on ? `rgba(0, 240, 190,${lit})` : `rgba(190, 214, 211,${lit})`;
       ctx.fillRect(x - w * 0.5, 4, w, H - 8);
     }
     // cylinder shading towards the ends + top sheen
     g = ctx.createLinearGradient(0, 0, W, 0);
-    g.addColorStop(0, 'rgba(8,9,10,.95)'); g.addColorStop(0.2, 'rgba(8,9,10,.15)');
-    g.addColorStop(0.5, 'rgba(8,9,10,0)'); g.addColorStop(0.8, 'rgba(8,9,10,.15)'); g.addColorStop(1, 'rgba(8,9,10,.95)');
+    g.addColorStop(0, 'rgba(2, 10, 12,.95)'); g.addColorStop(0.2, 'rgba(2, 10, 12,.15)');
+    g.addColorStop(0.5, 'rgba(2, 10, 12,0)'); g.addColorStop(0.8, 'rgba(2, 10, 12,.15)'); g.addColorStop(1, 'rgba(2, 10, 12,.95)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, 'rgba(255,255,255,.07)'); g.addColorStop(0.35, 'rgba(255,255,255,0)');
     g.addColorStop(1, 'rgba(0,0,0,.35)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     ctx.restore();
-    ctx.strokeStyle = on ? 'rgba(240,179,90,.55)' : 'rgba(255,255,255,.09)';
+    ctx.strokeStyle = on ? 'rgba(0, 240, 190,.55)' : 'rgba(255,255,255,.09)';
     ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(0.5, 0.5, W - 1, H - 1, rr); ctx.stroke();
   };
   new ResizeObserver(draw).observe(cv);
@@ -224,7 +224,6 @@ function syncEncRow() {
   $('#aomNote').style.display = forced ? '' : 'none';
 }
 $('#prioSel').addEventListener('change', e => { S.stage.prio = e.target.value; valueChanged('stage'); commit(); });
-$('#resizeOn').addEventListener('change', e => { S.stage.resize_on = e.target.checked; valueChanged('stage'); commit(); syncPanel(); });
 $('#wpOn').addEventListener('change', e => { S.stage.wp_on = e.target.checked; valueChanged('stage'); commit(); syncPanel(); });
 $('#geOn').addEventListener('change', e => { S.stage.ge_on = e.target.checked; valueChanged('stage'); commit(); syncPanel(); });
 $('#advanceChk').addEventListener('change', e => { S.prefs.advance = e.target.checked; savePrefsSoon(); });
@@ -301,8 +300,6 @@ function syncPanel() {
   syncMode(); syncFmt(); syncJMode(); syncWMode();
   syncEncRow();
   $('#prioSel').value = S.stage.prio;
-  $('#resizeOn').checked = S.stage.resize_on !== false;
-  $('#resizeBody').classList.toggle('off', S.stage.resize_on === false);
   $('#wpOn').checked = S.stage.wp_on;
   $('#geOn').checked = S.stage.ge_on;
   $('#advanceChk').checked = !!S.prefs.advance;

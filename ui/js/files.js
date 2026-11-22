@@ -82,7 +82,8 @@ function renderList() {
     return `<li data-i="${i}" class="${i === S.cur ? 'cur' : ''} ${edited ? 'edited' : ''} ${f.done ? 'done' : ''}" title="${f.path.replace(/"/g, '&quot;')}">
       <img loading="lazy" src="/thumb?p=${encodeURIComponent(f.path)}" alt="">
       <span class="nm">${f.name.replace(/</g, '&lt;')}</span>
-      <span class="badges"><span class="b-edit" title="edited"></span><span class="b-done" title="processed">✓</span></span></li>`;
+      <span class="badges"><span class="b-edit" title="edited"></span><span class="b-done" title="processed">✓</span></span>
+      <button class="rm" title="Remove from the list"><svg class="xbtn" viewBox="0 0 20 20"><circle class="c" cx="10" cy="10" r="9.5"/><path class="x" d="M7 7l6 6M13 7l-6 6"/></svg></button></li>`;
   }).join('');
   $('#count').textContent = S.files.length;
   const cur = ul.querySelector('li.cur');

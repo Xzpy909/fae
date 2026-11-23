@@ -8,6 +8,7 @@
    ====================================================================== */
 const SECS = ['crop', 'point', 'adjust', 'curves', 'resize', 'color', ...PANELS.map(f => f.sec)];
 function syncSections() {
+  orderPanel();
   const on = new Set(S.prefs.secs || []);
   document.querySelectorAll('#panel .card.sec').forEach(c => c.classList.toggle('show', on.has(c.dataset.sec)));
   document.querySelectorAll('#toolPills .pill[data-sec]').forEach(p => p.classList.toggle('on', on.has(p.dataset.sec)));
@@ -101,7 +102,7 @@ function buildIslands() {
     body.className = 'isl-body';
     while (head.nextSibling) body.appendChild(head.nextSibling);
     card.appendChild(body);
-    if (!card.classList.contains('sec')) return;          // the Histogram island has no switch / X
+    if (!card.classList.contains('sec')) return;          // (every card is a tool section)
     head.classList.add('isl-head');
     let title = head.firstElementChild;
     if (title && title.tagName === 'SPAN') title.classList.add('isl-title');
@@ -113,10 +114,14 @@ function buildIslands() {
     }
     head.insertAdjacentHTML('afterbegin',
       `<label class="isw" title="On / off: off keeps the values but leaves them out"><input type="checkbox"><span></span></label>`);
+    if (CHAIN_TOOLS.includes(sec))           // re-orderable: drag grip + its place in the chain
+      head.insertAdjacentHTML('afterbegin', `<span class="isl-grip" title="Drag to reorder (the order the tools run in)">`
+        + `<svg viewBox="0 0 10 16"><circle cx="3" cy="3" r="1.3"/><circle cx="7" cy="3" r="1.3"/><circle cx="3" cy="8" r="1.3"/>`
+        + `<circle cx="7" cy="8" r="1.3"/><circle cx="3" cy="13" r="1.3"/><circle cx="7" cy="13" r="1.3"/></svg></span><span class="isl-num"></span>`);
     // the head's own buttons (reset all, clear) sit together on the right, before the X
     const tools = document.createElement('span');
     tools.className = 'isl-tools';
-    [...head.children].slice(2).filter(el => !el.classList.contains('tabs')).forEach(el => tools.appendChild(el));
+    [...head.children].slice([...head.children].indexOf(title) + 1).filter(el => !el.classList.contains('tabs')).forEach(el => tools.appendChild(el));
     head.appendChild(tools);
     head.insertAdjacentHTML('beforeend', `<button class="isl-x" title="Delete: reset and close">${ISL_X}</button>`
       + `<button class="isl-chev" title="Fold / unfold"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>`);
@@ -148,8 +153,141 @@ function syncIslands() {
     card.classList.toggle('off', !on);
     if (sw) sw.checked = on;
   });
+  // order numbers: 1, 2, 3 … over the open re-orderable islands, top to bottom
+  let n = 0;
+  document.querySelectorAll('#panel .card.sec.show .isl-num').forEach(b => { b.textContent = ++n; });
 }
 buildIslands();
+
+/* ======================================================================
+   Panel order (under the Histogram block) = the order the tools run in: Crop, Resize and Color balance first (pinned), then the
+   chain (S.edit.chain, re-orderable by dragging the grip), then Sharpen (pinned, runs last).
+   Re-ordering is an edit: undo / redo, per image, Copy edits / Paste.
+   ====================================================================== */
+const PIN_TOP = ['crop', 'resize', 'color'], PIN_END = ['sharpen'];
+const panelScroll = $('#panel .scroll');
+const cardOf = sec => panelScroll.querySelector(`:scope > .card.sec[data-sec="${sec}"]`);
+function orderPanel() {
+  const want = [...PIN_TOP, ...chainOf(S.edit).map(c => c.t), ...PIN_END].map(cardOf).filter(Boolean);
+  const have = [...panelScroll.querySelectorAll(':scope > .card.sec')];
+  if (want.length === have.length && want.every((c, i) => c === have[i])) return;
+  let prev = panelScroll.querySelector(':scope > .reorder-space');      // the reorder spacer stays first
+  for (const c of want) {
+    if (!prev) { if (panelScroll.firstElementChild !== c) panelScroll.prepend(c); }
+    else if (prev.nextElementSibling !== c) prev.after(c);
+    prev = c;
+  }
+}
+/* new chain with `id` moved before `beforeId` (null = after the last open re-orderable island) */
+function moveInChain(id, beforeId) {
+  const c = chainOf(S.edit), from = c.findIndex(x => x.id === id);
+  if (from < 0 || id === beforeId) return;
+  const [it] = c.splice(from, 1);
+  let to;
+  if (beforeId) to = c.findIndex(x => x.id === beforeId);
+  else {
+    const open = [...panelScroll.querySelectorAll(':scope > .card.sec.show .isl-grip')].map(g => g.closest('.card').dataset.sec).filter(s => s !== id);
+    to = open.length ? c.findIndex(x => x.id === open[open.length - 1]) + 1 : c.length;
+  }
+  c.splice(to < 0 ? c.length : to, 0, it);
+  if (JSON.stringify(c) === JSON.stringify(chainOf(S.edit))) return;
+  S.edit.chain = c;
+  editChanged(); commit(); syncPanel();
+}
+(() => {
+  const line = document.createElement('div');
+  line.className = 'drop-line';
+  panelScroll.appendChild(line);
+  const spacerTop = document.createElement('div'), spacerEnd = document.createElement('div');
+  spacerTop.className = spacerEnd.className = 'reorder-space';
+  panelScroll.prepend(spacerTop);
+  panelScroll.appendChild(spacerEnd);
+  let drag = null;
+  const targets = () => [...panelScroll.querySelectorAll(':scope > .card.sec.show')]
+    .filter(c => c.querySelector('.isl-grip') && c !== drag.card);
+  function place(y) {
+    // the gap nearest to the pointer, among the open re-orderable islands
+    const ts = targets(), sr = panelScroll.getBoundingClientRect();
+    let before = null, lineY;
+    for (const c of ts) {
+      const r = c.getBoundingClientRect();
+      if (y < r.top + r.height / 2) { before = c; lineY = r.top - 5; break; }
+    }
+    if (!before) { const last = ts[ts.length - 1]; lineY = last ? last.getBoundingClientRect().bottom + 5 : drag.r0.top; }
+    drag.before = before ? before.dataset.sec : null;
+    line.style.top = (lineY - sr.top + panelScroll.scrollTop - 1) + 'px';
+  }
+  function move(e) {
+    if (!drag) return;
+    drag.y = e.clientY;
+    const sr = panelScroll.getBoundingClientRect();
+    // scroll while near the panel's top / bottom edge
+    const edge = 40, v = e.clientY < sr.top + edge ? -(sr.top + edge - e.clientY) : e.clientY > sr.bottom - edge ? e.clientY - (sr.bottom - edge) : 0;
+    drag.speed = v * 0.35;
+    if (v && drag.started && !drag.raf) drag.raf = requestAnimationFrame(tick);
+    update();
+  }
+  // once the pointer really moves: every re-orderable island folds to its one-line row (the open ones
+  // unfold again on drop), and the list is scrolled so the held island stays under the pointer
+  function start() {
+    drag.started = true;
+    const cards = [...panelScroll.querySelectorAll(':scope > .card.sec.show')].filter(c => c.querySelector('.isl-grip'));
+    cards.forEach(c => c.classList.add('collapsed'));
+    drag.card.classList.add('dragging'); line.classList.add('show'); document.body.classList.add('reordering');
+    // scroll by `need` so the held island lands under the pointer; where the list is too short to
+    // scroll that far, temporary spacers at the top / bottom make the room
+    const need = drag.card.getBoundingClientRect().top - (drag.y0 - drag.off);
+    const maxTop = panelScroll.scrollHeight - panelScroll.clientHeight;
+    const lack = Math.max(0, -(panelScroll.scrollTop + need)), over = Math.max(0, panelScroll.scrollTop + need - maxTop);
+    spacerTop.style.height = lack + 'px'; spacerEnd.style.height = over + 'px';
+    panelScroll.scrollTop += need + lack;
+    drag.s0 = panelScroll.scrollTop;
+    drag.top0 = drag.card.getBoundingClientRect().top;
+  }
+  function update() {
+    if (!drag.started) { if (Math.abs(drag.y - drag.y0) < 4) return; start(); }
+    // where the island would be without the lift, and where the pointer holds it
+    const layoutTop = drag.top0 - (panelScroll.scrollTop - drag.s0);
+    drag.card.style.setProperty('--dy', (drag.y - drag.off - layoutTop) + 'px');
+    place(drag.y);
+  }
+  function tick() {
+    if (!drag || !drag.speed) { if (drag) drag.raf = 0; return; }
+    panelScroll.scrollTop += drag.speed;
+    update();
+    drag.raf = requestAnimationFrame(tick);
+  }
+  function end(e) {
+    if (!drag) return;
+    const d = drag; drag = null;
+    if (d.raf) cancelAnimationFrame(d.raf);
+    const y = d.card.getBoundingClientRect().top;     // where it was let go (still lifted)
+    d.card.classList.remove('dragging'); d.card.style.removeProperty('--dy');
+    line.classList.remove('show'); document.body.classList.remove('reordering');
+    if (!d.started) return;
+    if (e.type === 'pointerup') moveInChain(d.card.dataset.sec, d.before);
+    syncIslands();                               // the islands that were open unfold again
+    spacerTop.style.height = spacerEnd.style.height = '0px';
+    if (!document.body.contains(d.card)) return;
+    panelScroll.scrollTop += d.card.getBoundingClientRect().top - y;   // keep the dropped island where it was let go
+    if (S.prefs.secs && S.prefs.secs.includes('curves')) requestAnimationFrame(drawCurve);
+  }
+  panelScroll.addEventListener('pointerdown', e => {
+    const g = e.target.closest('.isl-grip');
+    if (!g || e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const card = g.closest('.card');
+    panelScroll.setPointerCapture(e.pointerId);          // the lifted island itself ignores the pointer
+    const r0 = card.getBoundingClientRect();
+    drag = { card, y0: e.clientY, y: e.clientY, off: e.clientY - r0.top, s0: panelScroll.scrollTop, top0: r0.top, r0,
+      before: undefined, speed: 0, raf: 0, started: false };
+  });
+  panelScroll.addEventListener('pointermove', move);
+  panelScroll.addEventListener('pointerup', end);
+  panelScroll.addEventListener('pointercancel', end);
+  panelScroll.addEventListener('lostpointercapture', end);
+  window.addEventListener('keydown', e => { if (drag && e.key === 'Escape') { e.stopPropagation(); end(e); } }, true);
+})();
 
 /* ======================================================================
    Filters popover: the Filters pill (top-right corner, next to the histogram) opens a centred,

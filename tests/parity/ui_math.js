@@ -40,7 +40,7 @@ function loadUi(root) {
   }
   // const / function declarations live in the shared script scope, not on globalThis
   loaded = vm.runInThisContext(`({ computeEdit, jobFor, defaultEdit, S, ADJUST, FILTERS,
-    FILM_PRESETS, filterFields, defaultGeom })`);
+    FILM_PRESETS, filterFields, defaultGeom, CHAIN_TOOLS })`);
   return loaded;
 }
 

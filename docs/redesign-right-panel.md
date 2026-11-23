@@ -8,7 +8,7 @@ The panel keeps two fixed islands and a re-orderable list between them:
 
 | Position | Island | Re-orderable | Preset button |
 |---|---|---|---|
-| Top (fixed) | Histogram | no | no |
+| Top (fixed) | Histogram **block** (docked, not an island) | no | no |
 | Middle | every tool / filter the user has open | **yes** | yes, where it makes sense (see 3.3) |
 | Bottom (fixed) | Export **block** (see 1.4) | no | no |
 
@@ -167,7 +167,8 @@ Progress (implemented in waves):
 - Wave 3 — chain of instances + reorder (rows get grip and order number) + core list of steps (needs `core\build_core.bat`).
   - **Part 1 — done (tested on Windows):** the core runs the edit as an ordered list of steps (`core/fastedit-core/src/chain.rs`; core 0.12). Python: `fastedit_core.apply_chain(rgb, steps, …)` built by `fastedit/core.py` (`_steps`: `edit["steps"]` in panel order, else the flat edit in `DEFAULT_ORDER`); `apply_edit` removed. WASM: `Params.push_point / push_adjust / push_curves / push_bw / push_film / push_sc` filled by `ui/js/wasm-params.js` (same reading as `_steps`). A tool may appear more than once; Sharpen always runs last. In the old order the chain is bit-identical to the old fixed pipeline (Rust test + Python binding). Two deliberate changes, goldens re-recorded: Curves now run before the filters, and Mid/Detail smooths the image as it arrives at Adjustments (after Point correction). The preview keeps that smoothing while the image arriving at Adjustments is unchanged (parallel fingerprint). Parity on the PC: core 763/763, wasm 763/763; preview speed unchanged (2560×1440: 11–50 ms per frame).
   - Also: the lossy preview encode (JPEG / AVIF / lossy WEBP) runs only while the export block's encoded compare is on; the size chip shows only there. Turning it off kills a running encode.
-  - Part 2 — the JS data model with instances (`E.steps`, migration, copy / paste, undo). Part 3 — rows with grips, order numbers, drag reorder.
+  - **Part 2 — done:** the chain order is part of the edit: `edit.chain` = `[{ id, t }]` over the re-orderable tools (`CHAIN_TOOLS` in state.js; the first instance of a tool keeps its values in the flat keys, extra instances will carry their own in wave 6). `chainOf()` makes any chain whole (unknown tools dropped, missing ones added at their default place). `computeEdit` adds `E.steps` only when the order differs from the default; `jobFor` sends `edit.steps` with each tool's fields only. Edits live in memory per session, so undo / redo, per-image state, Copy edits / Paste and Reset carry the order with no migration. Parity: 8 reordered-chain cases (819 checks), PC and cloud recordings identical.
+  - **Part 3 — done (tested on Windows):** the panel lists tools in run order — Crop, Resize, Color balance pinned at the top, the chain (drag grip + order number 1, 2, 3 … over the open islands; filled when unfolded), Sharpen pinned at the end. Drag by the grip: after a few pixels every re-orderable island folds to its row and the list slides so the held island stays under the pointer (temporary spacers where the list is too short); glowing drop line, edge auto-scroll, Esc cancels; on drop the islands that were open unfold again. The Histogram is now a fixed block docked to the panel's top (twin of the export block); the panel and file list can't be scrolled by `scrollIntoView` any more (`overflow: clip`).
 - Later (after wave 3): a speed pass on the core (f32 math / SIMD for the per-pixel steps; speed matters more than bit-exactness, within about ±1 level).
 - Wave 4 — per-tool presets with thumbnails. Wave 5 — chain presets. Wave 6 — stacking UI.
 

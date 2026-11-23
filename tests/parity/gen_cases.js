@@ -106,6 +106,24 @@ for (let i = 0; i < 30; i++) {
   });
 }
 
+// reordered chains (the panel's drag order): a few tools on, in a shuffled order
+const CHAIN = UI.CHAIN_TOOLS;
+for (let i = 0; i < 8; i++) {
+  add(`chain_${i}`, 'reordered chain', e => {
+    e.curves.m = randomCurve();
+    if (i % 2 === 0) for (const k of ['black', 'white']) e[k] = sampleFor(k);
+    if (rnd() < 0.7) e.adj_sat = slider(adjust.find(a => a[0] === 'adj_sat'), 'rnd');
+    if (rnd() < 0.5) e.adj_contrast = slider(adjust.find(a => a[0] === 'adj_contrast'), 'rnd');
+    if (i % 4 === 1) e.adj_middetail = slider(adjust.find(a => a[0] === 'adj_middetail'), 'rnd');
+    for (const fields of scalarFields) for (const f of fields) if (rnd() < 0.35) e[f[0]] = slider(f, 'rnd');
+    if (i % 3 !== 2) e.flt_film_preset = pick(presets);
+    const order = CHAIN.slice();
+    for (let k = order.length - 1; k > 0; k--) { const j = int(0, k); [order[k], order[j]] = [order[j], order[k]]; }
+    if (order.join() === CHAIN.join()) order.reverse();
+    e.chain = order.map(t => ({ id: t, t }));
+  });
+}
+
 const stage = UI.S.stage, geom = UI.defaultGeom();
 const out = cases.map(c => ({ ...c, job: UI.jobFor({ path: 'x', state: { stage, edit: c.state, geom } }, false).edit }));
 const ids = new Set();

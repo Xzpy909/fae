@@ -105,6 +105,26 @@ const fieldKD = a => Array.isArray(a) ? [a[0], a[2]] : [a.key, a.def];
 const filterFields = f => f.fields.filter(a => Array.isArray(a) || (a && a.key));      // values only (no dividers / headings)
 const defaultFilter = f => Object.fromEntries(filterFields(f).map(fieldKD));
 const filterActive = (f, e) => filterFields(f).map(fieldKD).some(([k, def]) => e[k] !== undefined && e[k] !== def);
+/* The processing chain: the re-orderable tools in the order they run (after the stage: crop, resize and
+   colour balance always run first, Sharpen always last). One entry per instance { id, t }; t = the tool's
+   section id. The first instance of a tool keeps its values in the edit's flat keys (adj_*, curves,
+   flt_*...). Default = the tool pill order. */
+const CHAIN_TOOLS = ['point', 'adjust', 'curves', 'f_bw', 'f_film', 'f_sc'];
+const defaultChain = () => CHAIN_TOOLS.map(t => ({ id: t, t }));
+/* the edit's chain, made whole: known tools only, each first instance once, missing ones added at
+   their default place (edits from before the chain existed have none) */
+function chainOf(e) {
+  const c = Array.isArray(e && e.chain) ? e.chain : [];
+  const seen = new Set(), out = [];
+  for (const x of c) if (x && CHAIN_TOOLS.includes(x.t) && !seen.has(x.id)) { seen.add(x.id); out.push({ id: x.id, t: x.t }); }
+  CHAIN_TOOLS.forEach((t, i) => {
+    if (seen.has(t)) return;
+    const at = out.findIndex(x => CHAIN_TOOLS.indexOf(x.t) > i);    // before the first tool that comes later by default
+    out.splice(at < 0 ? out.length : at, 0, { id: t, t });
+  });
+  return out;
+}
+const isDefaultChain = c => c.length === CHAIN_TOOLS.length && c.every((x, i) => x.id === CHAIN_TOOLS[i]);
 const defaultEdit = () => ({
   black: null, gray: null, white: null,
   tBlack: 0, tWhite: 255, strength: 1,
@@ -112,6 +132,7 @@ const defaultEdit = () => ({
   ...defaultAdjust(),
   ...Object.assign({}, ...PANELS.map(defaultFilter)),
   off: {},              // sections switched off on their island: { sec: true }; values are kept, the edit skips them
+  chain: defaultChain(),
 });
 const DEFAULT_EDIT_JSON = JSON.stringify(defaultEdit());
 const defaultGeom = () => ({ q: 0, angle: 0, flip: false, crop: null, aspect: null });

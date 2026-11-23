@@ -14,17 +14,20 @@ const { loadUi } = require('./ui_math');
 // computeEdit's shape (what the worker gets) from the stored job (what Python got)
 function editFromJob(j, UI) {
   const f64 = a => (a == null ? null : Float64Array.from(a)), u8 = a => (a == null ? null : Uint8Array.from(a));
-  let film = null;
-  if (j.film) {
-    const d = j.film.d && !Array.isArray(j.film.d) ? UI.FILM_PRESETS[j.film.d.preset] : j.film.d;
-    film = { n: j.film.n, d: f64(d), t1: u8(j.film.t1), op: j.film.op };
-  }
-  return {
-    k: j.k, o: j.o, gains: j.gains, luts: j.luts.map(u8), point: j.point, wb: j.wb, con: f64(j.con),
-    tones: j.tones ? j.tones.map(t => ({ T: f64(t.T), ratio: t.ratio })) : null,
-    boost: f64(j.boost), sat: j.sat, md: j.md, bw: j.bw, film,
-    sc: j.sc ? Object.assign({}, j.sc, { shl: u8(j.sc.shl) }) : null,
+  const film = fm => {
+    if (!fm) return null;
+    const d = fm.d && !Array.isArray(fm.d) ? UI.FILM_PRESETS[fm.d.preset] : fm.d;
+    return { n: fm.n, d: f64(d), t1: u8(fm.t1), op: fm.op };
   };
+  const tables = x => ({                 // the fields a step / the flat edit has, as computeEdit gives them
+    k: x.k, o: x.o, gains: x.gains, luts: x.luts ? x.luts.map(u8) : undefined, point: x.point, wb: x.wb, con: f64(x.con),
+    tones: x.tones ? x.tones.map(t => ({ T: f64(t.T), ratio: t.ratio })) : null,
+    boost: f64(x.boost), sat: x.sat, md: x.md, bw: x.bw, film: film(x.film),
+    sc: x.sc ? Object.assign({}, x.sc, { shl: u8(x.sc.shl) }) : null,
+  });
+  const E = tables(j);
+  if (j.steps) E.steps = j.steps.map(s => Object.assign(tables(s), { t: s.t }));
+  return E;
 }
 
 async function main() {

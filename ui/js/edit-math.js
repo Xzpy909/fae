@@ -74,12 +74,21 @@ function computeEdit(e) {
   const tones = [toneTable('shadows', e.adj_shadows), toneTable('highlights', e.adj_highlights)].filter(Boolean);
   // Saturation: plain luma-preserving gain, Rec.709 weights, 50 = unchanged (measured: exactly sat/50)
   const satv = e.adj_sat == null ? 50 : Number(e.adj_sat);
-  return { k, o, gains, luts, point, wb: wbMatrix(e.adj_temp, e.adj_tint), con: contrastTable(e.adj_contrast, e.adj_pivot),
+  const E = { k, o, gains, luts, point, wb: wbMatrix(e.adj_temp, e.adj_tint), con: contrastTable(e.adj_contrast, e.adj_pivot),
     tones: tones.length ? tones : null,
     boost: boostGains(e.adj_boost), sat: satv === 50 ? null : satv / 50,
     md: (Number(e.adj_middetail) || 0) / 100, bw: bwParams(e), film: filmParams(e), sc: scParams(e),
     sharp: sharpParams(e) };
+  // the chain order: E.steps only when it differs from the default (the core's DEFAULT_ORDER, which is the
+  // same order), one step per instance with t = the core's step kind and that tool's tables
+  const chain = chainOf(e);
+  if (!isDefaultChain(chain)) E.steps = chain.map(c => Object.assign({ t: STEP_KIND[c.t] }, E));
+  return E;
 }
+/* chain tool -> the core's step kind (wasm-params.js, fastedit/core.py) and the E fields it reads */
+const STEP_KIND = { point: 'point', adjust: 'adjust', curves: 'curves', f_bw: 'bw', f_film: 'film', f_sc: 'sc' };
+const STEP_FIELDS = { point: ['point', 'k', 'o', 'gains'], adjust: ['md', 'wb', 'con', 'tones', 'boost', 'sat'],
+  curves: ['luts'], bw: ['bw'], film: ['film'], sc: ['sc'] };
 /* Filter Film Effect - Brightness and Contrast, measured from reference renders (Brightness exact,
    Contrast within 1 level on 97-99% of pixels). Both are one tone curve for all three channels:
    per input level the output at 0 / 50 / 100 % is known (FILM_* tables, film-tables.js) and

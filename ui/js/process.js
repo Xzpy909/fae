@@ -8,15 +8,24 @@ function jobFor(f, isCur) {
   const st = isCur ? { stage: S.stage, edit: S.edit, geom: S.geom }
     : (f.state || { stage: S.stage, edit: defaultEdit(), geom: defaultGeom() });
   const E = computeEdit(effectiveEdit(st.edit));
-  return {
-    path: f.path, stage: stageParams(st.stage, st.geom),
-    edit: { point: E.point, k: E.k, o: E.o, gains: E.gains, luts: E.luts.map(a => Array.from(a)),
-      boost: E.boost ? Array.from(E.boost) : null,
-      tones: E.tones ? E.tones.map(t => ({ T: Array.from(t.T), ratio: t.ratio })) : null, sat: E.sat, wb: E.wb,
-      con: E.con ? Array.from(E.con) : null, md: E.md || 0, bw: E.bw,
-      film: E.film ? { n: E.film.n, d: E.film.d ? Array.from(E.film.d) : null, t1: E.film.t1 ? Array.from(E.film.t1) : null, op: E.film.op } : null, sc: E.sc ? Object.assign({}, E.sc, { shl: E.sc.shl ? Array.from(E.sc.shl) : null }) : null,
-      sharp: E.sharp },
-  };
+  const edit = Object.assign(jobEdit(E), { sharp: E.sharp });
+  // a non-default chain order: the steps in order, each with its tool's fields only (fastedit/core.py _steps)
+  // (every step is still the tool's first instance, so its tables are E's)
+  if (E.steps) edit.steps = E.steps.map(s => {
+    const o = { t: s.t };
+    for (const k of STEP_FIELDS[s.t]) o[k] = edit[k];
+    return o;
+  });
+  return { path: f.path, stage: stageParams(st.stage, st.geom), edit };
+}
+/* computeEdit's tables as JSON-able values (typed arrays -> plain arrays) */
+function jobEdit(E) {
+  return { point: E.point, k: E.k, o: E.o, gains: E.gains, luts: E.luts.map(a => Array.from(a)),
+    boost: E.boost ? Array.from(E.boost) : null,
+    tones: E.tones ? E.tones.map(t => ({ T: Array.from(t.T), ratio: t.ratio })) : null, sat: E.sat, wb: E.wb,
+    con: E.con ? Array.from(E.con) : null, md: E.md || 0, bw: E.bw,
+    film: E.film ? { n: E.film.n, d: E.film.d ? Array.from(E.film.d) : null, t1: E.film.t1 ? Array.from(E.film.t1) : null, op: E.film.op } : null,
+    sc: E.sc ? Object.assign({}, E.sc, { shl: E.sc.shl ? Array.from(E.sc.shl) : null }) : null };
 }
 
 function setBusy(on, label) {

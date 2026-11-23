@@ -134,24 +134,30 @@ def film_table(key):
     return _FILM[key]
 
 
+def _films(job):
+    """The Film Effect entries of a job: the flat one and those of its steps (a reordered chain)."""
+    out = [job.get("film")] + [st.get("film") for st in job.get("steps") or [] if st.get("t") == "film"]
+    return [f for f in out if f]
+
+
 def freeze(cases):
     """Film tables replaced by their preset name (they are 90 % of the size and fixed data)."""
     out = copy.deepcopy(cases)
     for c in out:
-        film = c["job"].get("film")
-        if film and film.get("d"):
-            key = c["state"]["flt_film_preset"]
-            if film["d"] != film_table(key):
-                raise ValueError(f"{c['id']}: film table is not preset {key}")
-            film["d"] = {"preset": key}
+        for film in _films(c["job"]):
+            if film.get("d"):
+                key = c["state"]["flt_film_preset"]
+                if film["d"] != film_table(key):
+                    raise ValueError(f"{c['id']}: film table is not preset {key}")
+                film["d"] = {"preset": key}
     return out
 
 
 def thaw(cases):
     for c in cases:
-        film = c["job"].get("film")
-        if film and isinstance(film.get("d"), dict):
-            film["d"] = film_table(film["d"]["preset"])
+        for film in _films(c["job"]):
+            if isinstance(film.get("d"), dict):
+                film["d"] = film_table(film["d"]["preset"])
     return cases
 
 

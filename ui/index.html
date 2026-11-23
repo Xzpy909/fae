@@ -139,16 +139,16 @@
   </main>
 
   <aside id="panel">
+    <!-- Histogram block: docked to the top of the panel (not an island, never moves) -->
+    <section class="histo-block" id="histoBlock">
+      <div class="card-head"><span>Histogram</span><span class="muted mono" id="histInfo"></span></div>
+      <div class="histo-wrap">
+        <canvas id="histo"></canvas>
+        <span id="clipLo" class="clip lo" title="Pixels with a channel clipped to 0">0%</span>
+        <span id="clipHi" class="clip hi" title="Pixels with a channel clipped to 255">0%</span>
+      </div>
+    </section>
     <div class="scroll">
-
-      <section class="card">
-        <div class="card-head"><span>Histogram</span><span class="muted mono" id="histInfo"></span></div>
-        <div class="histo-wrap">
-          <canvas id="histo"></canvas>
-          <span id="clipLo" class="clip lo" title="Pixels with a channel clipped to 0">0%</span>
-          <span id="clipHi" class="clip hi" title="Pixels with a channel clipped to 255">0%</span>
-        </div>
-      </section>
 
       <section class="card sec" data-sec="crop">
         <div class="card-head"><span>Crop &amp; rotate</span><button id="geomClear" class="rst all" title="Reset crop &amp; rotation"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button></div>

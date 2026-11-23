@@ -36,10 +36,31 @@ _LOSSY = {"key": None}      # last lossy round trip, so a preview-size change do
 class Api:
     def __init__(self, initial_paths=None):
         self._window = None
+        self._chrome = None          # winchrome.Chrome when the window is frameless (Windows); private: not exposed to JS
         self._initial = collect(initial_paths or [])
 
     def set_window(self, w):
         self._window = w
+
+    # ---- unified header: window controls (frameless window on Windows) ----
+    def win_info(self):
+        return self._chrome.info() if self._chrome else {"frameless": False, "maximized": False}
+
+    def win_begin(self, what):
+        if self._chrome:
+            self._chrome.begin(what)
+
+    def win_toggle_max(self):
+        if self._chrome:
+            self._chrome.toggle_max()
+
+    def win_minimize(self):
+        if self._chrome:
+            self._chrome.minimize()
+
+    def win_close(self):
+        if self._chrome:
+            self._chrome.close()
 
     # ---- settings ---------------------------------------------------------
     def get_settings(self):

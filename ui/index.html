@@ -41,6 +41,12 @@
       <button id="pasteBtn" class="ghost" title="Paste edits (Ctrl+Shift+V)">Paste</button>
       <button id="resetBtn" class="ghost" title="Reset point correction and curves">Reset</button>
     </div>
+    <!-- window buttons (frameless window on Windows: the top bar is the title bar) -->
+    <div class="win-btns">
+      <button id="winMin" title="Minimize" aria-label="Minimize"><svg viewBox="0 0 12 12"><path d="M1.5 6h9"/></svg></button>
+      <button id="winMax" title="Maximize" aria-label="Maximize"><svg class="i-max" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1"/></svg><svg class="i-rest" viewBox="0 0 12 12"><rect x="1.5" y="3.5" width="7" height="7" rx="1"/><path d="M3.5 3.5V2.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1"/></svg></button>
+      <button id="winClose" class="close" title="Close" aria-label="Close"><svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8"/></svg></button>
+    </div>
     </div>
   </header>
 
@@ -295,6 +301,11 @@
 
 <div id="toast"></div>
 <div id="dropZone"></div>
+<!-- resize strips along the window edges (frameless window, not maximized) -->
+<div class="win-edge" data-edge="top"></div><div class="win-edge" data-edge="bottom"></div>
+<div class="win-edge" data-edge="left"></div><div class="win-edge" data-edge="right"></div>
+<div class="win-edge" data-edge="topleft"></div><div class="win-edge" data-edge="topright"></div>
+<div class="win-edge" data-edge="bottomleft"></div><div class="win-edge" data-edge="bottomright"></div>
 <script src="js/state.js"></script>
 <script src="js/film-tables.js"></script>
 <script src="js/film/a_optima_400.js"></script>
@@ -325,6 +336,7 @@
 <script src="js/files.js"></script>
 <script src="js/tools.js"></script>
 <script src="js/process.js"></script>
+<script src="js/winchrome.js"></script>
 <script src="js/init.js"></script>
 <script src="js/crop.js"></script>
 </body>

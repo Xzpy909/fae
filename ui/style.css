@@ -75,6 +75,31 @@ kbd { font: 10px var(--mono); padding: 1px 4px; border-radius: 3px; border: 1px 
 .tb-left { display: flex; align-items: center; gap: 16px; min-width: 0; }
 .brand { flex: none; }
 #fileDims { white-space: nowrap; }
+/* ---------- unified header (frameless window on Windows): the top bar is the title bar ---------- */
+#topbar { user-select: none; }
+.win-btns { display: none; align-self: stretch; margin-left: 4px; }
+body.frameless #topbar { padding-right: 0; }
+body.frameless .win-btns { display: flex; }
+.win-btns button { width: 46px; height: 100%; padding: 0; display: grid; place-items: center; border: none; border-radius: 0;
+  background: transparent; color: var(--muted); }
+.win-btns button:hover { background: rgba(255, 255, 255, .08); color: var(--text); }
+.win-btns button:active { transform: none; background: rgba(255, 255, 255, .12); }
+.win-btns button.close:hover { background: #c42b1c; color: #fff; }
+.win-btns button.close:active { background: #a32416; color: #fff; }
+.win-btns svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.1; stroke-linecap: round; }
+.win-btns .i-rest, body.win-max .win-btns .i-max { display: none; }
+body.win-max .win-btns .i-rest { display: block; }
+/* resize strips: 5 px edges, 10 px corners, only while frameless and not maximized */
+.win-edge { position: fixed; z-index: 10000; display: none; }
+body.frameless:not(.win-max) .win-edge { display: block; }
+.win-edge[data-edge="top"] { top: 0; left: 10px; right: 10px; height: 5px; cursor: ns-resize; }
+.win-edge[data-edge="bottom"] { bottom: 0; left: 10px; right: 10px; height: 5px; cursor: ns-resize; }
+.win-edge[data-edge="left"] { left: 0; top: 10px; bottom: 10px; width: 5px; cursor: ew-resize; }
+.win-edge[data-edge="right"] { right: 0; top: 10px; bottom: 10px; width: 5px; cursor: ew-resize; }
+.win-edge[data-edge="topleft"] { top: 0; left: 0; width: 10px; height: 10px; cursor: nwse-resize; }
+.win-edge[data-edge="topright"] { top: 0; right: 0; width: 10px; height: 10px; cursor: nesw-resize; }
+.win-edge[data-edge="bottomleft"] { bottom: 0; left: 0; width: 10px; height: 10px; cursor: nesw-resize; }
+.win-edge[data-edge="bottomright"] { bottom: 0; right: 0; width: 10px; height: 10px; cursor: nwse-resize; }
 /* right column: Compare next to Zoom, the edit actions in the right corner */
 .tb-right { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .tb-label { font-size: 12px; color: var(--muted); padding: 0 4px; }

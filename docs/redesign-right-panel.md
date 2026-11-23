@@ -1,6 +1,6 @@
 # Redesign: right panel, presets, sliders, window header and stackable filters
 
-Status: **design approved, not implemented yet.** This is the plan for the next round of UI work.
+Status: **in progress** — built in waves, see the progress list in section 7.
 
 ## 1. Right panel layout — collapsible tool rows (approved: design C)
 
@@ -39,7 +39,7 @@ The row grows into a full island: the same header line, then the tool's controls
 The export part is **no longer an island**: it is a flat block docked to the bottom of the panel, full panel width, square edges, solid background a step darker than the islands (`#00282B`), 1 px top border and a soft upward shadow. The tool list scrolls behind its top edge with a short fade. Its **height never changes** (≈ 130 px for every format), so nothing has to be resized when the format or encoder changes, and the list keeps the space when there are many filters.
 
 Rows:
-1. **Format picker** (WEBP · PNG · JPEG · AVIF, segmented, fills the row) + a **settings chip** on the right showing the current setting in mono (`q 90`, `d 1.00`, `crf 25`, `lossless`; PNG: no chip or a disabled one). The chip opens the **encoder popover**.
+1. **Encoding compare** button (split icon) — split view *lossless | encoded*; greyed out for lossless formats (PNG, lossless WEBP). The top bar's split is always *original | edited*; only one of the two splits is on at a time. Then the **format picker** (WEBP · PNG · JPEG · AVIF, segmented, fills the row) + a **settings chip** on the right showing the current setting in mono (`q 90`, `d 1.00`, `crf 25`, `lossless`; PNG: no chip or a disabled one). The chip opens the **encoder popover**.
 2. **Process** (Gradient 1, `Ctrl+S` hint, takes the remaining width) + **Process all** (ghost button) beside it.
 3. **Next image after process** checkbox on the left, output size readout on the right in mono (`3840×2160 → 1920×1080`).
 
@@ -163,10 +163,9 @@ Additive; the editor, panels and Python back end are untouched. Roughly: framele
 
 Progress (implemented in waves):
 - **Wave 1 — done:** colour scheme applied app-wide (dark teals moved to the scheme's hue: background / panel `#001E21`, surfaces from Dark mint, accent `#00FFAA`, text `#E6E6E6`); export block C (docked, fixed height, settings chip + encoder popover, progress line on its top edge); islands fold to one row (title or chevron; folded state remembered; reset / X on hover); Curves has a title in its head.
-- Wave 2 — unified window header (section 6).
+- **Wave 2 — done (tested on Windows):** unified header (section 6). The window keeps a real resizable frame (`WS_THICKFRAME | WS_CAPTION`) whose non-client area is collapsed to zero (`WM_NCCALCSIZE` in a window subclass), so Windows treats it as a normal window: Aero Snap, edge resize, Win+arrows, animations, shadow. Drag / resize start Windows' own loops from the page (`WM_NCLBUTTONDOWN`). Maximized = the monitor's work area, minus 2 px on an auto-hide taskbar's edge. Windows 11 rounded corners. Files: `fastedit/winchrome.py`, `ui/js/winchrome.js`. `--native-frame` keeps the normal Windows frame.
 - Wave 3 — chain of instances + reorder (rows get grip and order number) + core list of steps (needs `core\build_core.bat`).
 - Wave 4 — per-tool presets with thumbnails. Wave 5 — chain presets. Wave 6 — stacking UI.
-
 
 1. ~~Shared slider component~~ — standard slider done; alternative (gradient tracks) still to design.
 2. Unified window header (section 6) — independent of the panel work, can be done any time; doing it early gives the panel the extra height.

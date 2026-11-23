@@ -103,6 +103,7 @@ or
 python fast_image_editor.py [images or folders...]
 python fast_image_editor.py --debug     # opens the web inspector
 python fast_image_editor.py --selftest  # checks for the Rust core (WASM, threads, Python extension)
+python fast_image_editor.py --native-frame  # normal Windows title bar instead of the app's own header
 ```
 
 ## Rust core

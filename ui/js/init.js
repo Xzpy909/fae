@@ -4,9 +4,10 @@
 /* ======================================================================
    Init
    ====================================================================== */
-window.app = { addPaths };
+window.app = { addPaths, winState: m => WinChrome.setMax(m) };   // winState: Python reports maximize / restore
 
 async function init() {
+  try { WinChrome.init(await api().win_info()); } catch (_) {}      // unified header (frameless window on Windows)
   try {
     const s = await api().get_settings();
     if (s && typeof s === 'object') {

@@ -98,11 +98,19 @@ def main():
         return
     api = Api(args)
     port = start_server()
+    # unified header: on Windows the window has no frame and the UI's top bar is the title bar
+    # (fastedit/winchrome.py); --native-frame keeps the normal Windows frame
+    from .winchrome import IS_WIN, Chrome
+    frameless = IS_WIN and "--native-frame" not in sys.argv and not selftest
     window = webview.create_window(
         "Fast Image Editor", f"http://127.0.0.1:{port}/{page}", js_api=api,
-        width=1560, height=940, min_size=(1240, 680), background_color="#0e0f11",
+        width=1560, height=940, min_size=(1240, 680), background_color="#001e21",
+        frameless=frameless, easy_drag=False,
     )
     api.set_window(window)
+    if frameless:
+        api._chrome = Chrome(window)
+        window.events.shown += api._chrome.setup
 
     def bind_drop():
         try:

@@ -114,9 +114,8 @@ const defaultChain = () => CHAIN_TOOLS.map(t => ({ id: t, t }));
 /* Stackable tools (redesign section 8): the same tool more than once in the chain. The first instance
    of a tool (id = the tool) keeps its values in the edit's flat keys; every extra instance (id =
    tool#n) has its own in e.inst[id], its switch in e.off[id] and an optional label in e.lbl[id].
-   Curves will stack later (its editor is one canvas). Mid/Detail works on the first Adjustments only
-   (the core keeps one smoothing). */
-const STACKABLE = ['adjust', 'f_bw', 'f_film', 'f_sc'];
+   Mid/Detail works on the first Adjustments only (the core keeps one smoothing). */
+const STACKABLE = ['adjust', 'curves', 'f_bw', 'f_film', 'f_sc'];
 const MAX_INST = 8;                     // instances per tool, the first one included
 const isExtra = x => x.id !== x.t;
 /* the edit's chain, made whole: known tools only, each first instance once, missing ones added at

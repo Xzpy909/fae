@@ -386,39 +386,44 @@ function moveInChain(id, beforeId) {
 })();
 
 /* ======================================================================
-   Filters popover: the Filters pill (top-right corner, next to the histogram) opens a centred,
-   scrollable grid of tiles, one per entry in FILTERS, with a search box for when the list grows.
-   Clicking a tile opens that filter's island; when it is open already, it adds another instance of
-   the filter to the chain (stackable filters, instances.js);
-   the switch on a tile mirrors the island's switch: on while the filter is open (or has values) and
-   switched on; turning it on opens the island too.
-   It stays open while you pick; Esc, the X, the pill or a click outside the box closes it.
+   Filters popover: the Filters pill opens a centred, scrollable grid of tiles, one per entry in
+   FILTERS, with a search box for when the list grows. A tile adds the filter to the chain: the first
+   time it opens the filter's island (at the end of the chain), after that it adds another instance
+   (stackable filters, instances.js). Drag a tile into the panel to put it where the drop line shows.
+   A tile shows how many there are (×2) and where they sit in the chain (#2, #4). The switches belong
+   to the islands. It stays open while you pick; Esc, the X, the pill or a click outside closes it.
    ====================================================================== */
 const FilterPop = (() => {
   const pop = $('#filterPop'), pill = $('#filtersPill'), grid = $('#fpTiles'), search = $('#fpSearch');
   grid.innerHTML = FILTERS.map(f => `
     <div class="fp-tile" data-sec="${f.sec}">
-      <button class="fp-tbtn" title="Show / hide its island"><svg viewBox="0 0 24 24">${f.icon || ''}</svg><span class="fp-lab"><span class="fp-name">${f.name || f.sec}</span><span class="fp-state"></span></span></button>
-      <label class="isw fp-sw" title="On / off: off keeps the values but leaves them out"><input type="checkbox"><span></span></label>
+      <button class="fp-tbtn"><svg viewBox="0 0 24 24">${f.icon || ''}</svg><span class="fp-lab"><span class="fp-name">${f.name || f.sec}</span><span class="fp-state"></span></span></button>
+      <span class="fp-badge mono" hidden></span><span class="fp-add">+ Add</span>
     </div>`).join('');
+  $('#fpTiles').insertAdjacentHTML('afterend', '<div class="fp-foot">Click adds to the end of the chain · Drag a tile into the panel to place it</div>');
   const isOpen = () => pop.classList.contains('show');
+  // the order numbers of a filter's open islands (the numbers on their rows)
+  const places = sec => [...panelScroll.querySelectorAll(`:scope > .card.sec.show[data-sec="${sec}"] .isl-num`)].map(n => n.textContent).filter(Boolean);
   function sync() {
-    const st = secState(), shown = new Set(S.prefs.secs || []);
-    let n = 0;
+    const shown = new Set(S.prefs.secs || []);
+    let total = 0;
     grid.querySelectorAll('.fp-tile').forEach(t => {
-      const sec = t.dataset.sec, has = !!st[sec], open = shown.has(sec), on = secOn(sec) && (open || has);
-      if (has && on) n++;
+      const sec = t.dataset.sec, open = shown.has(sec);
+      const inst = open ? instancesOf(S.edit, sec) : [], n = inst.length, at = open ? places(sec) : [];
+      const offAll = n && inst.every(x => !islandOn(x.id));
+      total += n;
       t.classList.toggle('sel', open);
-      t.classList.toggle('active', on);
-      t.classList.toggle('bypass', has && !on);
-      const ni = open ? instancesOf(S.edit, sec).length : 0;
-      t.querySelector('.fp-state').textContent = (ni > 1 ? `×${ni} in chain · ` : '')
-        + (has ? (on ? 'On' : 'Bypassed') : (open ? (on ? 'On · no edits yet' : 'Off') : 'No edits'));
-      t.querySelector('.fp-tbtn').title = open ? (ni >= MAX_INST ? `At most ${MAX_INST} in the chain` : 'Add another one to the chain') : 'Add to the chain';
-      t.querySelector('.fp-sw input').checked = on;
+      t.classList.toggle('active', open && !offAll);
+      t.classList.toggle('full', n >= MAX_INST);
+      t.querySelector('.fp-state').textContent = !open ? 'Not in the chain'
+        : (at.length ? '#' + at.join(', #') + ' in chain' : 'In the chain') + (offAll ? ' · off' : '');
+      const badge = t.querySelector('.fp-badge');
+      badge.hidden = n < 2; badge.textContent = '×' + n;
+      t.querySelector('.fp-add').textContent = n >= MAX_INST ? `At most ${MAX_INST}` : '+ Add';
+      t.querySelector('.fp-tbtn').title = n >= MAX_INST ? `At most ${MAX_INST} in the chain` : 'Click: add to the end of the chain · drag into the panel: place it';
     });
     const cnt = $('#fpCount');
-    cnt.textContent = n ? `${n} on` : ''; cnt.classList.toggle('show', n > 0);
+    cnt.textContent = total ? `${total} in chain` : ''; cnt.classList.toggle('show', total > 0);
     pill.classList.toggle('on', isOpen());
   }
   function filter() {
@@ -437,6 +442,22 @@ const FilterPop = (() => {
   }
   function close() { if (!isOpen()) return; pop.classList.remove('show'); search.blur(); sync(); }
 
+  // add filter sec: open its island the first time, else another instance. before = the island to put it
+  // before (null = after the open islands, undefined = the end, as a click does)
+  function addFilter(sec, before) {
+    const cur = S.prefs.secs || [];
+    if (!cur.includes(sec)) {
+      S.prefs.secs = [...cur, sec];
+      S.prefs.collapsed = (S.prefs.collapsed || []).filter(x => x !== sec);
+      placeIdle([sec]);
+      syncSections(); syncIslands(); savePrefsSoon();
+      if (before !== undefined) moveInChain(sec, before);
+      const card = cardOf(sec);
+      if (card) requestAnimationFrame(() => card.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+    } else if (typeof Inst !== 'undefined') Inst.add(sec, before === undefined ? null : before);
+    sync();
+  }
+
   pill.addEventListener('pointerdown', e => e.stopPropagation());
   pill.addEventListener('click', e => { e.stopPropagation(); isOpen() ? close() : open(); });
   // the popover sits over the image: keep its clicks / scrolling away from pan, zoom and the eyedropper
@@ -451,27 +472,75 @@ const FilterPop = (() => {
   search.addEventListener('keydown', e => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
   });
-  grid.addEventListener('click', e => {
-    const b = e.target.closest('.fp-tbtn'); if (!b) return;
-    const sec = b.parentElement.dataset.sec, cur = S.prefs.secs || [], add = !cur.includes(sec);
-    // a filter that is already open: the tile adds another instance of it (stackable filters)
-    if (!add) { if (typeof Inst !== 'undefined') Inst.add(sec); sync(); return; }
-    S.prefs.secs = [...cur, sec];
-    if (add) S.prefs.collapsed = (S.prefs.collapsed || []).filter(x => x !== sec);
-    if (add) placeIdle([sec]);
-    syncSections(); syncIslands(); savePrefsSoon();
-    if (add) {
-      const card = document.querySelector(`#panel .card.sec[data-sec="${sec}"]`);
-      if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+
+  /* click adds; drag into the panel places (a ghost tile follows the pointer, the panel shows a drop line) */
+  let tdrag = null;
+  const line = panelScroll.querySelector('.drop-line');
+  function dropPlace(x, y) {
+    const pr = $('#panel').getBoundingClientRect();
+    if (x < pr.left || x > pr.right || y < pr.top || y > pr.bottom) { line.classList.remove('show'); return undefined; }
+    const ts = [...panelScroll.querySelectorAll(':scope > .card.sec.show')].filter(c => c.querySelector('.isl-grip'));
+    const sr = panelScroll.getBoundingClientRect();
+    let before = null, lineY;
+    for (const c of ts) {
+      const r = c.getBoundingClientRect();
+      if (y < r.top + r.height / 2) { before = keyOf(c); lineY = r.top - 5; break; }
+    }
+    if (before === null) {
+      const last = ts[ts.length - 1] || [...panelScroll.querySelectorAll(':scope > .card.sec.show')].filter(c => PIN_TOP.includes(c.dataset.sec)).pop();
+      lineY = last ? last.getBoundingClientRect().bottom + 5 : sr.top + 8;
+    }
+    line.style.top = (lineY - sr.top + panelScroll.scrollTop - 1) + 'px';
+    line.classList.add('show');
+    return before;
+  }
+  grid.addEventListener('pointerdown', e => {
+    const b = e.target.closest('.fp-tbtn'); if (!b || e.button !== 0) return;
+    tdrag = { sec: b.parentElement.dataset.sec, tile: b.parentElement, x0: e.clientX, y0: e.clientY, started: false, before: undefined, id: e.pointerId };
+  });
+  window.addEventListener('pointermove', e => {
+    if (!tdrag) return;
+    if (!tdrag.started) {
+      if (Math.hypot(e.clientX - tdrag.x0, e.clientY - tdrag.y0) < 6) return;
+      tdrag.started = true;
+      const r = tdrag.tile.getBoundingClientRect();
+      tdrag.ghost = tdrag.tile.cloneNode(true);
+      tdrag.ghost.classList.add('fp-ghost');
+      Object.assign(tdrag.ghost.style, { width: r.width + 'px', height: r.height + 'px' });
+      tdrag.dx = e.clientX - r.left; tdrag.dy = e.clientY - r.top;
+      document.body.appendChild(tdrag.ghost);
+      document.body.classList.add('tile-dragging');
+    }
+    tdrag.ghost.style.transform = `translate(${e.clientX - tdrag.dx}px, ${e.clientY - tdrag.dy}px)`;
+    tdrag.x = e.clientX; tdrag.y = e.clientY;
+    tdrag.before = dropPlace(e.clientX, e.clientY);
+    // near the panel's top / bottom edge the list scrolls (places out of view can be reached)
+    const sr = panelScroll.getBoundingClientRect(), edge = 40, over = tdrag.before !== undefined;
+    tdrag.speed = !over ? 0 : e.clientY < sr.top + edge ? -(sr.top + edge - e.clientY) * 0.35 : e.clientY > sr.bottom - edge ? (e.clientY - (sr.bottom - edge)) * 0.35 : 0;
+    if (tdrag.speed && !tdrag.raf) {
+      const tick = () => {
+        if (!tdrag || !tdrag.speed) { if (tdrag) tdrag.raf = 0; return; }
+        panelScroll.scrollTop += tdrag.speed;
+        tdrag.before = dropPlace(tdrag.x, tdrag.y);
+        tdrag.raf = requestAnimationFrame(tick);
+      };
+      tdrag.raf = requestAnimationFrame(tick);
     }
   });
-  grid.addEventListener('change', e => {
-    const cb = e.target.closest('.fp-sw input'); if (!cb) return;
-    const sec = cb.closest('.fp-tile').dataset.sec, cur = S.prefs.secs || [];
-    if (cb.checked && !cur.includes(sec)) {           // switching on a closed filter opens its island too
-      S.prefs.secs = [...cur, sec]; placeIdle([sec]); savePrefsSoon(); syncSections();
-    }
-    if (secOn(sec) !== cb.checked) setSecOn(sec, cb.checked); else sync();
+  const endTileDrag = e => {
+    if (!tdrag) return;
+    const d = tdrag; tdrag = null;
+    if (d.raf) cancelAnimationFrame(d.raf);
+    if (!d.started) return;                      // a plain click: the click handler adds it
+    d.ghost.remove(); document.body.classList.remove('tile-dragging'); line.classList.remove('show');
+    grid.dataset.justDragged = '1'; setTimeout(() => { delete grid.dataset.justDragged; }, 0);
+    if (e.type === 'pointerup' && d.before !== undefined) addFilter(d.sec, d.before);
+  };
+  window.addEventListener('pointerup', endTileDrag);
+  window.addEventListener('pointercancel', endTileDrag);
+  grid.addEventListener('click', e => {
+    const b = e.target.closest('.fp-tbtn'); if (!b || grid.dataset.justDragged) return;
+    addFilter(b.parentElement.dataset.sec);
   });
   return { open, close, isOpen, sync };
 })();

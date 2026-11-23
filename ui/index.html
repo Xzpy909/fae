@@ -198,14 +198,14 @@
       </section>
 
       <section class="card sec" data-sec="curves">
-        <div class="card-head">
-          <div class="tabs" id="curveTabs">
-            <button data-ch="m" class="on">RGB</button>
-            <button data-ch="r" class="r">R</button>
-            <button data-ch="g" class="g">G</button>
-            <button data-ch="b" class="b">B</button>
-          </div>
+        <div class="card-head"><span>Curves</span>
           <button id="resetCurve" class="rst all" title="Reset this curve channel"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
+        </div>
+        <div class="tabs ctabs" id="curveTabs">
+          <button data-ch="m" class="on">RGB</button>
+          <button data-ch="r" class="r">R</button>
+          <button data-ch="g" class="g">G</button>
+          <button data-ch="b" class="b">B</button>
         </div>
         <canvas id="curve"></canvas>
         <div class="curve-foot"><span class="muted" id="curveInfo">Click to add · drag · double-click or drag out to remove</span></div>

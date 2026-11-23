@@ -1,5 +1,5 @@
 'use strict';
-/* Stackable tools (redesign section 8): extra instances of Adjustments and the filters, each with its
+/* Stackable tools (redesign section 8): extra instances of Adjustments, Curves and the filters, each with its
    own island, values, switch, place in the chain and optional label. Data model in state.js (e.inst,
    e.off[id], e.lbl, chain entries tool#n); render steps in edit-math.js (computeEdit) and process.js.
    - Duplicate: the icon in an island's head, the row menu or Ctrl+D; the copy goes right after the
@@ -21,10 +21,24 @@ const Inst = (() => {
     if (!STACKABLE.includes(t)) return null;
     c = document.createElement('section');
     c.className = 'card sec inst'; c.dataset.sec = t; c.dataset.id = id;
+    const tg = target(id);
+    if (t === 'curves') {                           // its own curve editor (curves.js)
+      c.innerHTML = `<div class="card-head"><span>${NAME[t]}</span><button class="rst all ccreset" title="Reset this curve channel">${RESET}</button></div>`
+        + `<div class="tabs ctabs"><button data-ch="m" class="on">RGB</button><button data-ch="r" class="r">R</button>`
+        + `<button data-ch="g" class="g">G</button><button data-ch="b" class="b">B</button></div>`
+        + `<canvas class="curvecv" data-inst="1"></canvas><div class="curve-foot"><span class="muted">${CURVE_HINT}</span></div>`;
+      panelScroll.appendChild(c);
+      makeCurveEditor({ cv: c.querySelector('canvas'), tabs: [...c.querySelectorAll('.tabs button')], info: c.querySelector('.curve-foot span'),
+        reset: c.querySelector('.ccreset') }, () => { const o = tg(); return o && o.curves; });
+      buildIsland(c);
+      if (typeof Presets !== 'undefined') Presets.attach(c);
+      addDupButton(c);
+      return c;
+    }
     c.innerHTML = `<div class="card-head"><span>${NAME[t]}</span>`
       + `<button class="rst all" title="Reset this ${NAME[t]}">${RESET}</button></div><div class="ifields"></div>`;
     panelScroll.appendChild(c);                     // orderPanel moves it to its place
-    const box = c.querySelector('.ifields'), tg = target(id);
+    const box = c.querySelector('.ifields');
     if (t === 'adjust') {
       for (const [key, label, def, min, max, step, dec] of ADJUST) {
         if (key === 'adj_middetail') continue;      // first Adjustments only
@@ -91,16 +105,18 @@ const Inst = (() => {
     e.chain = c;
     editChanged(); commit(); reveal(id);
   }
-  // a new, neutral instance of t at the end of the chain (the Filters tiles)
-  function add(t) {
+  // a new, neutral instance of t (the Filters tiles): before the island `before`, or (undefined / null)
+  // after the open islands
+  function add(t, before) {
     const e = S.edit;
     if (!STACKABLE.includes(t)) return;
     if (full(t)) { toast(`At most ${MAX_INST} ${NAME[t]} in the chain`, true); return; }
     const id = nextInstId(e, t), v = SEC_NEUTRAL[t]();
     e.inst = Object.assign({}, e.inst, { [id]: v });
     const c = chainOf(e), open = [...panelScroll.querySelectorAll(':scope > .card.sec.show .isl-grip')].map(g => keyOf(g.closest('.card')));
-    const after = open.length ? c.findIndex(x => x.id === open[open.length - 1]) + 1 : c.length;
-    c.splice(after, 0, { id, t });
+    let at = before ? c.findIndex(x => x.id === before) : -1;
+    if (at < 0) at = open.length ? c.findIndex(x => x.id === open[open.length - 1]) + 1 : c.length;
+    c.splice(at, 0, { id, t });
     e.chain = c;
     editChanged(); commit(); reveal(id);
   }

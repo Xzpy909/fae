@@ -188,6 +188,9 @@ button.primary:hover { background: var(--grad); filter: brightness(1.08) saturat
 #stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
 #view { display: none; box-shadow: 0 10px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.05); }
 #view.pixel { image-rendering: pixelated; }
+/* screen-resolution redraw of the visible part (sharp-view.js), over the canvas once the view settles */
+#sharp { position: absolute; display: none; pointer-events: none; }
+#sharp.show { display: block; }
 #markers { position: absolute; inset: 0; pointer-events: none; }
 .mk { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%;
   border: 2px solid #fff; box-shadow: 0 0 0 1.5px rgba(0,0,0,.7), 0 2px 6px rgba(0,0,0,.5);

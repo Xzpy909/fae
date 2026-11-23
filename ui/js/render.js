@@ -124,6 +124,7 @@ function presentLo(r) {
       ctx.drawImage(canvasOf(S.baseData), 0, 0, split, I.ph, 0, 0, split, I.ph);
   }
   S.rendered = null;                               // the full render still has to come
+  Sharp.dirty();
   histoLive(true);
   updateCmp();
 }
@@ -152,6 +153,7 @@ function presentDraft(R, px) {
     disp = S.dispData;
   }
   ctx.putImageData(disp, 0, 0, R.x, R.y, R.w, R.h);
+  Sharp.dirty();
   S.shown = disp;
   histoLive(true);
   drawLoupe(); updateCmp();
@@ -168,6 +170,7 @@ function present(n) {
   else if (S.prefs.split) { buildSplitOriginal(); disp = S.dispData; }               // original | edited
   ctx.putImageData(disp, 0, 0);
   S.shown = disp;
+  Sharp.dirty();
   drawHisto(); drawCurve(); updateHud(mode); drawLoupe(); updateCmp();
 }
 

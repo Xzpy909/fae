@@ -116,6 +116,7 @@ const Crop = (() => {
     C.crop = G.crop ? shrink({ ...G.crop }) : defaultCrop();
     C.desired = { ...C.crop };
     S.cropMode = true;
+    Sharp.hide();
     layer.classList.add('show');
     buildAspects();
     updateHint();
@@ -125,6 +126,7 @@ const Crop = (() => {
   function exit(cancel) {
     if (!S.cropMode) return;
     S.cropMode = false;
+    Sharp.dirty();
     layer.classList.remove('show');
     if (!cancel && C) {
       const [fw, fh] = frameWH(), c = C.crop;

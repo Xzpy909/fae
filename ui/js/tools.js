@@ -435,7 +435,7 @@ function removeCurrent() {
 }
 function clearView() {
   if (S.cropMode && (typeof Crop !== "undefined")) Crop.exit(true);
-  S.img = null; S.reqId++; canvas.style.display = 'none'; dropJpeg(); updateCmp();
+  S.img = null; S.reqId++; canvas.style.display = 'none'; Sharp.hide(); dropJpeg(); updateCmp();
   S.edit = defaultEdit(); S.geom = defaultGeom(); S.hist = []; S.fut = []; S.committed = snapshot();
   syncPanel(); editChanged(); updateMarkers(); $('#zoomLabel').textContent = '–';
 }

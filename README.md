@@ -200,7 +200,7 @@ fastedit/              # Python back end
 ui/
 ├── index.html
 ├── style.css
-└── js/                # state, film-tables, film/*, edit-math, render, compare, stage, view,
+└── js/                # state, film-tables, film/*, edit-math, render, compare, stage, view, sharp-view,
     │                  # curves, controls, files, tools, process, init, crop (loaded in that order)
     └── film/          # one file per Film Effect preset (33×33×33 colour table)
 core/                  # Rust core: fastedit-core (math), fastedit-py (Python), fastedit-wasm

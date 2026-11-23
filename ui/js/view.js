@@ -13,6 +13,7 @@ function applyView() {
   stageEl.style.transform = `translate(${sx}px, ${sy}px) scale(${v.z})`;
   canvas.classList.toggle('pixel', v.z * d >= 2);
   checkHires();
+  if (typeof Sharp !== 'undefined') Sharp.dirty();
   $('#zoomLabel').textContent = I ? Math.round(v.z * dpr() * (I.pw / I.w) * 100) + '%' : '–';
   updateMarkers();
   updateCmp();

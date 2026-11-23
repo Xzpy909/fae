@@ -64,6 +64,7 @@ async function loadStage() {
     S.outData = new ImageData(r.pw, r.ph);
     S.dispData = new ImageData(r.pw, r.ph);
     S.shown = null; S.rendered = null;
+    Sharp.dirty();
     if (snap) {
       ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(snap, 0, 0, r.pw, r.ph);

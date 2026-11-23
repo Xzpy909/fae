@@ -416,11 +416,14 @@ document.querySelectorAll('#toolPills .pill[data-sec]').forEach(p => {
     e.stopPropagation();
     const sec = p.dataset.sec, cur = S.prefs.secs || [];
     S.prefs.secs = cur.includes(sec) ? cur.filter(x => x !== sec) : [...cur, sec];
-    if (S.prefs.secs.includes(sec)) {
+    const opened = S.prefs.secs.includes(sec);
+    if (opened) {
       S.prefs.collapsed = (S.prefs.collapsed || []).filter(x => x !== sec);
       placeIdle([sec]);
     }
     syncSections(); syncIslands(); savePrefsSoon();
+    // opening Crop goes straight into crop mode
+    if (opened && sec === 'crop' && S.img && !S.cropMode && typeof Crop !== 'undefined') Crop.enter();
   });
 });
 $('#fileList').addEventListener('click', e => {

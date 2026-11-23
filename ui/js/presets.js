@@ -4,7 +4,9 @@
    thumbnails of the current image through each preset, hover = preview on the main image (chip
    "Previewing <name>"), click = apply (one undo step), save the current values as a preset, rename /
    delete your own. A preset holds only that tool's values. Stored in fae_presets.json next to the
-   settings: { tool: [{ name, values }] }. */
+   settings: { tool: [{ name, values }] }.
+   Film Effect has no preset button: its Film field opens the same kind of list with the films instead
+   (thumbnail of the image through each film, hover = preview, click = pick). */
 const Presets = (() => {
   // the tools with presets and the edit keys a preset of each holds
   const TOOLS = {
@@ -12,10 +14,11 @@ const Presets = (() => {
     curves: { keys: ['curves'], def: () => ({ curves: { m: ident(), r: ident(), g: ident(), b: ident() } }) },
   };
   for (const f of [...FILTERS, SHARPEN]) TOOLS[f.sec] = { keys: filterFields(f).map(a => fieldKD(a)[0]), def: () => defaultFilter(f) };
-  const TW = 108, TH = 72;                // thumbnail pixels (shown at 54×36)
+  const TW = 162, TH = 108;               // thumbnail pixels (shown at 81×54)
+  const NO_BUTTON = ['f_film'];          // values kept for the edit presets, but no preset button
 
   let P = {};                             // the user's presets
-  let pop = null, openSec = null, btnOf = {};
+  let pop = null, openSec = null, kind = 'preset', btnOf = {}, filmBtn = null;
   let saved = null, previewName = null;   // hover preview: the real edit while a preset is shown
 
   const valuesOf = (sec, e) => Object.fromEntries(TOOLS[sec].keys.map(k => [k, clone(e[k] !== undefined ? e[k] : TOOLS[sec].def()[k])]));
@@ -46,6 +49,7 @@ const Presets = (() => {
 
   /* ---------- the button in each tool's row ---------- */
   for (const sec in TOOLS) {
+    if (NO_BUTTON.includes(sec)) continue;
     const card = document.querySelector(`#panel .card.sec[data-sec="${sec}"]`);
     const title = card && card.querySelector('.isl-title');
     if (!title) continue;
@@ -58,7 +62,25 @@ const Presets = (() => {
     btnOf[sec] = b;
   }
 
+  /* ---------- Film Effect: the Film field opens the film list ---------- */
+  const FILM_FIELD = FILTERS.find(f => f.sec === 'f_film').fields.find(a => a.key === 'flt_film_preset');
+  const filmName = v => (FILM_FIELD.options.find(o => o[0] === v) || FILM_FIELD.options[0])[1];
+  {
+    const row = document.querySelector('#filmFields .field.fsel'), sel = row && row.querySelector('select');
+    if (row && sel) {
+      sel.hidden = true;                    // kept: FIELDS still syncs it, and it holds the value list
+      filmBtn = document.createElement('button');
+      filmBtn.className = 'film-pick';
+      filmBtn.innerHTML = '<span class="pp-label"></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>';
+      sel.after(filmBtn);
+      const toggle = e => { e.stopPropagation(); kind === 'film' && openSec ? close() : openFilm(); };
+      filmBtn.addEventListener('click', toggle);
+      row.querySelector('label').addEventListener('click', toggle);
+    }
+  }
+
   function sync() {
+    if (filmBtn) filmBtn.querySelector('.pp-label').textContent = filmName(realEdit().flt_film_preset);
     for (const sec in btnOf) {
       const l = label(sec), el = btnOf[sec].querySelector('.pp-label');
       if (el.textContent !== l) el.textContent = l;
@@ -70,7 +92,7 @@ const Presets = (() => {
      Sharpen: a crop from the middle at the preview's own scale instead (shrunk to a thumbnail the
      whole image would hide what sharpening does) ---------- */
   const copies = new WeakMap();           // stage image -> { 'WxH' or 'WxH1': its thumbnail-size copy }
-  function smallOf(I, oneToOne, TW = 108, TH = 72) {
+  function smallOf(I, oneToOne, TW = 162, TH = 108) {
     const id = TW + 'x' + TH + (oneToOne ? '1' : '');
     let all = copies.get(I);
     if (!all) copies.set(I, all = {});
@@ -155,17 +177,22 @@ const Presets = (() => {
 
   function render() {
     if (!openSec) return;                  // closed meanwhile (e.g. Esc while naming)
-    const sec = openSec, cur = label(sec), items = [{ name: 'Default', meta: 'No changes', values: valuesOf(sec, TOOLS[sec].def()) },
-      ...list(sec).map((p, i) => ({ name: p.name, meta: 'Yours', values: p.values, i }))];
+    const sec = openSec, film = kind === 'film';
+    const cur = film ? filmName(realEdit().flt_film_preset) : label(sec);
+    const items = film
+      ? FILM_FIELD.options.map(([v, name]) => ({ name, meta: v === 'none' ? 'No film' : '', values: { flt_film_preset: v } }))
+      : [{ name: 'Default', meta: 'No changes', values: valuesOf(sec, TOOLS[sec].def()) },
+         ...list(sec).map((p, i) => ({ name: p.name, meta: 'Yours', values: p.values, i }))];
+    pop.classList.toggle('films', film);
     pop.innerHTML = `<div class="pp-list">${items.map((it, k) => `
       <div class="pp-item${it.name === cur ? ' on' : ''}" data-k="${k}">
         <canvas class="pp-thumb" width="${TW}" height="${TH}"></canvas>
         <div class="pp-text"><div class="pp-name">${esc(it.name)}</div><div class="pp-meta">${it.meta}</div></div>
         ${it.i !== undefined ? `<span class="pp-acts"><button class="pp-ren" title="Rename">${PEN}</button>`
           + `<button class="pp-del" title="Delete">${BIN}</button></span>` : ''}${CHECK}
-      </div>`).join('')}</div>
+      </div>`).join('')}</div>` + (film ? '' : `
       <div class="pp-sep"></div>
-      <div class="pp-save-row"><button class="pp-save">+ Save current as preset…</button></div>`;
+      <div class="pp-save-row"><button class="pp-save">+ Save current as preset…</button></div>`);
     const rows = pop.querySelectorAll('.pp-item');
     rows.forEach(row => {
       const it = items[+row.dataset.k];
@@ -194,6 +221,11 @@ const Presets = (() => {
       del.addEventListener('mouseleave', () => { del.classList.remove('arm'); del.title = 'Delete'; });
     });
     pop.querySelector('.pp-list').addEventListener('mouseleave', endPreview);
+    if (film) {                             // keep the picked film in view
+      const on = pop.querySelector('.pp-item.on');
+      if (on) requestAnimationFrame(() => on.scrollIntoView({ block: 'nearest' }));
+      return;
+    }
     pop.querySelector('.pp-save').addEventListener('click', () => {
       endPreview();
       nameInput(pop.querySelector('.pp-save-row'), '', name => {
@@ -223,7 +255,7 @@ const Presets = (() => {
   }
 
   function place() {
-    const b = btnOf[openSec], panel = $('#panel');
+    const b = kind === 'film' ? filmBtn : btnOf[openSec], panel = $('#panel');
     if (!b || !pop) return;
     const pr = panel.getBoundingClientRect(), br = b.getBoundingClientRect();
     pop.style.top = pop.style.bottom = '';
@@ -232,8 +264,9 @@ const Presets = (() => {
     else pop.style.top = (br.bottom - pr.top + 6) + 'px';
   }
 
-  function open(sec) {
+  function open(sec, k = 'preset') {
     close();
+    kind = k;
     if (!pop) {
       pop = document.createElement('div');
       pop.id = 'presetPop';
@@ -241,7 +274,7 @@ const Presets = (() => {
       pop.addEventListener('pointerdown', e => e.stopPropagation());
     }
     openSec = sec;
-    btnOf[sec].classList.add('open');
+    (kind === 'film' ? filmBtn : btnOf[sec]).classList.add('open');
     render();
     pop.classList.add('show');
     place();
@@ -250,12 +283,13 @@ const Presets = (() => {
     if (!openSec) return;
     endPreview();
     WP.clearThumbs();
-    btnOf[openSec].classList.remove('open');
+    (kind === 'film' ? filmBtn : btnOf[openSec]).classList.remove('open');
     openSec = null;
     pop.classList.remove('show');
     pop.innerHTML = '';
   }
-  document.addEventListener('pointerdown', e => { if (openSec && !e.target.closest('.isl-preset')) close(); });
+  const openFilm = () => open('f_film', 'film');
+  document.addEventListener('pointerdown', e => { if (openSec && !e.target.closest('.isl-preset, .film-pick, #filmFields .fsel label')) close(); });
   document.addEventListener('keydown', e => { if (openSec && e.key === 'Escape') { e.stopPropagation(); close(); } }, true);
   $('#panel .scroll').addEventListener('scroll', () => { if (openSec) place(); });
   // a shortcut (undo, copy edits…) while a preset is previewed works on the real edit

@@ -179,6 +179,42 @@ function orderPanel() {
     prev = c;
   }
 }
+/* Tools join the chain in the order they are opened: an opened chain tool that does nothing yet moves to
+   the end of the chain (after the open ones). A tool that already has values keeps its place, so
+   opening it never changes the image. Moving idle tools doesn't change the output either, so it is no
+   undo step of its own. On switching images the idle open tools line up in the order they were opened. */
+function placeIdle(secs) {
+  const st = secState(), c = chainOf(S.edit);
+  let moved = false;
+  for (const sec of secs) {
+    const i = c.findIndex(x => x.id === sec);
+    if (i < 0 || st[sec]) continue;
+    c.push(c.splice(i, 1)[0]);
+    moved = true;
+  }
+  if (!moved || JSON.stringify(c) === JSON.stringify(chainOf(S.edit))) return;
+  const clean = snapshot() === S.committed;
+  S.edit.chain = c;
+  if (clean) S.committed = snapshot();
+  editChanged(); orderPanel(); syncIslands();
+}
+/* After undo / redo or switching images: tools that do nothing stay where they were in the panel (prev =
+   the chain before), the tools that do something take the remaining places in their restored order.
+   The output is the restored edit's either way. */
+function arrangeIdle(prev) {
+  const st = secState(), cur = chainOf(S.edit), active = cur.filter(x => st[x.t]);
+  let ai = 0;
+  const out = [];
+  for (const p of prev) {
+    const x = cur.find(y => y.id === p.id);
+    if (x) out.push(st[x.t] ? active[ai++] : x);
+  }
+  for (const x of cur) if (!out.includes(x)) out.push(x);
+  if (out.some(x => !x) || JSON.stringify(out) === JSON.stringify(cur)) return;
+  const clean = snapshot() === S.committed;
+  S.edit.chain = out;
+  if (clean) S.committed = snapshot();
+}
 /* new chain with `id` moved before `beforeId` (null = after the last open re-orderable island) */
 function moveInChain(id, beforeId) {
   const c = chainOf(S.edit), from = c.findIndex(x => x.id === id);
@@ -357,6 +393,7 @@ const FilterPop = (() => {
     const sec = b.parentElement.dataset.sec, cur = S.prefs.secs || [], add = !cur.includes(sec);
     S.prefs.secs = add ? [...cur, sec] : cur.filter(x => x !== sec);
     if (add) S.prefs.collapsed = (S.prefs.collapsed || []).filter(x => x !== sec);
+    if (add) placeIdle([sec]);
     syncSections(); syncIslands(); savePrefsSoon();
     if (add) {
       const card = document.querySelector(`#panel .card.sec[data-sec="${sec}"]`);
@@ -367,7 +404,7 @@ const FilterPop = (() => {
     const cb = e.target.closest('.fp-sw input'); if (!cb) return;
     const sec = cb.closest('.fp-tile').dataset.sec, cur = S.prefs.secs || [];
     if (cb.checked && !cur.includes(sec)) {           // switching on a closed filter opens its island too
-      S.prefs.secs = [...cur, sec]; savePrefsSoon(); syncSections();
+      S.prefs.secs = [...cur, sec]; placeIdle([sec]); savePrefsSoon(); syncSections();
     }
     if (secOn(sec) !== cb.checked) setSecOn(sec, cb.checked); else sync();
   });
@@ -379,7 +416,10 @@ document.querySelectorAll('#toolPills .pill[data-sec]').forEach(p => {
     e.stopPropagation();
     const sec = p.dataset.sec, cur = S.prefs.secs || [];
     S.prefs.secs = cur.includes(sec) ? cur.filter(x => x !== sec) : [...cur, sec];
-    if (S.prefs.secs.includes(sec)) S.prefs.collapsed = (S.prefs.collapsed || []).filter(x => x !== sec);
+    if (S.prefs.secs.includes(sec)) {
+      S.prefs.collapsed = (S.prefs.collapsed || []).filter(x => x !== sec);
+      placeIdle([sec]);
+    }
     syncSections(); syncIslands(); savePrefsSoon();
   });
 });
@@ -399,6 +439,7 @@ function storeCurrent() {
 function switchTo(i) {
   if (i < 0 || i >= S.files.length || (i === S.cur && S.img)) return;
   if (S.cropMode && (typeof Crop !== "undefined")) Crop.exit(true);
+  const prev = S.files[S.cur] ? chainOf(S.edit) : null;
   storeCurrent();
   S.cur = i;
   const f = S.files[i];
@@ -415,6 +456,7 @@ function switchTo(i) {
   const fromDrop = S.dropT && performance.now() - S.dropT < 10000;
   S.loadT = fromDrop ? S.dropT : performance.now(); S.loadFromDrop = !!fromDrop; S.dropT = null;
   S.newFile = true;
+  if (prev) arrangeIdle(prev); else placeIdle(S.prefs.secs || []);
   syncPanel(); updateListCur(); updateInfo(); editChanged();
   requestStage(true);
 }

@@ -21,7 +21,9 @@ function restore(js) {
   const o = JSON.parse(js);
   const stageChanged = JSON.stringify(o.stage) !== JSON.stringify(S.stage);
   const geomChanged = JSON.stringify(o.geom) !== JSON.stringify(S.geom);
+  const prev = chainOf(S.edit);
   S.stage = o.stage; S.edit = o.edit; S.geom = o.geom || defaultGeom(); S.committed = js;
+  arrangeIdle(prev);                        // tools that do nothing keep their place in the panel
   syncPanel(); editChanged();
   if (geomChanged) { S.newFile = true; requestStage(true); }
   else if (stageChanged) { requestStage(); savePrefsSoon(); }
@@ -58,7 +60,10 @@ $('#resetBtn').addEventListener('click', () => { S.edit = defaultEdit(); syncPan
 /* ======================================================================
    Files
    ====================================================================== */
-const isEditedState = (edit, geom) => JSON.stringify(edit) !== DEFAULT_EDIT_JSON || !isDefaultGeom(geom);
+// the chain order alone (tools that do nothing, in another order) doesn't make an image edited
+const noChain = e => JSON.stringify(Object.assign({}, e, { chain: undefined }));
+const DEFAULT_NOCHAIN = noChain(defaultEdit());
+const isEditedState = (edit, geom) => noChain(edit) !== DEFAULT_NOCHAIN || !isDefaultGeom(geom);
 
 function addPaths(paths) {
   const known = new Set(S.files.map(f => f.path.toLowerCase()));

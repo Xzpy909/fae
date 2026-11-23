@@ -196,7 +196,7 @@ fn apply_chain<'py>(
     for s in &st {
         s.validate().map_err(PyValueError::new_err)?;
     }
-    let sharp = fe::sharp::Sharp { adaptive, balance, structure, local_contrast, focus, scale: sharp_scale };
+    let sharp = fe::sharp::Sharp { adaptive, balance, structure, local_contrast, focus, scale: sharp_scale, href: 0 };
     let mut buf = vec![0u8; src.len()];
     let hs = py.detach(|| fe::chain::run(src, &mut buf, w, 3, &st, &sharp, hist));
     let img = PyArray3::from_owned_array(py, numpy::ndarray::Array3::from_shape_vec((h, w, 3), buf).unwrap());

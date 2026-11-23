@@ -3,17 +3,21 @@
    not block, so the work can't run there. Messages:
      in : {type:'image', w, h, base}            base = RGBA ArrayBuffer (transferred)
           {type:'film', id, d}                  a Film preset table, sent once per preset
-          {type:'render', seq, E}               E = computeEdit result, each film.d replaced by its id
+          {type:'render', seq, E, fresh, rect}  E = computeEdit result, each film.d replaced by its id;
+                                                fresh: forget the kept results first (full render);
+                                                rect {x, y, w, h}: a draft of that part only (if it can)
      out: {type:'ready', threads, version} | {type:'error', error}
-          {type:'done', seq, w, h, out, hin, hout, hmx, hmn, ms} | {type:'fail', seq, error} */
+          {type:'done', seq, w, h, out, hin, hout, hmx, hmn, ms}       a full render
+          {type:'done', seq, rect, out, ms}                             a draft: out = the rectangle
+          {type:'fail', seq, error} */
 import init, * as fe from '../wasm/fastedit_wasm.js';
 import { toParams } from './wasm-params.js';
 
-let preview = null;
+let preview = null, wasm = null;
 const films = new Map();
 
 const ready = (async () => {
-  await init();
+  wasm = await init();
   let threads = 1;
   if (self.crossOriginIsolated) {
     try {
@@ -47,9 +51,25 @@ onmessage = async ({ data: m }) => {
         if (!d) throw new Error('film table missing');
         return d;
       });
+      if (m.fresh) preview.forget();
+      const R = m.rect;
+      if (R) {
+        let ok = false;
+        try { ok = preview.render_region(p, R.x, R.y, R.w, R.h); } catch (e) { p.free(); throw e; }
+        if (ok) {
+          p.free();
+          const out = new Uint8Array(wasm.memory.buffer, preview.part_ptr(), preview.part_len()).slice();
+          postMessage({ type: 'done', seq: m.seq, rect: R, out: out.buffer, ms: performance.now() - t0, phases: preview.timing() },
+                      [out.buffer]);
+          return;
+        }
+      }
       try { preview.render(p); } finally { p.free(); }
-      const out = preview.output();
-      const r = { type: 'done', seq: m.seq, w: preview.width(), h: preview.height(), out: out.buffer,
+      // one copy straight out of WebAssembly memory (a view on the shared memory can't be transferred)
+      const tc = performance.now();
+      const out = new Uint8Array(wasm.memory.buffer, preview.out_ptr(), preview.out_len()).slice();
+      const phases = preview.timing() + ` | copy out ${(performance.now() - tc).toFixed(1)}`;
+      const r = { type: 'done', seq: m.seq, w: preview.width(), h: preview.height(), out: out.buffer, phases,
         hin: preview.hin(), hout: preview.hout(), hmx: preview.hmx(), hmn: preview.hmn(), ms: performance.now() - t0 };
       postMessage(r, [out.buffer]);
     } catch (e) {

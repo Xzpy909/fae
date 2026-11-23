@@ -83,7 +83,7 @@ const WP = (() => {
     }
     job.seq = ++seq;
     busy = job;
-    worker.postMessage({ type: 'render', seq: job.seq, E: pack(job.E, job.img) });
+    worker.postMessage({ type: 'render', seq: job.seq, E: pack(job.E, job.img), rect: job.rect || null });
   }
 
   start();
@@ -91,10 +91,11 @@ const WP = (() => {
     ready: () => ready,
     failed: () => failed,
     // img = {base (RGBA), pw, ph}; done(result) gets {out, hin, hout, hmx, hmn, w, h, ms} unless a newer
-    // request replaced this one first
-    render(img, E, done) {
+    // request replaced this one first. rect {x, y, w, h}: a draft of that part only; the result then
+    // has {rect, out} (no histograms), or is a full render when the core can't draft yet.
+    render(img, E, done, rect) {
       if (!ready) return;
-      pending = { img, E, done };
+      pending = { img, E, done, rect };
       pump();
     },
     info: () => ({ on: ready, threads, version, lastMs, failed, why }),

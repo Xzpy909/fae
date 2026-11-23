@@ -53,11 +53,14 @@ pub struct Sharp {
     /// pixels of this image per output pixel (1 for Process; the preview passes its own scale, so
     /// the fixed-size Local Contrast blur covers the same part of the picture)
     pub scale: f64,
+    /// the whole image's height when sharpening a part of it (the preview's drafts): Structure's
+    /// radii scale with the image height; 0 = this buffer's own height
+    pub href: usize,
 }
 
 impl Default for Sharp {
     fn default() -> Self {
-        Sharp { adaptive: 0.0, balance: 0.0, structure: 0.0, local_contrast: 0.0, focus: 0.0, scale: 1.0 }
+        Sharp { adaptive: 0.0, balance: 0.0, structure: 0.0, local_contrast: 0.0, focus: 0.0, scale: 1.0, href: 0 }
     }
 }
 
@@ -262,7 +265,7 @@ pub fn apply(buf: &mut [u8], width: usize, height: usize, ob: usize, sp: &Sharp)
         });
     }
     if sp.structure != 0.0 {
-        structure(buf, width, height, ob, sp.structure);
+        structure(buf, width, height, ob, sp.structure, if sp.href > 0 { sp.href } else { height });
     }
     if sp.local_contrast != 0.0 {
         let s = sp.local_contrast;
@@ -540,7 +543,7 @@ pub fn local_contrast(buf: &mut [u8], w: usize, h: usize, ob: usize, g: f32, sig
 }
 
 /// Structure (see the top of this file), in place.
-fn structure(buf: &mut [u8], width: usize, height: usize, ob: usize, s: f64) {
+fn structure(buf: &mut [u8], width: usize, height: usize, ob: usize, s: f64, rh: usize) {
     let mut y = vec![0f32; width * height];
     crate::for_each_band_t(&mut y, width, crate::BAND_ROWS, |band, r0| {
         let src = &buf[r0 * width * ob..][..band.len() * ob];
@@ -550,9 +553,9 @@ fn structure(buf: &mut [u8], width: usize, height: usize, ob: usize, s: f64) {
     });
     let (g, lim) = if s > 0.0 { (s * ST_POS_GAIN, ST_LIM_POS) } else { (s, ST_LIM_NEG) };
     let fine = fine3(&y, width, height, ST_EPS_A, ST_EPS_B, ST_C1A, ST_C1B);
-    let r = st_radius(height);
+    let r = st_radius(rh);
     let coarse = guided_fast(&y, width, height, r, ST_EPS, (r / ST_FAST_R).max(1));
-    let rm = rad(ST_RM_1440, height);
+    let rm = rad(ST_RM_1440, rh);
     let mid = guided_fast(&y, width, height, rm, ST_EPS, (rm / ST_FAST_RM).max(1));
     // d(det) = lim * tanh(det * g / lim) as a table over det (TQ steps per level, linear in between)
     let k = g / lim;

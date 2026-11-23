@@ -3,7 +3,9 @@
 //! bit-identical to it (checked by tests/parity).
 //!
 //! Numerics rules: f64 where edit.py uses float64, same operation order, no fast-math,
-//! rounding `floor(x + 0.5)`, truncation `as u8` after clamping, `libm` for pow.
+//! rounding `floor(x + 0.5)`, truncation `as u8` after clamping, `libm` for pow. Speed may cost up
+//! to 1 level where it pays off (px32.rs: Mid/Detail's weight table); preview and Process share
+//! this code, so they stay identical to each other.
 //!
 //! Images are interleaved 8-bit, 3 (RGB) or 4 (RGBA, alpha left alone) bytes per pixel,
 //! processed in bands of whole rows so the work can be split over threads.
@@ -12,10 +14,21 @@ pub mod chain;
 pub mod edit;
 pub mod md;
 pub mod ps;
+pub(crate) mod px32;
 pub mod sc;
 pub mod sharp;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// A clock for the preview's timing breakdown (ms); set by the WebAssembly binding
+/// (performance.now), none elsewhere.
+static CLOCK: std::sync::OnceLock<fn() -> f64> = std::sync::OnceLock::new();
+pub fn set_clock(f: fn() -> f64) {
+    let _ = CLOCK.set(f);
+}
+pub(crate) fn now() -> f64 {
+    CLOCK.get().map_or(0.0, |f| f())
+}
 
 /// Rows per band when splitting the image over threads.
 pub const BAND_ROWS: usize = 64;
@@ -112,6 +125,26 @@ where
         }
     }
     buf.chunks_mut(chunk).enumerate().map(|(i, b)| f(b, i * BAND_ROWS)).collect()
+}
+
+/// `map_bands` for reading only.
+pub fn map_ref_bands<T, F>(buf: &[u8], row_bytes: usize, f: F) -> Vec<T>
+where
+    T: Send,
+    F: Fn(&[u8], usize) -> T + Sync + Send,
+{
+    if row_bytes == 0 {
+        return Vec::new();
+    }
+    let chunk = row_bytes * BAND_ROWS;
+    #[cfg(feature = "parallel")]
+    {
+        if parallel() {
+            use rayon::prelude::*;
+            return buf.par_chunks(chunk).enumerate().map(|(i, b)| f(b, i * BAND_ROWS)).collect();
+        }
+    }
+    buf.chunks(chunk).enumerate().map(|(i, b)| f(b, i * BAND_ROWS)).collect()
 }
 
 /// The four histograms the UI draws, counted from the final pixels:

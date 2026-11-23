@@ -421,7 +421,7 @@ pub fn apply_ex(src: &[u8], dst: &mut [u8], width: usize, ob: usize, e: &Edit, w
         })),
     };
     let h = match &e.sc {
-        Some(sc) => crate::sc::finish(dst, width, height, ob, sc, &e.luts, want_hist),
+        Some(sc) => crate::sc::finish(dst, width, height, ob, sc, &e.luts, want_hist).1,
         None => h,
     };
     if !e.sharp.active() {

@@ -152,14 +152,39 @@ fn dc_taps(n: usize, cells: usize) -> Vec<(usize, usize, f64)> {
         .collect()
 }
 
-/// `img` has `ob` bytes per pixel (3 or 4); returns the UI's histograms when asked.
-pub(crate) fn finish(img: &mut [u8], w: usize, h: usize, ob: usize, sc: &Sc, luts: &[[u8; 256]; 3],
-                     want_hist: bool) -> Option<crate::Hist> {
+/// Super Contrast's measurements of the whole image: the Color Cast tables, the Correct Contrast
+/// line and the Dynamic Contrast curves per cell. Kept by the preview so a draft of part of the
+/// image can apply the same ones (chain.rs).
+pub struct ScStats {
+    t: [[u8; 256]; 3],
+    corr: Option<(f64, f64, f64)>,
+    /// (cells high, cells wide, CT: the cell's curve at R + G + B)
+    dc: Option<(usize, usize, Vec<f64>)>,
+}
+
+/// Color Cast + Correct Contrast for one pixel ("mid")
+#[inline(always)]
+fn mid_px(st: &ScStats, p: &[u8]) -> [u8; 3] {
+    let t = &st.t;
+    let m = [t[0][p[0] as usize], t[1][p[1] as usize], t[2][p[2] as usize]];
+    match st.corr {
+        Some((ca, cb, ck)) => {
+            let f = [m[0] as f64, m[1] as f64, m[2] as f64];
+            let mm = (f[0] + f[1] + f[2]) / 3.0;
+            core::array::from_fn(|c| round_clip(ca * mm + cb + ck * (f[c] - mm)) as u8)
+        }
+        None => m,
+    }
+}
+
+/// Passes 1 and 2: the measurements of the whole image (`ob` bytes per pixel).
+pub(crate) fn measure(img: &[u8], w: usize, h: usize, ob: usize, sc: &Sc) -> ScStats {
     let row = w * ob;
+    let img = img;
     let n = (w * h) as u64;
 
     // 1. channel histograms of the filter input
-    let parts = crate::map_bands(img, row, |band, _| {
+    let parts = crate::map_ref_bands(img, row, |band, _| {
         let mut hh = [[0u64; 256]; 3];
         for p in band.chunks_exact(ob) {
             hh[0][p[0] as usize] += 1;
@@ -192,31 +217,21 @@ pub(crate) fn finish(img: &mut [u8], w: usize, h: usize, ob: usize, sc: &Sc, lut
     } else {
         None
     };
-    // Color Cast + Correct Contrast for one pixel ("mid")
-    let mid = |p: &[u8]| -> [u8; 3] {
-        let m = [t[0][p[0] as usize], t[1][p[1] as usize], t[2][p[2] as usize]];
-        match corr {
-            Some((ca, cb, ck)) => {
-                let f = [m[0] as f64, m[1] as f64, m[2] as f64];
-                let mm = (f[0] + f[1] + f[2]) / 3.0;
-                core::array::from_fn(|c| round_clip(ca * mm + cb + ck * (f[c] - mm)) as u8)
-            }
-            None => m,
-        }
-    };
+    let mut st = ScStats { t, corr, dc: None };
 
     // 2. Dynamic Contrast: per-cell histograms of R+G+B of mid, then curves per cell (CT)
     let dc = if sc.dyn_ > 0.0 {
         let gw = DC_GW;
         let gh = (((h * gw) as f64 / w as f64 + 0.5).floor() as usize).max(1);
         let cx: Vec<usize> = (0..w).map(|x| x * gw / w).collect();
-        let parts = crate::map_bands(img, row, |band, row0| {
+        let st = &st;
+        let parts = crate::map_ref_bands(img, row, |band, row0| {
             let mut hh = vec![0u64; gh * gw * DC_NB];
             let mut cnt = vec![0u64; gh * gw];
             for (i, r) in band.chunks_exact(row).enumerate() {
                 let cy = (row0 + i) * gh / h * gw;
                 for x in 0..w {
-                    let m = mid(&r[x * ob..x * ob + 3]);
+                    let m = mid_px(st, &r[x * ob..x * ob + 3]);
                     let s = m[0] as usize + m[1] as usize + m[2] as usize;
                     let cell = cy + cx[x];
                     hh[cell * DC_NB + (s / 12).min(DC_NB - 1)] += 1;
@@ -243,10 +258,22 @@ pub(crate) fn finish(img: &mut [u8], w: usize, h: usize, ob: usize, sc: &Sc, lut
                 ct[cell * 766 + s] = mp[cell * DC_NB + b0] * (1.0 - wb) + mp[cell * DC_NB + b0 + 1] * wb;
             }
         }
-        Some((gh, gw, ct, dc_taps(h, gh), dc_taps(w, gw)))
+        Some((gh, gw, ct))
     } else {
         None
     };
+    st.dc = dc;
+    st
+}
+
+/// Pass 3, in place on `img` (`w` x `h`, `ob` bytes per pixel), which is the part of the whole image
+/// (`fw` x `fh`) whose top-left pixel is (`ox`, `oy`); returns the UI's histograms when asked.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn apply(img: &mut [u8], w: usize, h: usize, ob: usize, sc: &Sc, st: &ScStats, luts: &[[u8; 256]; 3],
+                    want_hist: bool, (ox, oy): (usize, usize), (fw, fh): (usize, usize)) -> Option<crate::Hist> {
+    let row = w * ob;
+    debug_assert_eq!(img.len(), row * h);
+    let dc = st.dc.as_ref().map(|(gh, gw, ct)| (*gh, *gw, ct, dc_taps(fh, *gh), dc_taps(fw, *gw)));
     let gs = 1.0 + sc.dyn_ * (DC_SAT - 1.0);
     let gb = sc.dyn_ * DC_BETA;
 
@@ -257,11 +284,11 @@ pub(crate) fn finish(img: &mut [u8], w: usize, h: usize, ob: usize, sc: &Sc, lut
             let y = row0 + i;
             for x in 0..w {
                 let p = &mut r[x * ob..x * ob + ob];
-                let m = mid(p);
+                let m = mid_px(st, p);
                 let mut res = [m[0] as f64, m[1] as f64, m[2] as f64];
                 if let Some((_, gw, ct, yt, xt)) = &dc {
-                    let (y0, y1, wy) = yt[y];
-                    let (x0, x1, wx) = xt[x];
+                    let (y0, y1, wy) = yt[oy + y];
+                    let (x0, x1, wx) = xt[ox + x];
                     let s = m[0] as usize + m[1] as usize + m[2] as usize;
                     let tap = |yy: usize, xx: usize| ct[(yy * gw + xx) * 766 + s];
                     let v = (1.0 - wy) * (1.0 - wx) * tap(y0, x0) + (1.0 - wy) * wx * tap(y0, x1)
@@ -288,6 +315,15 @@ pub(crate) fn finish(img: &mut [u8], w: usize, h: usize, ob: usize, sc: &Sc, lut
         }
         hist
     }))
+}
+
+/// The whole step on the whole image (`ob` bytes per pixel); returns the measurements (kept by the
+/// preview) and the UI's histograms when asked.
+pub(crate) fn finish(img: &mut [u8], w: usize, h: usize, ob: usize, sc: &Sc, luts: &[[u8; 256]; 3],
+                     want_hist: bool) -> (ScStats, Option<crate::Hist>) {
+    let st = measure(img, w, h, ob, sc);
+    let hist = apply(img, w, h, ob, sc, &st, luts, want_hist, (0, 0), (w, h));
+    (st, hist)
 }
 
 #[cfg(test)]

@@ -170,15 +170,25 @@ pub(crate) fn apply(src: &[u8], dst: &mut [u8], w: usize, h: usize, ob: usize, e
 /// Perceptual Saturation as a chain step, in place on the RGB image `buf` (w x h): the two passes of
 /// `apply`, with the image as it arrives at this step as the filter input (`fin`); Film and the
 /// curves are steps of their own in the chain.
-pub(crate) fn step(buf: &mut [u8], w: usize, h: usize, bw: &Bw) {
-    let (t, kernel) = bw.ps.expect("ps");
+/// Perceptual Saturation's measurement of the whole image: the blurred grid of cell means of the
+/// filter's Warmth / Saturation result ("mid"). Kept by the preview so a draft of part of the image
+/// can apply the same grid (chain.rs).
+pub struct PsGrid {
+    g: Vec<f64>,
+    gh: usize,
+    gw: usize,
+}
+
+/// Pass A: the grid, and mid for every pixel (pass B reads it back).
+fn measure(buf: &[u8], w: usize, h: usize, bw: &Bw) -> (PsGrid, Vec<u8>) {
+    let (_, kernel) = bw.ps.expect("ps");
     let (gh, gw) = grid_size(w, h);
     let cx: Vec<usize> = (0..w).map(|x| x * gw / w).collect();
     let row3 = w * 3;
 
     // pass A: fmid per pixel (Warmth / Saturation, rounded), grid sums of fmid
     let mut fm = vec![0u8; w * h * 3];
-    let src: &[u8] = buf;
+    let src = buf;
     let parts = crate::map_bands(&mut fm, row3, |band, row0| {
         let mut sums = vec![0u64; gh * gw * 3];
         let mut cnt = vec![0u64; gh * gw];
@@ -207,12 +217,20 @@ pub(crate) fn step(buf: &mut [u8], w: usize, h: usize, bw: &Bw) {
         cnt.iter_mut().zip(c).for_each(|(a, b)| *a += b);
     }
     let g = blurred_grid(&sums, &cnt, gh, gw, kernel);
+    (PsGrid { g, gh, gw }, fm)
+}
 
-    // pass B, in place
-    let xt = axis_taps(w, gw);
-    let yt = axis_taps(h, gh);
+/// Pass B, in place on `buf` (`w` x `h`), which is the part of the whole image (`fw` x `fh`) whose
+/// top-left pixel is (`ox`, `oy`). `fm` = mid of these pixels when pass A kept it, else computed here.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn apply_grid(buf: &mut [u8], w: usize, h: usize, bw: &Bw, grid: &PsGrid, fm: Option<&[u8]>,
+                         (ox, oy): (usize, usize), (fw, fh): (usize, usize)) {
+    let (t, _) = bw.ps.expect("ps");
+    let (g, gh, gw) = (&grid.g, grid.gh, grid.gw);
+    let row3 = w * 3;
+    let xt = &axis_taps(fw, gw)[ox..ox + w];
+    let yt = &axis_taps(fh, gh)[oy..oy + h];
     let (op, pw) = (bw.op, PS_W);
-    let fm = &fm;
     crate::for_each_band(buf, row3, |band, row0| {
         let mut rowv = vec![0f64; gw * 3];
         for (i, out) in band.chunks_exact_mut(row3).enumerate() {
@@ -223,7 +241,17 @@ pub(crate) fn step(buf: &mut [u8], w: usize, h: usize, bw: &Bw) {
                     rowv[xc * 3 + c] = g[(y0 * gw + xc) * 3 + c] * (1.0 - fy) + g[(y1 * gw + xc) * 3 + c] * fy;
                 }
             }
-            let m3 = &fm[y * row3..(y + 1) * row3];
+            let own: Vec<u8>;
+            let m3: &[u8] = match fm {
+                Some(fm) => &fm[y * row3..(y + 1) * row3],
+                None => {
+                    own = out.chunks_exact(3).flat_map(|p| {
+                        let fl = filter_fl([p[0], p[1], p[2]], bw);
+                        [round_clip(fl[0]) as u8, round_clip(fl[1]) as u8, round_clip(fl[2]) as u8]
+                    }).collect();
+                    &own
+                }
+            };
             for x in 0..w {
                 let (x0, x1, fx) = xt[x];
                 let mut sm = [0f64; 3];
@@ -250,6 +278,13 @@ pub(crate) fn step(buf: &mut [u8], w: usize, h: usize, bw: &Bw) {
             }
         }
     });
+}
+
+/// The whole step on the whole image; returns the grid (kept by the preview).
+pub(crate) fn step(buf: &mut [u8], w: usize, h: usize, bw: &Bw) -> PsGrid {
+    let (grid, fm) = measure(buf, w, h, bw);
+    apply_grid(buf, w, h, bw, &grid, Some(&fm), (0, 0), (w, h));
+    grid
 }
 
 #[cfg(test)]

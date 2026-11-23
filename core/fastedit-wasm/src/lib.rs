@@ -8,6 +8,13 @@ use wasm_bindgen::prelude::*;
 pub use wasm_bindgen_rayon::init_thread_pool;
 
 #[wasm_bindgen]
+extern "C" {
+    /// the worker's clock, for the core's timing breakdown
+    #[wasm_bindgen(js_namespace = performance, js_name = now)]
+    fn perf_now() -> f64;
+}
+
+#[wasm_bindgen]
 pub fn version() -> String {
     fastedit_core::VERSION.to_string()
 }
@@ -200,7 +207,7 @@ impl Params {
 
     fn sharp(&self) -> fastedit_core::sharp::Sharp {
         fastedit_core::sharp::Sharp { adaptive: self.sharp.4, balance: self.sharp.5, structure: self.sharp.0,
-            local_contrast: self.sharp.1, focus: self.sharp.2, scale: if self.sharp.3 > 0.0 { self.sharp.3 } else { 1.0 } }
+            local_contrast: self.sharp.1, focus: self.sharp.2, scale: if self.sharp.3 > 0.0 { self.sharp.3 } else { 1.0 }, href: 0 }
     }
 }
 
@@ -211,6 +218,8 @@ pub struct Preview {
     h: usize,
     src: Vec<u8>,
     out: Vec<u8>,
+    /// the last draft's rectangle (render_region), RGBA
+    part: Vec<u8>,
     md: fastedit_core::chain::MdCache,
     hist: fastedit_core::Hist,
 }
@@ -223,11 +232,12 @@ impl Preview {
         if rgba.len() != w * h * 4 {
             return Err(JsError::new("rgba: size does not match w x h"));
         }
+        fastedit_core::set_clock(perf_now);
         let mut src = Vec::with_capacity(w * h * 3);
         for p in rgba.chunks_exact(4) {
             src.extend_from_slice(&p[..3]);
         }
-        Ok(Preview { w, h, src, out: vec![0; w * h * 4], md: Default::default(), hist: fastedit_core::Hist::default() })
+        Ok(Preview { w, h, src, out: vec![0; w * h * 4], part: Vec::new(), md: Default::default(), hist: fastedit_core::Hist::default() })
     }
 
     pub fn render(&mut self, p: &Params) -> Result<(), JsError> {
@@ -238,9 +248,47 @@ impl Preview {
         Ok(())
     }
 
-    /// The rendered RGBA pixels (a copy, safe to transfer to another thread)
+    /// A draft of the rectangle (x, y, w, h) only, while a control is being dragged (zoomed in): the
+    /// whole-image steps reuse the last full render's measurements. Its RGBA pixels: part_ptr /
+    /// part_len. False when there is no full render to take them from yet (render() instead).
+    pub fn render_region(&mut self, p: &Params, x: usize, y: usize, w: usize, h: usize) -> Result<bool, JsError> {
+        let steps = p.steps()?;
+        self.part.resize(w * h * 4, 0);
+        Ok(fastedit_core::chain::run_region(&self.src, self.w, self.h, (x, y, w, h), &mut self.part, &steps, &p.sharp(),
+                                            &mut self.md))
+    }
+    /// the draft's pixels as a copy (the self-test; the worker reads them in place)
+    pub fn part(&self) -> Vec<u8> {
+        self.part.clone()
+    }
+    pub fn part_ptr(&self) -> *const u8 {
+        self.part.as_ptr()
+    }
+    pub fn part_len(&self) -> usize {
+        self.part.len()
+    }
+
+    /// The rendered RGBA pixels (a copy, safe to transfer to another thread). The worker reads them
+    /// straight from WebAssembly memory instead (out_ptr / out_len: one copy, not two).
     pub fn output(&self) -> Vec<u8> {
         self.out.clone()
+    }
+    pub fn out_ptr(&self) -> *const u8 {
+        self.out.as_ptr()
+    }
+    pub fn out_len(&self) -> usize {
+        self.out.len()
+    }
+
+    /// The last render's phases: "name ms | name ms …" (the self-test shows it)
+    pub fn timing(&self) -> String {
+        self.md.timing.iter().map(|(n, t)| format!("{n} {t:.1}")).collect::<Vec<_>>().join(" | ")
+    }
+
+    /// Drop what is kept between renders (Mid/Detail smoothing, the prefix): the next render is a
+    /// full one (the self-test's timings).
+    pub fn forget(&mut self) {
+        self.md.forget();
     }
 
     pub fn hin(&self) -> Vec<u32> {

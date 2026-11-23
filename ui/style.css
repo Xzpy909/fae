@@ -380,6 +380,20 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
   font-size: 11px; text-transform: uppercase; letter-spacing: .7px; color: #a9c3c1; font-weight: 600; }
 .card-head .mono { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11px; }
 
+/* while drafts of part of the image are shown (dragging a control, zoomed in): the histogram dims and
+   a mint shimmer sweeps across it until the full render brings the real one */
+#histoBlock .histo-wrap { overflow: hidden; border-radius: 8px; }
+#histoBlock #histo { transition: opacity .15s, filter .15s; }
+#histoBlock.live #histo { opacity: .35; filter: saturate(.5); }
+#histoBlock .histo-wrap::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(0, 235, 255, .16) 45%, rgba(0, 255, 170, .26) 50%, rgba(0, 255, 170, 0) 62%);
+  background-size: 260% 100%; transition: opacity .2s; }
+#histoBlock.live .histo-wrap::after { opacity: 1; animation: histo-sweep 1.15s linear infinite; }
+@keyframes histo-sweep { from { background-position: 130% 0; } to { background-position: -30% 0; } }
+#histoBlock .card-head > span:first-child::after { content: "live"; margin-left: 8px; padding: 0 6px; border-radius: 8px;
+  font: 600 9.5px/15px var(--mono); letter-spacing: .04em; text-transform: none; color: var(--accent-ink); background: var(--grad);
+  opacity: 0; transition: opacity .15s; vertical-align: 1px; }
+#histoBlock.live .card-head > span:first-child::after { opacity: 1; }
 /* Histogram block: docked to the panel's top, the export block's twin (the tool list scrolls under it) */
 .histo-block { position: relative; z-index: 2; flex: none; padding: 11px 15px 13px; background: #00272a;
   border-bottom: 1px solid rgba(255, 255, 255, .09); box-shadow: 0 14px 28px rgba(0, 0, 0, .35); }

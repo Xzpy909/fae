@@ -11,8 +11,42 @@ function requestRender() {
   requestAnimationFrame(() => { rq = false; render(); });
 }
 
+/* Drafts: while a control is being dragged, or edits keep coming (wheel, typing), and the view is
+   zoomed in so only part of the image is on screen, just that part is rendered (the core reuses the
+   last full render's whole-image measurements, see run_region). A full render follows once the
+   control is let go, or DRAFT_IDLE ms after the last change; the histogram waits for it. */
+const DRAFT_IDLE = 200;
+let draftTimer = 0, panelHold = false;
+function setLive(on) { S.live = on; }
+// the histogram's "waiting for the full render" look, while drafts are on screen
+const histoLive = on => $('#histoBlock').classList.toggle('live', on);
+function settle() {
+  clearTimeout(draftTimer);
+  if (!S.live || panelHold) return;          // still holding a control: the release settles it
+  setLive(false);
+  requestRender();
+}
+$('#panel').addEventListener('pointerdown', () => { panelHold = true; }, true);
+for (const ev of ['pointerup', 'pointercancel', 'blur']) window.addEventListener(ev, () => {
+  if (!panelHold) return;
+  panelHold = false;
+  settle();
+}, true);
+/* the visible part of the preview image (preview pixels, a little slack), or null when it is most of it */
+function visibleRect() {
+  const I = S.img, v = S.view, r = vp.getBoundingClientRect();
+  if (!I || !r.width) return null;
+  const x0 = clamp(Math.floor(-v.x / v.z) - 8, 0, I.pw), x1 = clamp(Math.ceil((r.width - v.x) / v.z) + 8, 0, I.pw);
+  const y0 = clamp(Math.floor(-v.y / v.z) - 8, 0, I.ph), y1 = clamp(Math.ceil((r.height - v.y) / v.z) + 8, 0, I.ph);
+  if (x1 <= x0 || y1 <= y0 || (x1 - x0) * (y1 - y0) > I.pw * I.ph * 0.5) return null;
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
 function editChanged() {
   S.E = computeEdit(effectiveEdit(S.edit));
+  setLive(true);
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(settle, DRAFT_IDLE);
   updateToolUI();
   updateMarkers();
   requestRender();
@@ -27,6 +61,7 @@ function render() {
   const n = I.pw * I.ph, E = S.E;
   // same image and edit as the pixels in S.outData (only the view changed: before, Alt, compare line)
   if (S.rendered && S.rendered.I === I && S.rendered.E === E) { present(n); return; }
+  const rect = S.live && !viewMode() && !S.cropMode ? visibleRect() : null;
   if (!WP.ready()) {                // the core is starting (it asks for a render when ready) or missing
     if (WP.failed()) {              // missing: show the unedited image (WP has said why)
       S.outData.data.set(I.base);
@@ -36,12 +71,43 @@ function render() {
     return;
   }
   WP.render(I, E, r => {            // the Rust core in its worker (wasm-preview.js); shown when it's done
+    if (r.rect) { if (S.img === I && S.outData) presentDraft(r.rect, new Uint8Array(r.out)); return; }
     if (S.img !== I || !S.outData || r.out.byteLength !== S.outData.data.length) return;   // image changed meanwhile
     S.outData.data.set(new Uint8Array(r.out));
     S.hin.set(r.hin); S.hout.set(r.hout); S.hmx.set(r.hmx); S.hmn.set(r.hmn);
     S.rendered = { I, E };
+    histoLive(false);
     present(n);
-  });
+  }, rect);
+}
+
+/* a draft: its rectangle into the image, and only that rectangle onto the canvas (the split views
+   are composed there too); histograms, HUD and the rest wait for the full render */
+function presentDraft(R, px) {
+  const I = S.img, o = S.outData.data, W = I.pw * 4, rw = R.w * 4;
+  for (let y = 0; y < R.h; y++) o.set(px.subarray(y * rw, (y + 1) * rw), (R.y + y) * W + R.x * 4);
+  S.rendered = null;                       // the full render still has to come
+  let disp = S.outData;
+  const enc = encSplitOn() && cmpReady();
+  if (enc || (!encSplitOn() && S.prefs.split)) {
+    // the split: original (or encoded) on one side of the line, edited on the other, in the rectangle only
+    const d = S.dispData.data, other = enc ? S.cmp.data.data : S.baseData.data;
+    const split = clamp(Math.round(S.cmp.x * I.pw), 0, I.pw);
+    for (let y = R.y; y < R.y + R.h; y++) {
+      const row = y * W;
+      for (let x = R.x; x < R.x + R.w; ) {
+        const left = x < split, end = left ? Math.min(split, R.x + R.w) : R.x + R.w;
+        const src = (left !== enc) ? other : o;       // original | edited, or edited | encoded
+        d.set(src.subarray(row + x * 4, row + end * 4), row + x * 4);
+        x = end;
+      }
+    }
+    disp = S.dispData;
+  }
+  ctx.putImageData(disp, 0, 0, R.x, R.y, R.w, R.h);
+  S.shown = disp;
+  histoLive(true);
+  drawLoupe(); updateCmp();
 }
 
 // everything after the pixels: view modes, canvas, histogram, curve, HUD, loupe, compare

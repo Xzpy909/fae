@@ -86,7 +86,7 @@ Not every tool gets presets — for some they make no sense. Decide tool by tool
 ### 3.4 Status — done (wave 4, first version)
 
 Built in `ui/js/presets.js`; stored in `fae_presets.json` next to the settings (`get_presets` / `save_presets`).
-- **Tools with a preset button:** Adjustments, Curves, Perceptual Saturation, Film Effect, Super Contrast. Not: Crop, Point correction, Resize, Color balance (about one image), Sharpen (for now).
+- **Tools with a preset button:** Adjustments, Curves, Perceptual Saturation, Film Effect, Super Contrast, Sharpen. Not: Crop, Point correction, Resize, Color balance (about one image). Sharpen's thumbnails are a 1:1 crop from the middle at the preview's scale (the whole image shrunk to a thumbnail would hide the sharpening); its thumbnails show the whole chain, since Sharpen runs last.
 - **Label** is worked out from the values: `Default` when they are neutral, a preset's name when they equal it, else `Custom` (no stored "active preset").
 - **Dropdown** as in 3.1: thumbnail, name, meta (`No changes` / `Yours`), active row with check; `+ Save current as preset…` opens a name field in place (Enter saves, an existing name is overwritten). Rename / delete are icons on your own rows (hover), delete asks for a second click — instead of a separate `Rename / delete presets` entry.
 - **Thumbnails** are the current image (3:2 centre crop, 108×72) through the edit with the preset, the chain up to and including that tool (later tools and Sharpen left out), rendered by the core in a queue of their own that never delays or replaces live renders (`WP.thumb`).

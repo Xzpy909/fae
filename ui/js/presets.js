@@ -8,10 +8,10 @@
 const Presets = (() => {
   // the tools with presets and the edit keys a preset of each holds
   const TOOLS = {
-    adjust: { keys: ADJUST.map(a => a[0]), def: () => defaultAdjust() },
+    adjust: { keys: ADJUST.map(a => a[0]), def: () => defaultAdjust() },   // + Curves, the filters, Sharpen
     curves: { keys: ['curves'], def: () => ({ curves: { m: ident(), r: ident(), g: ident(), b: ident() } }) },
   };
-  for (const f of FILTERS) TOOLS[f.sec] = { keys: filterFields(f).map(a => fieldKD(a)[0]), def: () => defaultFilter(f) };
+  for (const f of [...FILTERS, SHARPEN]) TOOLS[f.sec] = { keys: filterFields(f).map(a => fieldKD(a)[0]), def: () => defaultFilter(f) };
   const TW = 108, TH = 72;                // thumbnail pixels (shown at 54×36)
 
   let P = {};                             // the user's presets
@@ -65,14 +65,18 @@ const Presets = (() => {
     }
   }
 
-  /* ---------- thumbnails: the current image, cover-cropped to 3:2, through the edit with the preset ---------- */
-  const small = new WeakMap();            // stage image -> its thumbnail-size copy
-  function smallOf(I) {
-    let t = small.get(I);
+  /* ---------- thumbnails: the current image, cover-cropped to 3:2, through the edit with the preset.
+     Sharpen: a crop from the middle at the preview's own scale instead (shrunk to a thumbnail the
+     whole image would hide what sharpening does) ---------- */
+  const small = new WeakMap(), detail = new WeakMap();   // stage image -> its thumbnail-size copy
+  function smallOf(I, oneToOne) {
+    const cache = oneToOne ? detail : small;
+    let t = cache.get(I);
     if (t) return t;
     const r = TW / TH;
     let cw = I.pw, ch = Math.round(I.pw / r);
     if (ch > I.ph) { ch = I.ph; cw = Math.round(I.ph * r); }
+    if (oneToOne) { cw = Math.min(cw, TW); ch = Math.min(ch, TH); }
     const src = document.createElement('canvas');
     src.width = I.pw; src.height = I.ph;
     src.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(I.base), I.pw, I.ph), 0, 0);
@@ -82,7 +86,7 @@ const Presets = (() => {
     g.drawImage(src, (I.pw - cw) >> 1, (I.ph - ch) >> 1, cw, ch, 0, 0, TW, TH);
     // w = output pixels across the crop, so Sharpen works at the thumbnail's scale
     t = { base: g.getImageData(0, 0, TW, TH).data, pw: TW, ph: TH, w: Math.round(cw * I.w / I.pw) };
-    small.set(I, t);
+    cache.set(I, t);
     return t;
   }
   // the edit with sec's values replaced; tools that run after it are left out (the thumbnail shows the
@@ -92,14 +96,14 @@ const Presets = (() => {
     e.off = Object.assign({}, e.off);
     delete e.off[sec];
     const c = chainOf(e), at = c.findIndex(x => x.id === sec);
-    c.forEach((x, i) => { if (i > at) e.off[x.t] = true; });
-    e.off.sharpen = true;
+    if (at >= 0) c.forEach((x, i) => { if (i > at) e.off[x.t] = true; });   // (Sharpen runs after the whole chain)
+    if (sec !== 'sharpen') e.off.sharpen = true;
     return e;
   }
   function drawThumb(cv, sec, values) {
     const I = S.img, g = cv.getContext('2d');
     if (!I || !I.base) return;
-    const t = smallOf(I);
+    const t = smallOf(I, sec === 'sharpen');
     g.putImageData(new ImageData(new Uint8ClampedArray(t.base), TW, TH), 0, 0);   // unedited until the render is in
     WP.thumb(t, computeEdit(effectiveEdit(editWith(sec, values)))).then(r => {
       if (r && r.w === TW && r.h === TH && cv.isConnected) g.putImageData(new ImageData(new Uint8ClampedArray(r.out), TW, TH), 0, 0);

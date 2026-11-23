@@ -156,7 +156,7 @@ pub(crate) fn u8c(x: f64) -> u8 {
 
 /// np.minimum(np.floor(y * 16 + 0.5), 4095).astype(np.intp)   (y >= 0 here)
 #[inline(always)]
-fn t16(y: f64) -> usize {
+pub(crate) fn t16(y: f64) -> usize {
     (y * 16.0 + 0.5).floor().min(4095.0) as usize
 }
 
@@ -215,30 +215,80 @@ pub(crate) fn film_px(p: [u8; 3], fm: &Film) -> [u8; 3] {
     [q[0] as u8, q[1] as u8, q[2] as u8]
 }
 
-/// Point correction ... Saturation: everything before the Filter.
+/// Point correction for one pixel: luma levels (k, o), then the neutral-gray gains.
+#[inline(always)]
+pub fn point_px(px: [u8; 3], k: f64, o: f64, gains: Option<[f64; 3]>) -> [u8; 3] {
+    let (mut fr, mut fg, mut fb) = (px[0] as f64, px[1] as f64, px[2] as f64);
+    if k != 1.0 || o != 0.0 {
+        let lum = luma(fr, fg, fb);
+        let bl = (lum * k + o).clamp(0.0, 255.0);
+        let ra = bl / lum.max(1.0);
+        fr *= ra;
+        fg *= ra;
+        fb *= ra;
+    }
+    if let Some(gn) = gains {
+        fr *= gn[0];
+        fg *= gn[1];
+        fb *= gn[2];
+    }
+    [u8c(fr), u8c(fg), u8c(fb)]
+}
+
+/// The Adjustments tool (one step of the chain). Mid/Detail (`md`, -1..1) runs first, on a
+/// smoothed luma the chain computes from the image as it arrives at this step.
+pub struct Adjust<'a> {
+    pub md: f64,
+    /// rows = output channel: out_c = wb[c][0] r + wb[c][1] g + wb[c][2] b
+    pub wb: Option<[[f64; 3]; 3]>,
+    /// contrast table, 4096 entries (rgb * 16 and luma * 16 index into it)
+    pub con: Option<&'a [f64]>,
+    pub tones: Vec<Tone<'a>>,
+    /// gain by saturation (max - min), 256 entries
+    pub boost: Option<&'a [f64]>,
+    pub sat: Option<f64>,
+}
+
+impl Adjust<'_> {
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(c) = self.con {
+            if c.len() < 4096 {
+                return Err(format!("con: {} values, need 4096", c.len()));
+            }
+        }
+        for t in &self.tones {
+            if t.table.len() < 4096 {
+                return Err(format!("tones: {} values, need 4096", t.table.len()));
+            }
+        }
+        if let Some(b) = self.boost {
+            if b.len() < 256 {
+                return Err(format!("boost: {} values, need 256", b.len()));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Point correction ... Saturation: everything before the Filter (the fixed order of `Edit`).
 #[inline(always)]
 pub fn pre_filter(px: [u8; 3], e: &Edit) -> [u8; 3] {
+    let px = if e.point { point_px(px, e.k, e.o, e.gains) } else { px };
+    adjust_parts(px, &e.wb, e.con, &e.tones, e.boost, e.sat)
+}
+
+/// Adjustments for one pixel, without Mid/Detail (the chain applies md_px first when md != 0).
+#[inline(always)]
+pub fn adjust_px(px: [u8; 3], a: &Adjust) -> [u8; 3] {
+    adjust_parts(px, &a.wb, a.con, &a.tones, a.boost, a.sat)
+}
+
+#[inline(always)]
+fn adjust_parts(px: [u8; 3], wb: &Option<[[f64; 3]; 3]>, con: Option<&[f64]>, tones: &[Tone], boost: Option<&[f64]>,
+                sat: Option<f64>) -> [u8; 3] {
     let [mut r, mut g, mut b] = px;
 
-    if e.point {
-        let (mut fr, mut fg, mut fb) = (r as f64, g as f64, b as f64);
-        if e.k != 1.0 || e.o != 0.0 {
-            let lum = luma(fr, fg, fb);
-            let bl = (lum * e.k + e.o).clamp(0.0, 255.0);
-            let ra = bl / lum.max(1.0);
-            fr *= ra;
-            fg *= ra;
-            fb *= ra;
-        }
-        if let Some(gn) = e.gains {
-            fr *= gn[0];
-            fg *= gn[1];
-            fb *= gn[2];
-        }
-        (r, g, b) = (u8c(fr), u8c(fg), u8c(fb));
-    }
-
-    if let Some(w) = &e.wb {
+    if let Some(w) = wb {
         let (fr, fg, fb) = (r as f64, g as f64, b as f64);
         let o0 = fr * w[0][0] + fg * w[0][1] + fb * w[0][2];
         let o1 = fr * w[1][0] + fg * w[1][1] + fb * w[1][2];
@@ -246,7 +296,7 @@ pub fn pre_filter(px: [u8; 3], e: &Edit) -> [u8; 3] {
         (r, g, b) = (u8c(o0), u8c(o1), u8c(o2));
     }
 
-    if let Some(con) = e.con {
+    if let Some(con) = con {
         let c0 = con[r as usize * 16];
         let c1 = con[g as usize * 16];
         let c2 = con[b as usize * 16];
@@ -255,7 +305,7 @@ pub fn pre_filter(px: [u8; 3], e: &Edit) -> [u8; 3] {
         (r, g, b) = (u8c(c0 + d), u8c(c1 + d), u8c(c2 + d));
     }
 
-    for t in &e.tones {
+    for t in tones {
         let (fr, fg, fb) = (r as f64, g as f64, b as f64);
         let y = luma(fr, fg, fb);
         let y2 = t.table[t16(y)];
@@ -268,7 +318,7 @@ pub fn pre_filter(px: [u8; 3], e: &Edit) -> [u8; 3] {
         }
     }
 
-    if let Some(bt) = e.boost {
+    if let Some(bt) = boost {
         let mx = r.max(g).max(b);
         let mn = r.min(g).min(b);
         let gn = bt[(mx - mn) as usize];
@@ -277,7 +327,7 @@ pub fn pre_filter(px: [u8; 3], e: &Edit) -> [u8; 3] {
         (r, g, b) = (u8c(y + (fr - y) * gn), u8c(y + (fg - y) * gn), u8c(y + (fb - y) * gn));
     }
 
-    if let Some(s) = e.sat {
+    if let Some(s) = sat {
         let (fr, fg, fb) = (r as f64, g as f64, b as f64);
         let y = luma(fr, fg, fb);
         (r, g, b) = (u8c(y + (fr - y) * s), u8c(y + (fg - y) * s), u8c(y + (fb - y) * s));

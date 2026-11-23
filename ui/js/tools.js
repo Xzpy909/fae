@@ -344,6 +344,7 @@ window.addEventListener('drop', e => { e.preventDefault(); S.dropT = performance
   $('#btnEncSplit').addEventListener('click', () => {
     const on = !encSplitOn();
     S.prefs.encSplit = on; if (on) S.prefs.split = false;
+    if (on) requestJpeg(true); else cancelJpeg();
     savePrefsSoon(); requestRender(); updateCmp();
   });
 })();

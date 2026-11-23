@@ -45,24 +45,35 @@ type FilmP = (usize, Option<Vec<f64>>, Option<Vec<f64>>, f64);
 /// (cast, cc, dyn, op, dk, shl): Super Contrast
 type ScP = (f64, f64, f64, f64, Vec<f64>, Option<Vec<f64>>);
 
-/// The edit, as processPixels gets it from computeEdit (filled by ui/js/wasm-params.js).
-#[wasm_bindgen]
+/// Adjustments, as the setters fill it before push_adjust()
 #[derive(Default)]
-pub struct Params {
+struct AdjP {
     md: f64,
-    luts: Option<[[u8; 256]; 3]>,
-    point: bool,
-    k: f64,
-    o: f64,
-    gains: Option<[f64; 3]>,
     wb: Option<[[f64; 3]; 3]>,
     con: Option<Vec<f64>>,
     tones: Vec<(Vec<f64>, bool)>,
     boost: Option<Vec<f64>>,
     sat: Option<f64>,
-    bw: Option<BwP>,
-    film: Option<FilmP>,
-    sc: Option<ScP>,
+}
+
+/// One step of the chain, owning its tables
+enum StepP {
+    Point(f64, f64, Option<[f64; 3]>),
+    Adjust(AdjP),
+    Curves([[u8; 256]; 3]),
+    Bw(BwP),
+    Film(FilmP),
+    Sc(ScP),
+}
+
+/// The edit as an ordered list of steps (filled by ui/js/wasm-params.js): push_* adds a step at the
+/// end; Adjustments are first filled with set_md / set_wb / set_con / add_tone / set_boost / set_sat,
+/// then push_adjust() adds them. A tool may be pushed more than once. Sharpen always runs last.
+#[wasm_bindgen]
+#[derive(Default)]
+pub struct Params {
+    steps: Vec<StepP>,
+    adj: AdjP,
     sharp: (f64, f64, f64, f64, f64, f64),
 }
 
@@ -70,26 +81,18 @@ pub struct Params {
 impl Params {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Params {
-        Params { k: 1.0, ..Default::default() }
+        Params::default()
     }
 
-    /// Mid/Detail amount (E.md); the Preview computes the smoothing it needs
+    pub fn push_point(&mut self, k: f64, o: f64, gains: Option<Vec<f64>>) -> Result<(), JsError> {
+        let gains = gains.map(|g| arr3(&g, "gains")).transpose()?;
+        self.steps.push(StepP::Point(k, o, gains));
+        Ok(())
+    }
+
+    /// Mid/Detail amount of the Adjustments being filled; the Preview computes the smoothing it needs
     pub fn set_md(&mut self, amount: f64) {
-        self.md = amount;
-    }
-
-    /// 768 values: R, G, B curves (master folded in)
-    pub fn set_luts(&mut self, flat: &[u8]) -> Result<(), JsError> {
-        self.luts = Some(fastedit_core::luts_from_flat(flat).ok_or_else(|| JsError::new("luts: need 768 values"))?);
-        Ok(())
-    }
-
-    pub fn set_point(&mut self, point: bool, k: f64, o: f64, gains: Option<Vec<f64>>) -> Result<(), JsError> {
-        self.point = point;
-        self.k = k;
-        self.o = o;
-        self.gains = gains.map(|g| arr3(&g, "gains")).transpose()?;
-        Ok(())
+        self.adj.md = amount;
     }
 
     /// 9 values, row-major: out_c = wb[c][0] r + wb[c][1] g + wb[c][2] b
@@ -97,38 +100,55 @@ impl Params {
         if m.len() != 9 {
             return Err(JsError::new("wb: need 9 values"));
         }
-        self.wb = Some([[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]]);
+        self.adj.wb = Some([[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]]);
         Ok(())
     }
 
     pub fn set_con(&mut self, t: Vec<f64>) {
-        self.con = Some(t);
+        self.adj.con = Some(t);
     }
 
     pub fn add_tone(&mut self, t: Vec<f64>, ratio: bool) {
-        self.tones.push((t, ratio));
+        self.adj.tones.push((t, ratio));
     }
 
     pub fn set_boost(&mut self, t: Vec<f64>) {
-        self.boost = Some(t);
+        self.adj.boost = Some(t);
     }
 
     pub fn set_sat(&mut self, s: f64) {
-        self.sat = Some(s);
+        self.adj.sat = Some(s);
+    }
+
+    /// Adds the Adjustments filled so far as a step (and starts a fresh one)
+    pub fn push_adjust(&mut self) {
+        let a = core::mem::take(&mut self.adj);
+        self.steps.push(StepP::Adjust(a));
+    }
+
+    /// 768 values: R, G, B curves (master folded in)
+    pub fn push_curves(&mut self, flat: &[u8]) -> Result<(), JsError> {
+        let l = fastedit_core::luts_from_flat(flat).ok_or_else(|| JsError::new("luts: need 768 values"))?;
+        self.steps.push(StepP::Curves(l));
+        Ok(())
     }
 
     /// ps = 0: no Perceptual Saturation (psk ignored)
-    pub fn set_bw(&mut self, s: f64, op: f64, w: Option<Vec<f64>>, ps: f64, psk: Option<Vec<f64>>) -> Result<(), JsError> {
+    pub fn push_bw(&mut self, s: f64, op: f64, w: Option<Vec<f64>>, ps: f64, psk: Option<Vec<f64>>) -> Result<(), JsError> {
         let w = w.map(|w| arr3(&w, "bw w")).transpose()?;
         if ps != 0.0 && psk.as_ref().is_none_or(|k| k.is_empty()) {
             return Err(JsError::new("bw: ps without psk"));
         }
-        self.bw = Some((s, op, w, ps, psk.unwrap_or_default()));
+        self.steps.push(StepP::Bw((s, op, w, ps, psk.unwrap_or_default())));
         Ok(())
     }
 
-    pub fn set_film(&mut self, n: usize, d: Option<Vec<f64>>, t1: Option<Vec<f64>>, op: f64) {
-        self.film = Some((n, d, t1, op));
+    pub fn push_film(&mut self, n: usize, d: Option<Vec<f64>>, t1: Option<Vec<f64>>, op: f64) {
+        self.steps.push(StepP::Film((n, d, t1, op)));
+    }
+
+    pub fn push_sc(&mut self, cast: f64, cc: f64, dyn_: f64, op: f64, dk: Vec<f64>, shl: Option<Vec<f64>>) {
+        self.steps.push(StepP::Sc((cast, cc, dyn_, op, dk, shl)));
     }
 
     /// Sharpen: Adaptive Sharpening (0..1), Balance (-1 areas .. 1 edges), Structure, Local Contrast, Focus (-1..1, 0 = off) and the
@@ -137,53 +157,50 @@ impl Params {
     pub fn set_sharp(&mut self, adaptive: f64, balance: f64, structure: f64, local_contrast: f64, focus: f64, scale: f64) {
         self.sharp = (structure, local_contrast, focus, scale, adaptive, balance);
     }
-
-    pub fn set_sc(&mut self, cast: f64, cc: f64, dyn_: f64, op: f64, dk: Vec<f64>, shl: Option<Vec<f64>>) {
-        self.sc = Some((cast, cc, dyn_, op, dk, shl));
-    }
 }
 
 impl Params {
-    /// `md_base`: the Preview's smoothed luma (one value per pixel), present when md != 0
-    fn edit<'a>(&'a self, md_base: Option<&'a [f32]>) -> Result<fastedit_core::edit::Edit<'a>, JsError> {
-        use fastedit_core::edit::{Bw, Edit, Film, Sc, Tone};
-        let e = Edit {
-            md: match md_base {
-                Some(b) if self.md != 0.0 => Some((self.md, b)),
-                _ => None,
-            },
-            point: self.point,
-            k: self.k,
-            o: self.o,
-            gains: self.gains,
-            wb: self.wb,
-            con: self.con.as_deref(),
-            tones: self.tones.iter().map(|(t, r)| Tone { table: t, ratio: *r }).collect(),
-            boost: self.boost.as_deref(),
-            sat: self.sat,
-            bw: self.bw.as_ref().map(|(s, op, w, ps, psk)| Bw {
-                s: *s,
-                op: *op,
-                w: *w,
-                ps: if *ps != 0.0 { Some((*ps, psk.as_slice())) } else { None },
-            }),
-            film: self.film.as_ref().map(|(n, d, t1, op)| Film { n: *n, d: d.as_deref(), t1: t1.as_deref(), op: *op }),
-            sc: self.sc.as_ref().map(|(cast, cc, dyn_, op, dk, shl)| Sc {
-                cast: *cast,
-                cc: *cc,
-                dyn_: *dyn_,
-                op: *op,
-                dk: dk.as_slice(),
-                shl: shl.as_deref(),
-            }),
-            luts: self.luts.unwrap_or_else(|| {
-                let id: [u8; 256] = core::array::from_fn(|i| i as u8);
-                [id, id, id]
-            }),
-            sharp: fastedit_core::sharp::Sharp { adaptive: self.sharp.4, balance: self.sharp.5, structure: self.sharp.0, local_contrast: self.sharp.1, focus: self.sharp.2, scale: if self.sharp.3 > 0.0 { self.sharp.3 } else { 1.0 } },
-        };
-        e.validate().map_err(|m| JsError::new(&m))?;
-        Ok(e)
+    fn steps(&self) -> Result<Vec<fastedit_core::chain::Step<'_>>, JsError> {
+        use fastedit_core::chain::Step;
+        use fastedit_core::edit::{Adjust, Bw, Film, Sc, Tone};
+        let mut out = Vec::with_capacity(self.steps.len());
+        for s in &self.steps {
+            let st = match s {
+                StepP::Point(k, o, g) => Step::Point { k: *k, o: *o, gains: *g },
+                StepP::Adjust(a) => Step::Adjust(Adjust {
+                    md: a.md,
+                    wb: a.wb,
+                    con: a.con.as_deref(),
+                    tones: a.tones.iter().map(|(t, r)| Tone { table: t, ratio: *r }).collect(),
+                    boost: a.boost.as_deref(),
+                    sat: a.sat,
+                }),
+                StepP::Curves(l) => Step::Curves(*l),
+                StepP::Bw((s, op, w, ps, psk)) => Step::Bw(Bw {
+                    s: *s,
+                    op: *op,
+                    w: *w,
+                    ps: if *ps != 0.0 { Some((*ps, psk.as_slice())) } else { None },
+                }),
+                StepP::Film((n, d, t1, op)) => Step::Film(Film { n: *n, d: d.as_deref(), t1: t1.as_deref(), op: *op }),
+                StepP::Sc((cast, cc, dyn_, op, dk, shl)) => Step::Sc(Sc {
+                    cast: *cast,
+                    cc: *cc,
+                    dyn_: *dyn_,
+                    op: *op,
+                    dk: dk.as_slice(),
+                    shl: shl.as_deref(),
+                }),
+            };
+            st.validate().map_err(|m| JsError::new(&m))?;
+            out.push(st);
+        }
+        Ok(out)
+    }
+
+    fn sharp(&self) -> fastedit_core::sharp::Sharp {
+        fastedit_core::sharp::Sharp { adaptive: self.sharp.4, balance: self.sharp.5, structure: self.sharp.0,
+            local_contrast: self.sharp.1, focus: self.sharp.2, scale: if self.sharp.3 > 0.0 { self.sharp.3 } else { 1.0 } }
     }
 }
 
@@ -194,7 +211,7 @@ pub struct Preview {
     h: usize,
     src: Vec<u8>,
     out: Vec<u8>,
-    md_base: Option<Vec<f32>>,
+    md: fastedit_core::chain::MdCache,
     hist: fastedit_core::Hist,
 }
 
@@ -210,16 +227,14 @@ impl Preview {
         for p in rgba.chunks_exact(4) {
             src.extend_from_slice(&p[..3]);
         }
-        Ok(Preview { w, h, src, out: vec![0; w * h * 4], md_base: None, hist: fastedit_core::Hist::default() })
+        Ok(Preview { w, h, src, out: vec![0; w * h * 4], md: Default::default(), hist: fastedit_core::Hist::default() })
     }
 
     pub fn render(&mut self, p: &Params) -> Result<(), JsError> {
-        // Mid/Detail smoothing of this image: computed the first time it's needed, then kept
-        if p.md != 0.0 && self.md_base.is_none() {
-            self.md_base = Some(fastedit_core::md::base(&self.src, self.w, self.h));
-        }
-        let e = p.edit(if p.md != 0.0 { self.md_base.as_deref() } else { None })?;
-        self.hist = fastedit_core::edit::apply_ex(&self.src, &mut self.out, self.w, 4, &e, true).unwrap_or_default();
+        let steps = p.steps()?;
+        // Mid/Detail's smoothing is kept between renders while the image arriving at it is the same
+        self.hist = fastedit_core::chain::run_cached(&self.src, &mut self.out, self.w, 4, &steps, &p.sharp(), true,
+                                                     Some(&mut self.md)).unwrap_or_default();
         Ok(())
     }
 

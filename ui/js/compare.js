@@ -29,7 +29,7 @@ function buildCompare() {
 const fmtBytes = b => b >= 1048576 ? (b / 1048576).toFixed(2) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
 function updateSizeChip() {
   const el = $('#sizeChip'), I = S.img, c = S.cmp;
-  const on = isLossy() && I && !S.cropMode && (cmpReady() || c.busy);
+  const on = encSplitOn() && I && !S.cropMode && (cmpReady() || c.busy);   // only with the encoded compare on
   el.classList.toggle('show', !!on);
   if (!on) return;
   const ready = cmpReady(), stale = c.busy || !ready || c.key !== jpegKey();
@@ -106,14 +106,16 @@ function jpegKey() {
 }
 let jpegTimer = null;
 const stageReady = () => S.cur >= 0 && S.img && S.files[S.cur] && S.img.path === S.files[S.cur].path;
+/* The real encode runs only while the export block's encoded compare is on (it also gives the size
+   chip); otherwise editing would re-encode after every change. */
 function requestJpeg(immediate) {
-  if (!isLossy() || !stageReady() || S.cropMode) return;   // never encode before the image itself is shown
+  if (!encSplitOn() || !stageReady() || S.cropMode) return;   // never encode before the image itself is shown
   clearTimeout(jpegTimer);
   jpegTimer = setTimeout(loadJpeg, immediate ? 0 : 260);
 }
 async function loadJpeg() {
   const f = S.files[S.cur];
-  if (!isLossy() || !f || !stageReady()) return;
+  if (!encSplitOn() || !f || !stageReady()) return;
   const key = jpegKey();
   if (key === S.cmp.key && cmpReady()) return;
   const id = ++S.cmp.req;
@@ -135,7 +137,15 @@ async function loadJpeg() {
   requestRender();
   if (jpegKey() !== key) requestJpeg();
 }
-function dropJpeg() { S.cmp.req++; S.cmp.data = null; S.cmp.key = null; S.cmp.busy = false; clearTimeout(jpegTimer); }
+/* stop a pending or running encode (the encoder process is killed) and keep the last result */
+function cancelJpeg() {
+  clearTimeout(jpegTimer);
+  if (!S.cmp.busy) return;
+  const id = ++S.cmp.req;
+  S.cmp.busy = false;
+  try { api().lossy_cancel(id); } catch (_) {}
+}
+function dropJpeg() { cancelJpeg(); S.cmp.req++; S.cmp.data = null; S.cmp.key = null; }
 
 function fmtChanged() {
   syncEncRow();

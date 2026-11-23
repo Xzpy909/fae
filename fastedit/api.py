@@ -198,6 +198,11 @@ class Api:
     def encoder_info(self):
         return {"jpegli": jpegli_available(), "avif": avif_available(), "svt": svt_available()}
 
+    def lossy_cancel(self, req_id):
+        """Stop the running lossy preview encode (the encoded compare was turned off)."""
+        preview_begin(int(req_id))
+        return True
+
     def lossy_preview(self, job, fmt, opts, req_id, full=False):
         """Encode the fully edited image with the lossy format, decode it again, hand back preview pixels."""
         preview_begin(req_id)

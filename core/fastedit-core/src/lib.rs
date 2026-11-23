@@ -8,6 +8,7 @@
 //! Images are interleaved 8-bit, 3 (RGB) or 4 (RGBA, alpha left alone) bytes per pixel,
 //! processed in bands of whole rows so the work can be split over threads.
 
+pub mod chain;
 pub mod edit;
 pub mod md;
 pub mod ps;

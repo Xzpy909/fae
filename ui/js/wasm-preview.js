@@ -60,11 +60,16 @@ const WP = (() => {
   // the preview's scale
   function pack(E, img) {
     if (E.sharp) E = Object.assign({}, E, { sharp: Object.assign({}, E.sharp, { scale: outScale(img) }) });
-    if (!E.film || !E.film.d) return E;
-    let id = filmIds.get(E.film.d);
-    if (!id) { id = nextFilm++; filmIds.set(E.film.d, id); }
-    if (!filmSent.has(id)) { worker.postMessage({ type: 'film', id, d: E.film.d }); filmSent.add(id); }
-    return Object.assign({}, E, { film: Object.assign({}, E.film, { d: id }) });
+    const byId = o => {                // o = E or one of E.steps
+      if (!o.film || !o.film.d) return o;
+      let id = filmIds.get(o.film.d);
+      if (!id) { id = nextFilm++; filmIds.set(o.film.d, id); }
+      if (!filmSent.has(id)) { worker.postMessage({ type: 'film', id, d: o.film.d }); filmSent.add(id); }
+      return Object.assign({}, o, { film: Object.assign({}, o.film, { d: id }) });
+    };
+    E = byId(E);
+    if (E.steps) E = Object.assign({}, E, { steps: E.steps.map(byId) });
+    return E;
   }
 
   function pump() {

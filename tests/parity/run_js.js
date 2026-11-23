@@ -7,6 +7,7 @@
    or <case id>.err. */
 const fs = require('fs');
 const path = require('path');
+const { pathToFileURL } = require('url');   // import() wants a URL: a drive-letter path fails on Windows
 const zlib = require('zlib');
 const { loadUi } = require('./ui_math');
 
@@ -38,16 +39,16 @@ async function main() {
 
   globalThis.self ??= { addEventListener() {}, removeEventListener() {} };   // the pool helper expects a worker global
   const dir = path.join(root, 'ui', 'wasm');
-  const fe = await import(path.join(dir, 'fastedit_wasm.js'));
+  const fe = await import(pathToFileURL(path.join(dir, 'fastedit_wasm.js')).href);
   fe.initSync({ module: fs.readFileSync(path.join(dir, 'fastedit_wasm_bg.wasm')) });
-  const { toParams } = await import(path.join(root, 'ui', 'js', 'wasm-params.js'));
+  const { toParams } = await import(pathToFileURL(path.join(root, 'ui', 'js', 'wasm-params.js')).href);
   const UI = loadUi(root);
   const pv = new fe.Preview(W, H, base);
 
   for (const c of cases) {
     try {
       const E = editFromJob(c.job, UI);
-      const p = toParams(fe, E, E.film && E.film.d);
+      const p = toParams(fe, E);
       try { pv.render(p); } finally { p.free(); }
       const out = pv.output(), o = Buffer.alloc(n * 3);
       for (let i = 0, j = 0; i < n; i++, j += 4) { o[i * 3] = out[j]; o[i * 3 + 1] = out[j + 1]; o[i * 3 + 2] = out[j + 2]; }

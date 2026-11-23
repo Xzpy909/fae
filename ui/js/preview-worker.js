@@ -3,7 +3,7 @@
    not block, so the work can't run there. Messages:
      in : {type:'image', w, h, base}            base = RGBA ArrayBuffer (transferred)
           {type:'film', id, d}                  a Film preset table, sent once per preset
-          {type:'render', seq, E}               E = computeEdit result, film.d replaced by its id
+          {type:'render', seq, E}               E = computeEdit result, each film.d replaced by its id
      out: {type:'ready', threads, version} | {type:'error', error}
           {type:'done', seq, w, h, out, hin, hout, hmx, hmn, ms} | {type:'fail', seq, error} */
 import init, * as fe from '../wasm/fastedit_wasm.js';
@@ -42,9 +42,11 @@ onmessage = async ({ data: m }) => {
     try {
       if (!preview) throw new Error('no image');
       const t0 = performance.now();
-      const E = m.E, d = E.film && E.film.d ? films.get(E.film.d) : null;
-      if (E.film && E.film.d && !d) throw new Error('film table missing');
-      const p = toParams(fe, E, d);
+      const p = toParams(fe, m.E, id => {
+        const d = films.get(id);
+        if (!d) throw new Error('film table missing');
+        return d;
+      });
       try { preview.render(p); } finally { p.free(); }
       const out = preview.output();
       const r = { type: 'done', seq: m.seq, w: preview.width(), h: preview.height(), out: out.buffer,

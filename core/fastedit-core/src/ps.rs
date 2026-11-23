@@ -167,6 +167,91 @@ pub(crate) fn apply(src: &[u8], dst: &mut [u8], w: usize, h: usize, ob: usize, e
     }))
 }
 
+/// Perceptual Saturation as a chain step, in place on the RGB image `buf` (w x h): the two passes of
+/// `apply`, with the image as it arrives at this step as the filter input (`fin`); Film and the
+/// curves are steps of their own in the chain.
+pub(crate) fn step(buf: &mut [u8], w: usize, h: usize, bw: &Bw) {
+    let (t, kernel) = bw.ps.expect("ps");
+    let (gh, gw) = grid_size(w, h);
+    let cx: Vec<usize> = (0..w).map(|x| x * gw / w).collect();
+    let row3 = w * 3;
+
+    // pass A: fmid per pixel (Warmth / Saturation, rounded), grid sums of fmid
+    let mut fm = vec![0u8; w * h * 3];
+    let src: &[u8] = buf;
+    let parts = crate::map_bands(&mut fm, row3, |band, row0| {
+        let mut sums = vec![0u64; gh * gw * 3];
+        let mut cnt = vec![0u64; gh * gw];
+        for (i, out) in band.chunks_exact_mut(row3).enumerate() {
+            let y = row0 + i;
+            let cy = y * gh / h * gw;
+            let s = &src[y * row3..(y + 1) * row3];
+            for x in 0..w {
+                let fin = [s[x * 3], s[x * 3 + 1], s[x * 3 + 2]];
+                let fl = filter_fl(fin, bw);
+                let mid = [round_clip(fl[0]) as u8, round_clip(fl[1]) as u8, round_clip(fl[2]) as u8];
+                out[x * 3..x * 3 + 3].copy_from_slice(&mid);
+                let cell = cy + cx[x];
+                cnt[cell] += 1;
+                for c in 0..3 {
+                    sums[cell * 3 + c] += mid[c] as u64;
+                }
+            }
+        }
+        (sums, cnt)
+    });
+    let mut sums = vec![0u64; gh * gw * 3];
+    let mut cnt = vec![0u64; gh * gw];
+    for (s, c) in &parts {
+        sums.iter_mut().zip(s).for_each(|(a, b)| *a += b);
+        cnt.iter_mut().zip(c).for_each(|(a, b)| *a += b);
+    }
+    let g = blurred_grid(&sums, &cnt, gh, gw, kernel);
+
+    // pass B, in place
+    let xt = axis_taps(w, gw);
+    let yt = axis_taps(h, gh);
+    let (op, pw) = (bw.op, PS_W);
+    let fm = &fm;
+    crate::for_each_band(buf, row3, |band, row0| {
+        let mut rowv = vec![0f64; gw * 3];
+        for (i, out) in band.chunks_exact_mut(row3).enumerate() {
+            let y = row0 + i;
+            let (y0, y1, fy) = yt[y];
+            for xc in 0..gw {
+                for c in 0..3 {
+                    rowv[xc * 3 + c] = g[(y0 * gw + xc) * 3 + c] * (1.0 - fy) + g[(y1 * gw + xc) * 3 + c] * fy;
+                }
+            }
+            let m3 = &fm[y * row3..(y + 1) * row3];
+            for x in 0..w {
+                let (x0, x1, fx) = xt[x];
+                let mut sm = [0f64; 3];
+                for c in 0..3 {
+                    sm[c] = rowv[x0 * 3 + c] * (1.0 - fx) + rowv[x1 * 3 + c] * fx;
+                }
+                let f = [m3[x * 3] as f64, m3[x * 3 + 1] as f64, m3[x * 3 + 2] as f64];
+                let yy = (f[0] + 2.0 * f[1] + f[2]) / 4.0;
+                let ys = (sm[0] + 2.0 * sm[1] + sm[2]) / 4.0;
+                let cc = [f[0] - yy, f[1] - yy, f[2] - yy];
+                let d = [sm[0] - ys, sm[1] - ys, sm[2] - ys];
+                let m = yy / 255.0 - 0.5;
+                let nn = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() / 128.0;
+                let nc = (cc[0] * cc[0] + cc[1] * cc[1] + cc[2] * cc[2]).sqrt() / 128.0;
+                let ka = pw[0] + pw[1] * m + pw[6] * nn + pw[7] * nc;
+                let kb = pw[2] + pw[3] * m + pw[4] * m * m + pw[8] * nc;
+                let ee = pw[5] * (yy - ys);
+                let p = &mut out[x * 3..x * 3 + 3];
+                for c in 0..3 {
+                    let q = round_clip(f[c] + t * (cc[c] * ka + d[c] * kb + ee));
+                    let a = p[c] as f64;
+                    p[c] = round_clip(a + (q - a) * op) as u8;
+                }
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

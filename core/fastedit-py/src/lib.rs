@@ -4,6 +4,7 @@
 use numpy::{PyArray1, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3, PyUntypedArrayMethods};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyTuple;
 
 #[pyfunction]
 fn version() -> &'static str {
@@ -37,17 +38,6 @@ fn apply_luts<'py>(py: Python<'py>, rgb: PyReadonlyArray3<'py, u8>, luts: Vec<Ve
     Ok(PyArray3::from_owned_array(py, out))
 }
 
-/// (n, d, t1, op) as core.py passes the Film Effect
-type FilmArgs<'py> = (usize, Option<PyReadonlyArray1<'py, f64>>, Option<PyReadonlyArray1<'py, f64>>, f64);
-/// (s, op, w, ps, psk): the Filter; ps = 0 means no Perceptual Saturation
-type BwArgs<'py> = (f64, f64, Option<[f64; 3]>, f64, Option<PyReadonlyArray1<'py, f64>>);
-/// (cast, cc, dyn, op, dk, shl): Super Contrast
-type ScArgs<'py> = (f64, f64, f64, f64, Option<PyReadonlyArray1<'py, f64>>, Option<PyReadonlyArray1<'py, f64>>);
-
-fn slice<'a>(a: &'a PyReadonlyArray1<'_, f64>, name: &str) -> PyResult<&'a [f64]> {
-    a.as_slice().map_err(|_| PyValueError::new_err(format!("{name} must be a contiguous float64 array")))
-}
-
 /// luma01(rgb: HxWx3 uint8) -> HxW float32: edit.rgb_luma01 (the input of the Mid/Detail guided filter)
 #[pyfunction]
 fn luma01<'py>(py: Python<'py>, rgb: PyReadonlyArray3<'py, u8>) -> PyResult<Bound<'py, PyArray2<f32>>> {
@@ -74,37 +64,119 @@ fn md_base<'py>(py: Python<'py>, rgb: PyReadonlyArray3<'py, u8>) -> PyResult<Bou
     Ok(PyArray2::from_owned_array(py, numpy::ndarray::Array2::from_shape_vec((h, w), b).unwrap()))
 }
 
-/// apply_edit(rgb, luts, point, k, o, gains, wb, con, tones, boost, sat, bw, film, sc, md=None, hist=False, adaptive=0.0, balance=0.0, structure=0.0, local_contrast=0.0, focus=0.0, sharp_scale=1.0)
+fn f64v(o: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<f64>> {
+    let a: PyReadonlyArray1<'_, f64> = o.extract().map_err(|_| PyValueError::new_err(format!("{name} must be a float64 array")))?;
+    Ok(a.as_array().iter().copied().collect())
+}
+
+fn opt_f64v(o: &Bound<'_, PyAny>, name: &str) -> PyResult<Option<Vec<f64>>> {
+    if o.is_none() { Ok(None) } else { f64v(o, name).map(Some) }
+}
+
+fn opt3(o: &Bound<'_, PyAny>, name: &str) -> PyResult<Option<[f64; 3]>> {
+    if o.is_none() {
+        return Ok(None);
+    }
+    o.extract::<[f64; 3]>().map(Some).map_err(|_| PyValueError::new_err(format!("{name}: need 3 values")))
+}
+
+/// One step from its tuple (see apply_chain).
+fn step_from(t: &Bound<'_, PyTuple>) -> PyResult<fe::chain::StepBuf> {
+    use fe::chain::StepBuf;
+    let kind: String = t.get_item(0)?.extract()?;
+    let g = |i: usize| t.get_item(i);
+    let need = |n: usize| -> PyResult<()> {
+        if t.len() != n {
+            return Err(PyValueError::new_err(format!("step {kind}: {} values, need {n}", t.len())));
+        }
+        Ok(())
+    };
+    Ok(match kind.as_str() {
+        "point" => {
+            need(4)?;
+            StepBuf::Point { k: g(1)?.extract()?, o: g(2)?.extract()?, gains: opt3(&g(3)?, "gains")? }
+        }
+        "adjust" => {
+            need(7)?;
+            let wbo = g(2)?;
+            let wb = if wbo.is_none() {
+                None
+            } else {
+                let m: PyReadonlyArray2<'_, f64> = wbo.extract()?;
+                if m.shape() != [3, 3] {
+                    return Err(PyValueError::new_err("wb must be 3x3"));
+                }
+                let v: Vec<f64> = m.as_array().iter().copied().collect();
+                Some([[v[0], v[1], v[2]], [v[3], v[4], v[5]], [v[6], v[7], v[8]]])
+            };
+            let mut tones = Vec::new();
+            for it in g(4)?.try_iter()? {
+                let tt = it?;
+                let tt = tt.cast::<PyTuple>().map_err(|_| PyValueError::new_err("tones: (table, ratio) tuples"))?;
+                tones.push((f64v(&tt.get_item(0)?, "tones")?, tt.get_item(1)?.extract::<bool>()?));
+            }
+            let sat = g(6)?;
+            StepBuf::Adjust {
+                md: g(1)?.extract()?,
+                wb,
+                con: opt_f64v(&g(3)?, "con")?,
+                tones,
+                boost: opt_f64v(&g(5)?, "boost")?,
+                sat: if sat.is_none() { None } else { Some(sat.extract()?) },
+            }
+        }
+        "curves" => {
+            need(2)?;
+            let l: PyReadonlyArray2<'_, u8> = g(1)?.extract()?;
+            if l.shape() != [3, 256] {
+                return Err(PyValueError::new_err("luts must be 3x256"));
+            }
+            let v: Vec<u8> = l.as_array().iter().copied().collect();
+            StepBuf::Curves(fe::luts_from_flat(&v).unwrap())
+        }
+        "bw" => {
+            need(6)?;
+            let ps: f64 = g(4)?.extract()?;
+            let psk = opt_f64v(&g(5)?, "psk")?;
+            if ps != 0.0 && psk.as_ref().is_none_or(|k| k.is_empty()) {
+                return Err(PyValueError::new_err("bw: ps without psk"));
+            }
+            StepBuf::Bw { s: g(1)?.extract()?, op: g(2)?.extract()?, w: opt3(&g(3)?, "bw w")?, ps, psk: psk.unwrap_or_default() }
+        }
+        "film" => {
+            need(5)?;
+            StepBuf::Film { n: g(1)?.extract()?, d: opt_f64v(&g(2)?, "film d")?, t1: opt_f64v(&g(3)?, "film t1")?, op: g(4)?.extract()? }
+        }
+        "sc" => {
+            need(7)?;
+            StepBuf::Sc {
+                cast: g(1)?.extract()?, cc: g(2)?.extract()?, dyn_: g(3)?.extract()?, op: g(4)?.extract()?,
+                dk: opt_f64v(&g(5)?, "dk")?.unwrap_or_default(), shl: opt_f64v(&g(6)?, "shl")?,
+            }
+        }
+        _ => return Err(PyValueError::new_err(format!("unknown step {kind}"))),
+    })
+}
+
+/// apply_chain(rgb, steps, hist=False, adaptive=0.0, balance=0.0, structure=0.0, local_contrast=0.0, focus=0.0, sharp_scale=1.0)
 ///   -> HxWx3 uint8, or (image, hin, hout, hmx, hmn) with hist=True
 ///
-/// The whole edit after the stage: Mid/Detail (md = amount; the smoothing is computed here),
-/// then the chain. Histograms as the UI draws them (uint32: 768, 768, 256, 256).
-/// Arguments are already normalized by fastedit/core.py:
-///   rgb HxWx3 uint8 (C-contiguous), luts 3x256 uint8, gains [3] | None, wb 3x3 float64 | None,
-///   con / boost float64 arrays | None, tones [(float64 array, ratio)], sat float | None,
-///   bw (s, op, [3] | None, ps, psk | None) | None, film (n, d | None, t1 | None, op) | None,
-///   sc (cast, cc, dyn, op, dk | None, shl | None) | None, adaptive (0..1), balance (-1 areas..1 edges) / structure / local_contrast / focus (-1..1) = Sharpen sliders (0 = off),
-///   sharp_scale = pixels of this image per output pixel (1 for Process)
+/// The edit after the stage as an ordered list of steps (the panel's tool order; a tool may appear
+/// more than once), then Sharpen. Steps (tuples, built by fastedit/core.py):
+///   ("point", k, o, gains [3] | None)
+///   ("adjust", md, wb 3x3 float64 | None, con | None, tones [(float64 array, ratio)], boost | None, sat | None)
+///   ("curves", luts 3x256 uint8)
+///   ("bw", s, op, w [3] | None, ps, psk | None)          Perceptual Saturation filter; ps = 0: without PS
+///   ("film", n, d | None, t1 | None, op)
+///   ("sc", cast, cc, dyn, op, dk | None, shl | None)
+/// Histograms as the UI draws them (uint32: 768, 768, 256, 256); hin = input of the first Curves step.
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
-#[pyo3(signature = (rgb, luts, point, k, o, gains, wb, con, tones, boost, sat, bw, film, sc, md=None, hist=false, adaptive=0.0, balance=0.0, structure=0.0, local_contrast=0.0, focus=0.0, sharp_scale=1.0))]
-fn apply_edit<'py>(
+#[pyo3(signature = (rgb, steps, hist=false, adaptive=0.0, balance=0.0, structure=0.0, local_contrast=0.0, focus=0.0, sharp_scale=1.0))]
+fn apply_chain<'py>(
     py: Python<'py>,
     rgb: PyReadonlyArray3<'py, u8>,
-    luts: PyReadonlyArray2<'py, u8>,
-    point: bool,
-    k: f64,
-    o: f64,
-    gains: Option<[f64; 3]>,
-    wb: Option<PyReadonlyArray2<'py, f64>>,
-    con: Option<PyReadonlyArray1<'py, f64>>,
-    tones: Vec<(PyReadonlyArray1<'py, f64>, bool)>,
-    boost: Option<PyReadonlyArray1<'py, f64>>,
-    sat: Option<f64>,
-    bw: Option<BwArgs<'py>>,
-    film: Option<FilmArgs<'py>>,
-    sc: Option<ScArgs<'py>>,
-    md: Option<f64>,
+    steps: Vec<Bound<'py, PyTuple>>,
     hist: bool,
     adaptive: f64,
     balance: f64,
@@ -119,82 +191,14 @@ fn apply_edit<'py>(
         return Err(PyValueError::new_err("rgb must be HxWx3"));
     }
     let src = rgb.as_slice().map_err(|_| PyValueError::new_err("rgb must be C-contiguous"))?;
-    if luts.shape() != [3, 256] {
-        return Err(PyValueError::new_err("luts must be 3x256"));
+    let bufs = steps.iter().map(step_from).collect::<PyResult<Vec<_>>>()?;
+    let st: Vec<fe::chain::Step<'_>> = bufs.iter().map(|b| b.step()).collect();
+    for s in &st {
+        s.validate().map_err(PyValueError::new_err)?;
     }
-    let lv = luts.as_slice().map_err(|_| PyValueError::new_err("luts must be C-contiguous"))?;
-    let wb = match &wb {
-        Some(m) => {
-            if m.shape() != [3, 3] {
-                return Err(PyValueError::new_err("wb must be 3x3"));
-            }
-            let v = m.as_slice().map_err(|_| PyValueError::new_err("wb must be C-contiguous"))?;
-            Some([[v[0], v[1], v[2]], [v[3], v[4], v[5]], [v[6], v[7], v[8]]])
-        }
-        None => None,
-    };
-    let md = md.filter(|a| *a != 0.0);
-    let base = match md {
-        Some(_) => py.detach(|| fe::md::base(src, w, h)),
-        None => Vec::new(),
-    };
-    let edit = fe::edit::Edit {
-        md: md.map(|a| (a, base.as_slice())),
-        point,
-        k,
-        o,
-        gains,
-        wb,
-        con: con.as_ref().map(|a| slice(a, "con")).transpose()?,
-        tones: tones
-            .iter()
-            .map(|(t, ratio)| Ok(fe::edit::Tone { table: slice(t, "tones")?, ratio: *ratio }))
-            .collect::<PyResult<_>>()?,
-        boost: boost.as_ref().map(|a| slice(a, "boost")).transpose()?,
-        sat,
-        bw: match &bw {
-            Some((s, op, w, ps, psk)) => Some(fe::edit::Bw {
-                s: *s,
-                op: *op,
-                w: *w,
-                ps: if *ps != 0.0 {
-                    let k = psk.as_ref().ok_or_else(|| PyValueError::new_err("bw: ps without psk"))?;
-                    Some((*ps, slice(k, "psk")?))
-                } else {
-                    None
-                },
-            }),
-            None => None,
-        },
-        sc: match &sc {
-            Some((cast, cc, dyn_, op, dk, shl)) => Some(fe::edit::Sc {
-                cast: *cast,
-                cc: *cc,
-                dyn_: *dyn_,
-                op: *op,
-                dk: match dk {
-                    Some(a) => slice(a, "dk")?,
-                    None => &[],
-                },
-                shl: shl.as_ref().map(|a| slice(a, "shl")).transpose()?,
-            }),
-            None => None,
-        },
-        film: match &film {
-            Some((n, d, t1, op)) => Some(fe::edit::Film {
-                n: *n,
-                d: d.as_ref().map(|a| slice(a, "film d")).transpose()?,
-                t1: t1.as_ref().map(|a| slice(a, "film t1")).transpose()?,
-                op: *op,
-            }),
-            None => None,
-        },
-        luts: fe::luts_from_flat(lv).unwrap(),
-        sharp: fe::sharp::Sharp { adaptive, balance, structure, local_contrast, focus, scale: sharp_scale },
-    };
-    edit.validate().map_err(PyValueError::new_err)?;
+    let sharp = fe::sharp::Sharp { adaptive, balance, structure, local_contrast, focus, scale: sharp_scale };
     let mut buf = vec![0u8; src.len()];
-    let hs = py.detach(|| fe::edit::apply_ex(src, &mut buf, w, 3, &edit, hist));
+    let hs = py.detach(|| fe::chain::run(src, &mut buf, w, 3, &st, &sharp, hist));
     let img = PyArray3::from_owned_array(py, numpy::ndarray::Array3::from_shape_vec((h, w, 3), buf).unwrap());
     if !hist {
         return Ok(img.into_any());
@@ -209,7 +213,7 @@ fn fastedit_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(threads, m)?)?;
     m.add_function(wrap_pyfunction!(apply_luts, m)?)?;
-    m.add_function(wrap_pyfunction!(apply_edit, m)?)?;
+    m.add_function(wrap_pyfunction!(apply_chain, m)?)?;
     m.add_function(wrap_pyfunction!(luma01, m)?)?;
     m.add_function(wrap_pyfunction!(md_base, m)?)?;
     Ok(())

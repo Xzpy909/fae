@@ -165,6 +165,10 @@ Progress (implemented in waves):
 - **Wave 1 — done:** colour scheme applied app-wide (dark teals moved to the scheme's hue: background / panel `#001E21`, surfaces from Dark mint, accent `#00FFAA`, text `#E6E6E6`); export block C (docked, fixed height, settings chip + encoder popover, progress line on its top edge); islands fold to one row (title or chevron; folded state remembered; reset / X on hover); Curves has a title in its head.
 - **Wave 2 — done (tested on Windows):** unified header (section 6). The window keeps a real resizable frame (`WS_THICKFRAME | WS_CAPTION`) whose non-client area is collapsed to zero (`WM_NCCALCSIZE` in a window subclass), so Windows treats it as a normal window: Aero Snap, edge resize, Win+arrows, animations, shadow. Drag / resize start Windows' own loops from the page (`WM_NCLBUTTONDOWN`). Maximized = the monitor's work area, minus 2 px on an auto-hide taskbar's edge. Windows 11 rounded corners. Files: `fastedit/winchrome.py`, `ui/js/winchrome.js`. `--native-frame` keeps the normal Windows frame.
 - Wave 3 — chain of instances + reorder (rows get grip and order number) + core list of steps (needs `core\build_core.bat`).
+  - **Part 1 — done (tested on Windows):** the core runs the edit as an ordered list of steps (`core/fastedit-core/src/chain.rs`; core 0.12). Python: `fastedit_core.apply_chain(rgb, steps, …)` built by `fastedit/core.py` (`_steps`: `edit["steps"]` in panel order, else the flat edit in `DEFAULT_ORDER`); `apply_edit` removed. WASM: `Params.push_point / push_adjust / push_curves / push_bw / push_film / push_sc` filled by `ui/js/wasm-params.js` (same reading as `_steps`). A tool may appear more than once; Sharpen always runs last. In the old order the chain is bit-identical to the old fixed pipeline (Rust test + Python binding). Two deliberate changes, goldens re-recorded: Curves now run before the filters, and Mid/Detail smooths the image as it arrives at Adjustments (after Point correction). The preview keeps that smoothing while the image arriving at Adjustments is unchanged (parallel fingerprint). Parity on the PC: core 763/763, wasm 763/763; preview speed unchanged (2560×1440: 11–50 ms per frame).
+  - Also: the lossy preview encode (JPEG / AVIF / lossy WEBP) runs only while the export block's encoded compare is on; the size chip shows only there. Turning it off kills a running encode.
+  - Part 2 — the JS data model with instances (`E.steps`, migration, copy / paste, undo). Part 3 — rows with grips, order numbers, drag reorder.
+- Later (after wave 3): a speed pass on the core (f32 math / SIMD for the per-pixel steps; speed matters more than bit-exactness, within about ±1 level).
 - Wave 4 — per-tool presets with thumbnails. Wave 5 — chain presets. Wave 6 — stacking UI.
 
 1. ~~Shared slider component~~ — standard slider done; alternative (gradient tracks) still to design.
@@ -230,3 +234,10 @@ Single-only tools are about the image as a whole (geometry, output size, white b
 - Cap: **8 per type**.
 - Instance tags **follow chain order** (renumber after a move).
 - Rust core changes are rebuilt on the Windows PC with `core\build_core.bat` when asked.
+
+### 8.8 Chain order (decided)
+
+- **Pinned, not draggable:** Crop & rotate, Resize, Color balance run first (they change the pixel grid / need the whole image); Sharpen runs last (output pass).
+- **Re-orderable:** Point correction, Adjustments, Curves, Perceptual Saturation, Film Effect, Super Contrast (and their extra instances).
+- **Default order = the tool pill order:** Point correction → Adjustments → Curves → Perceptual Saturation → Film Effect → Super Contrast. (Mid/Detail stays part of Adjustments.)
+- **Applies to old edits too:** migrated images use the new default order (today Curves run after the filters; images that use both may shift slightly). Parity goldens are re-recorded on purpose for this change.

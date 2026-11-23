@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-REQUIRED = (0, 11)          # extension version this file needs (bump with the API)
+REQUIRED = (0, 12)          # extension version this file needs (bump with the API)
 BUILD_HINT = r"run core\build_core.bat (needs Rust from https://rustup.rs)"
 
 try:
@@ -47,58 +47,80 @@ def _f64(a) -> np.ndarray:
     return np.ascontiguousarray(np.asarray(a, dtype=np.float64))
 
 
-def _args(edit: dict) -> tuple:
-    """The edit payload (jobFor in ui/js/process.js) as the extension takes it.
-    A missing / None / empty entry means the step is off."""
-    luts = [np.asarray(l, dtype=np.uint8) for l in edit.get("luts") or []]
-    if len(luts) != 3:
-        luts = [np.arange(256, dtype=np.uint8)] * 3
-    luts = np.ascontiguousarray(np.stack(luts))
-    gains = edit.get("gains")
-    gains = None if gains is None else [float(v) for v in np.asarray(gains, dtype=np.float64).reshape(3)]
-    wb = edit.get("wb")
-    wb = None if wb is None else _f64(wb).reshape(3, 3)
-    con = edit.get("con")
-    con = None if con is None else _f64(con)
-    tones = [(_f64(t["T"]), bool(t.get("ratio"))) for t in (edit.get("tones") or [])]
-    boost = edit.get("boost")
-    boost = None if boost is None else _f64(boost)
-    sat = edit.get("sat")
-    sat = None if sat is None else float(sat)
-    bw = edit.get("bw")
-    if bw is not None:
+# The tool pill order (docs/redesign-right-panel.md, 8.8): the chain's default when the edit has no
+# explicit "steps" list. Crop, Resize and Color balance run before (the stage), Sharpen after.
+DEFAULT_ORDER = ("point", "adjust", "curves", "bw", "film", "sc")
+
+
+def _step(e: dict):
+    """One step of the chain as apply_chain takes it, from a dict with the flat edit's entries
+    (jobFor in ui/js/process.js) and "t" = the kind. None when the step does nothing."""
+    t = e.get("t")
+    if t == "point":
+        if not e.get("point"):
+            return None
+        gains = e.get("gains")
+        gains = None if gains is None else [float(v) for v in np.asarray(gains, dtype=np.float64).reshape(3)]
+        return ("point", float(e.get("k", 1.0)), float(e.get("o", 0.0)), gains)
+    if t == "adjust":
+        md = float(e.get("md") or 0)
+        wb, con, boost, sat = e.get("wb"), e.get("con"), e.get("boost"), e.get("sat")
+        tones = [(_f64(x["T"]), bool(x.get("ratio"))) for x in (e.get("tones") or [])]
+        if not md and wb is None and con is None and not tones and boost is None and sat is None:
+            return None
+        return ("adjust", md, None if wb is None else _f64(wb).reshape(3, 3), None if con is None else _f64(con),
+                tones, None if boost is None else _f64(boost), None if sat is None else float(sat))
+    if t == "curves":
+        luts = [np.asarray(x, dtype=np.uint8) for x in e.get("luts") or []]
+        if len(luts) != 3:
+            return None
+        luts = np.ascontiguousarray(np.stack(luts))
+        if (luts == np.arange(256, dtype=np.uint8)).all():
+            return None                                 # identity: nothing to do
+        return ("curves", luts)
+    if t == "bw":
+        bw = e.get("bw")
+        if not bw:
+            return None
         w = bw.get("w")
         ps = float(bw["ps"]) if bw.get("ps") else 0.0
-        bw = (float(bw["s"]), float(bw["op"]), [float(v) for v in w] if w else None,
-              ps, _f64(bw["psk"]) if ps else None)
-    film = edit.get("film")
-    if film:
+        return ("bw", float(bw["s"]), float(bw["op"]), [float(v) for v in w] if w else None,
+                ps, _f64(bw["psk"]) if ps else None)
+    if t == "film":
+        film = e.get("film")
+        if not film:
+            return None
         d, t1 = film.get("d"), film.get("t1")
-        film = (int(film["n"]), _f64(d) if d else None, _f64(t1) if t1 else None, float(film.get("op", 1)))
-    else:
-        film = None
-    sc = edit.get("sc")
-    if sc:
+        return ("film", int(film["n"]), _f64(d) if d else None, _f64(t1) if t1 else None, float(film.get("op", 1)))
+    if t == "sc":
+        sc = e.get("sc")
+        if not sc:
+            return None
         dyn = float(sc.get("dyn", 0) or 0)
         shl = sc.get("shl")
-        sc = (float(sc.get("cast", 0)), float(sc.get("cc", 0)), dyn, float(sc.get("op", 1)),
-              _f64(sc["dk"]) if dyn > 0 else None, _f64(shl) if shl else None)
-    else:
-        sc = None
-    return (luts, bool(edit.get("point")), float(edit.get("k", 1.0)), float(edit.get("o", 0.0)),
-            gains, wb, con, tones, boost, sat, bw, film, sc)
+        return ("sc", float(sc.get("cast", 0)), float(sc.get("cc", 0)), dyn, float(sc.get("op", 1)),
+                _f64(sc["dk"]) if dyn > 0 else None, _f64(shl) if shl else None)
+    raise ValueError(f"unknown step {t!r}")
+
+
+def _steps(edit: dict) -> list:
+    """The edit as the ordered list apply_chain takes. edit["steps"] lists the steps in panel order
+    (each a dict with "t" and that tool's entries); without it the flat edit runs in DEFAULT_ORDER."""
+    specs = edit.get("steps")
+    if specs is None:
+        specs = [dict(edit, t=k) for k in DEFAULT_ORDER]
+    return [s for s in (_step(sp) for sp in specs) if s is not None]
 
 
 def render(rgb: np.ndarray, edit: dict | None, hist: bool = False):
-    """The full edit as Process writes it (Mid/Detail, then the chain). With hist=True also the
+    """The full edit as Process writes it (the chain of steps, then Sharpen). With hist=True also the
     UI's histograms: (image, hin, hout, hmx, hmn)."""
     fc = _need()
     rgb = np.ascontiguousarray(rgb)
-    md = float((edit or {}).get("md") or 0) or None
     sharp = (edit or {}).get("sharp") or {}
-    return fc.apply_edit(rgb, *_args(edit or {}), md, hist, adaptive=float(sharp.get("as") or 0), balance=float(sharp.get("bs") or 0),
-                         structure=float(sharp.get("st") or 0),
-                         local_contrast=float(sharp.get("lc") or 0), focus=float(sharp.get("fo") or 0))
+    return fc.apply_chain(rgb, _steps(edit or {}), hist, adaptive=float(sharp.get("as") or 0),
+                          balance=float(sharp.get("bs") or 0), structure=float(sharp.get("st") or 0),
+                          local_contrast=float(sharp.get("lc") or 0), focus=float(sharp.get("fo") or 0))
 
 
 def selftest() -> dict:

@@ -168,7 +168,7 @@ async function main() {
       for (const [name, f] of Object.entries(edits)) {
         const E = editOf(f);
         const m = await ask(E, W, H, first ? base : null); first = false;
-        const p = toParams(wasm, E, E.film && E.film.d);
+        const p = toParams(wasm, E);
         pv.render(p); p.free();
         const ref = pv.output(), o = new Uint8Array(m.out);
         let px = 0;

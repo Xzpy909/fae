@@ -14,6 +14,9 @@ code (`makeJog`, `spec.wheel` / `spec.grad` in `makeField`) are kept for it. Onl
 a place that should use it.
 
 ### 1.2 Preview speed between fit and 1:1 on big photos
+**Decided 2026-11-23: move the core to the GPU (wgpu), see `docs/gpu-core-plan.md`.** The notes below
+apply until then (and become unnecessary in its wave G6).
+
 Zoomed between ~30 % and 1:1 on a large image, the full-resolution preview is on screen and most of it is
 visible, so dragging a slider renders several megapixels per frame (drafts render the visible part only).
 The fix is a faster core at these sizes, **never** a lower-quality image (see rules).

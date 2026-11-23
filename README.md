@@ -35,6 +35,7 @@ Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/J
 - Jog-wheel controls: drag the wheel left/right (`Shift` fine, `Ctrl` coarse), double-click to reset. Every number box can also be dragged left/right
 - Tool pills in the viewport show or hide each tool's card
 - **Presets** on Adjustments, Curves, the filters and Sharpen: the button in the tool's row shows the current preset (`Default`, a name, or `Custom`) and opens a list with thumbnails of the current image through each preset; hover previews it on the image, click applies it (one undo step); save the current values as a preset, rename or delete your own
+- **Edit presets** (Presets in the top bar): the whole chain in one preset — Adjustments, Curves, the filters and Sharpen with their order and on / off state. Cards with a thumbnail of the current image through the preset and the tools it uses; hover previews, click applies (one undo step), ⋯ renames, updates with the current edits or deletes. Crop, point correction, resize and output settings stay with the image
 
 **Resize**
 - **Preset**: aspect ratio (16:9, 21:9, 4:3, 3:2, 1:1, 4:5, 9:16) × resolution (2160p, 1440p, 1080p, 720p, 480p, 360p; the p-number is the short side), cover-crop
@@ -202,7 +203,7 @@ ui/
 ├── index.html
 ├── style.css
 └── js/                # state, film-tables, film/*, edit-math, render, compare, stage, view, sharp-view,
-    │                  # curves, controls, files, tools, presets, process, init, crop (loaded in that order)
+    │                  # curves, controls, files, tools, presets, chain-presets, process, init, crop (loaded in that order)
     └── film/          # one file per Film Effect preset (33×33×33 colour table)
 core/                  # Rust core: fastedit-core (math), fastedit-py (Python), fastedit-wasm
 tests/parity/          # bit-exactness tests of both core builds against stored goldens

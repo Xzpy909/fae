@@ -111,6 +111,15 @@ Open questions (decide before implementing):
 - Should chain presets include Resize, or leave it like crop and output?
 - Stored format: one JSON file per preset or one presets file, kept next to the settings file.
 
+### 4.1 Status — done (wave 5, first version)
+
+Built in `ui/js/chain-presets.js`; stored with the tool presets in `fae_presets.json` under `_chain`: `[{ name, chain, values, off }]`.
+- **Decisions on the open questions** (taken while building; change any): no built-in presets (only your own); Resize is **not** part of an edit preset (like crop and the output settings); one presets file next to the settings.
+- **What a preset holds:** the values of Adjustments, Curves, Perceptual Saturation, Film Effect, Super Contrast and Sharpen (neutral ones included, so applying resets tools the preset doesn't use), which of them are off, and the chain order. **Point correction stays with the image** (its picked colours belong to one photo); Crop, Resize, Color balance and output settings too.
+- **Applying** replaces those values and the order (one undo step) and opens the islands of the tools the preset uses.
+- **Cards** as designed: thumbnail (176×108) of the current image through the whole edit with the preset, name, `Yours`, the chain strip (icons of the tools that do something, in order, joined by `›`; dimmed if off). Hover = accent border, `Apply` + `⋯` over the thumbnail and a preview on the main image (`Previewing <name>` chip); `⋯` = Rename…, Update with current edits, Delete (second click). `Save current edits` asks for a name in place; an existing name is overwritten. Search filters by name.
+- Any key press while a preset is previewed ends the preview first (so a shortcut such as Ctrl+Z works on the real edit) — same for the tool presets.
+
 ## 5. Sliders — shared standard slider (DONE: design A "Capsule", built)
 
 Design canvas: thumb options A / B / C, states at 2×. **A · Capsule** was picked.
@@ -189,7 +198,7 @@ Progress (implemented in waves):
     2. no flicker on the resolution swap: the last frame stays on the canvas, scaled, until the new resolution's first render is ready; the preview worker keeps the two newest images, so zooming back and forth costs no upload and each keeps its Mid/Detail smoothing and cached measurements; zooming back out reuses the small preview without a load;
     3. the swap stays at 1.01× (back below 0.8×) — a later swap (1.35×) was tried and reverted: the small copy shown scaled up looked soft.
   - **Screen-resolution view — done.** Below 1:1 the browser shrinks the preview canvas with its quick filter, so in-between zooms looked soft, and how soft depended on which preview was on screen (the small copy at 0.95× looked softer than the full-resolution one at 0.33×). Now, 150 ms after the view and the pixels stop changing, the visible part is redrawn at exactly the screen's pixel size with Lanczos-3 (`ui/js/sharp-view.js`, `sharp-worker.js`: up to 8 workers by bands; below half size an f×f block average first, so the filter never shrinks by more than 2×) into `#sharp` over the canvas, like an image viewer settling after a zoom. Any change of view or pixels hides it until the next redraw; not used while a control is held (the canvas is shown as the browser scales it), in crop mode, or at 1:1 and above. Tested: matches PIL's Lanczos within ~1 level, placed pixel-exactly on screen (devicePixelRatio 1 and 1.25), ~0.2 s after the pause with one worker.
-- **Wave 4 — per-tool presets with thumbnails: done** (section 3.4). Wave 5 — chain presets. Wave 6 — stacking UI.
+- **Wave 4 — per-tool presets with thumbnails: done** (section 3.4). **Wave 5 — chain presets: done** (section 4.1). Wave 6 — stacking UI.
 
 1. ~~Shared slider component~~ — standard slider done; alternative (gradient tracks) still to design.
 2. Unified window header (section 6) — independent of the panel work, can be done any time; doing it early gives the panel the extra height.
@@ -262,3 +271,19 @@ Single-only tools are about the image as a whole (geometry, output size, white b
 - **Order = the order you open them** (changed 2026-11-23): a chain tool that does nothing yet moves to the end of the chain when you open it; a tool that already has values keeps its place (opening it never changes the image). Moving idle tools is no undo step and doesn't mark the image as edited. After undo / redo or switching images, idle tools keep their place in the panel; the tools that do something take the remaining places in their restored order (`placeIdle` / `arrangeIdle` in tools.js). Old edits and the parity tests still use the original default order: Point correction → Adjustments → Curves → Perceptual Saturation → Film Effect → Super Contrast. (Mid/Detail stays part of Adjustments.)
 - **Tool pills:** the fixed tools first — Crop, Resize, Color balance, Sharpen — then Point correction, Adjustments, Curves, and the Filters button last. The panel still lists Sharpen last, where it runs.
 - **Applies to old edits too:** migrated images use the new default order (today Curves run after the filters; images that use both may shift slightly). Parity goldens are re-recorded on purpose for this change.
+
+## 9. Settings (planned — not built yet)
+
+A place for app-wide settings, so choices that are now fixed in code or scattered (window, export block, folders) can be set by the user. **Not built now; for later.** Open questions first, then candidates to decide on when we get to it.
+
+Open questions:
+- Where it opens: a gear button in the top bar (next to the window buttons) opening a frosted panel / dialog, or a full page over the editor.
+- Stored in `fae_settings.json` with the rest (it already holds format, open / folded tools, encoder settings).
+
+Candidates (none decided):
+- **Output**: output folder (next to the source as now, or a chosen folder), file name pattern (`name_WxH.ext` now), what to do when the file exists.
+- **Defaults for new images**: start with a chosen edit preset, default format / encoder settings.
+- **Preview / performance**: screen-resolution redraw on / off, how long the view waits before redrawing, thread count for the preview.
+- **Presets**: where `fae_presets.json` lives, import / export of presets.
+- **Interface**: UI scale, the window header (custom or Windows frame, now the `--native-frame` switch), language later.
+- **Encoders**: paths to `cjpegli.exe` / `SvtAv1EncApp.exe` if they are not in `encoders/`.

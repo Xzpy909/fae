@@ -33,6 +33,7 @@ const Presets = (() => {
   async function load() {
     try {
       const d = await api().get_presets();
+      if (d && Array.isArray(d._chain)) P._chain = d._chain;      // edit presets (chain-presets.js)
       if (d && typeof d === 'object') for (const sec in TOOLS) {
         const l = Array.isArray(d[sec]) ? d[sec] : [];
         P[sec] = l.filter(p => p && typeof p.name === 'string' && p.values && typeof p.values === 'object')
@@ -68,10 +69,12 @@ const Presets = (() => {
   /* ---------- thumbnails: the current image, cover-cropped to 3:2, through the edit with the preset.
      Sharpen: a crop from the middle at the preview's own scale instead (shrunk to a thumbnail the
      whole image would hide what sharpening does) ---------- */
-  const small = new WeakMap(), detail = new WeakMap();   // stage image -> its thumbnail-size copy
-  function smallOf(I, oneToOne) {
-    const cache = oneToOne ? detail : small;
-    let t = cache.get(I);
+  const copies = new WeakMap();           // stage image -> { 'WxH' or 'WxH1': its thumbnail-size copy }
+  function smallOf(I, oneToOne, TW = 108, TH = 72) {
+    const id = TW + 'x' + TH + (oneToOne ? '1' : '');
+    let all = copies.get(I);
+    if (!all) copies.set(I, all = {});
+    let t = all[id];
     if (t) return t;
     const r = TW / TH;
     let cw = I.pw, ch = Math.round(I.pw / r);
@@ -86,7 +89,7 @@ const Presets = (() => {
     g.drawImage(src, (I.pw - cw) >> 1, (I.ph - ch) >> 1, cw, ch, 0, 0, TW, TH);
     // w = output pixels across the crop, so Sharpen works at the thumbnail's scale
     t = { base: g.getImageData(0, 0, TW, TH).data, pw: TW, ph: TH, w: Math.round(cw * I.w / I.pw) };
-    cache.set(I, t);
+    all[id] = t;
     return t;
   }
   // the edit with sec's values replaced; tools that run after it are left out (the thumbnail shows the
@@ -255,6 +258,10 @@ const Presets = (() => {
   document.addEventListener('pointerdown', e => { if (openSec && !e.target.closest('.isl-preset')) close(); });
   document.addEventListener('keydown', e => { if (openSec && e.key === 'Escape') { e.stopPropagation(); close(); } }, true);
   $('#panel .scroll').addEventListener('scroll', () => { if (openSec) place(); });
+  // a shortcut (undo, copy edits…) while a preset is previewed works on the real edit
+  window.addEventListener('keydown', () => { if (saved) endPreview(); }, true);
 
-  return { load, sync, close, previewing: () => !!saved };
+  return { load, sync, close, previewing: () => !!saved,
+    // shared with the edit presets (chain-presets.js)
+    TOOLS, valuesOf, same, smallOf, data: () => P, store };
 })();

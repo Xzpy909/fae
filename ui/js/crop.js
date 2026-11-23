@@ -126,6 +126,7 @@ const Crop = (() => {
   function exit(cancel) {
     if (!S.cropMode) return;
     S.cropMode = false;
+    straightOn = false; sline = null; $('#straighten').classList.remove('on');
     Sharp.dirty();
     layer.classList.remove('show');
     if (!cancel && C) {
@@ -165,6 +166,25 @@ const Crop = (() => {
       C.img.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(r.out), s.pw, s.ph), 0, 0);
       draw();
     });
+  }
+
+  /* ---------------- straighten: draw a line, the image turns so it becomes level or upright ---------------- */
+  let straightOn = false, sline = null;           // sline = the line being drawn, screen px
+  function setStraight(on) {
+    straightOn = on; sline = null;
+    $('#straighten').classList.toggle('on', on);
+    $('#cropTop .muted').innerHTML = on ? 'Straighten &nbsp;·&nbsp; draw a line along something that should be level or upright · Esc cancels' : '';
+    if (!on) updateHint();
+    cc.style.cursor = on ? 'crosshair' : 'default';
+    draw();
+  }
+  // the fine angle that makes the line exactly horizontal or vertical (whichever is nearer), or null
+  function straightAngle(l) {
+    const dx = l.x1 - l.x0, dy = l.y1 - l.y0;
+    if (Math.hypot(dx, dy) < 12) return null;
+    const phi = Math.atan2(dy, dx) * 180 / Math.PI;           // screen angle, clockwise positive
+    const delta = Math.round(phi / 90) * 90 - phi;           // turn the image by this (|delta| <= 45)
+    return C.angle + delta;
   }
 
   /* ---------------- actions ---------------- */
@@ -325,6 +345,21 @@ const Crop = (() => {
     // border
     g.strokeStyle = 'rgba(255,255,255,.92)'; g.lineWidth = 1;
     g.strokeRect(Math.round(x0) + .5, Math.round(y0) + .5, Math.round(sw) - 1, Math.round(sh) - 1);
+    // straighten line
+    if (sline) {
+      const a = straightAngle(sline);
+      g.strokeStyle = '#00ffaa'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(sline.x0, sline.y0); g.lineTo(sline.x1, sline.y1); g.stroke();
+      g.fillStyle = '#00ffaa';
+      for (const [x, y] of [[sline.x0, sline.y0], [sline.x1, sline.y1]]) { g.beginPath(); g.arc(x, y, 3.5, 0, Math.PI * 2); g.fill(); }
+      if (a !== null) {
+        const t = `${a > 0 ? '+' : ''}${clamp(Math.round(a * 10) / 10, -45, 45).toFixed(1)}°`;
+        g.font = '12px JetBrains Mono, monospace'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+        const tw = g.measureText(t).width;
+        g.fillStyle = 'rgba(0, 20, 22, .85)'; g.fillRect(sline.x1 + 10, sline.y1 - 22, tw + 12, 20);
+        g.fillStyle = '#e6e6e6'; g.fillText(t, sline.x1 + 16, sline.y1 - 8);
+      }
+    }
     // handles
     g.fillStyle = '#fff';
     const L = Math.min(20, sw / 3, sh / 3), T = 3;
@@ -426,6 +461,11 @@ const Crop = (() => {
   cc.addEventListener('pointerdown', e => {
     if (!C || e.button !== 0) return;
     const r = cc.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+    if (straightOn) {                         // straighten: start the line (anywhere)
+      sline = { x0: px, y0: py, x1: px, y1: py };
+      cc.setPointerCapture(e.pointerId);
+      return;
+    }
     const h = hit(px, py);
     if (!h) return;
     drag = { h, px, py, orig: { ...C.crop } };
@@ -435,6 +475,17 @@ const Crop = (() => {
   cc.addEventListener('pointermove', e => {
     if (!C) return;
     const r = cc.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+    if (sline) {
+      let x1 = px, y1 = py;
+      if (e.shiftKey) {                      // Shift: the line snaps to 0.5° steps of its own angle (steadier aim)
+        const a = Math.round(Math.atan2(py - sline.y0, px - sline.x0) * 360 / Math.PI) * Math.PI / 360, len = Math.hypot(px - sline.x0, py - sline.y0);
+        x1 = sline.x0 + Math.cos(a) * len; y1 = sline.y0 + Math.sin(a) * len;
+      }
+      sline.x1 = x1; sline.y1 = y1;
+      requestDraw();
+      return;
+    }
+    if (straightOn) { cc.style.cursor = 'crosshair'; return; }
     if (!drag) { cc.style.cursor = CURSOR[hit(px, py)] || 'default'; return; }
     const o = drag.orig;
     if (drag.h === 'move') {
@@ -467,7 +518,15 @@ const Crop = (() => {
     C.crop = fitTowards(C.crop, b, !!ar);
     requestDraw();
   });
-  const endDrag = () => { if (drag) { drag = null; C.desired = { ...C.crop }; draw(); follow(); } };
+  const endDrag = () => {
+    if (sline) {                             // straighten: turn the image, then back to cropping
+      const a = straightAngle(sline);
+      setStraight(false);
+      if (a !== null) setAngle(a);
+      return;
+    }
+    if (drag) { drag = null; C.desired = { ...C.crop }; draw(); follow(); }
+  };
   cc.addEventListener('pointerup', endDrag);
   cc.addEventListener('pointercancel', endDrag);
   cc.addEventListener('wheel', e => {
@@ -505,6 +564,7 @@ const Crop = (() => {
   $('#rotL').addEventListener('click', () => C && rotate90(-1));
   $('#rotR').addEventListener('click', () => C && rotate90(1));
   $('#flipH').addEventListener('click', () => C && flip());
+  $('#straighten').addEventListener('click', () => C && setStraight(!straightOn));
   $('#cropReset').addEventListener('click', () => C && reset());
   $('#cropDone').addEventListener('click', () => exit(false));
   $('#cropCancel').addEventListener('click', () => exit(true));
@@ -524,8 +584,10 @@ const Crop = (() => {
     if (ctrl && (k === 's' || k === 'o')) return false;     // let Process / Open through
     if (/^(INPUT|SELECT)$/.test(e.target.tagName) && e.target.type === 'number') return false;
     const step = e.shiftKey ? 10 : 1;
+    if (straightOn && k === 'escape') { setStraight(false); e.preventDefault(); return true; }
     switch (k) {
       case 'escape': exit(true); break;
+      case 's': if (!ctrl) setStraight(!straightOn); else return false; break;
       case 'enter': case 'c': exit(false); break;
       case '[': rotate90(-1); break;
       case ']': rotate90(1); break;

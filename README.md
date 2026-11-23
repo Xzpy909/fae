@@ -22,6 +22,7 @@ Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/J
 - Crop & rotate mode with 90° steps, fine angle ruler, horizontal flip and aspect presets (Free, Original, 1:1, 16:9, 9:16, 4:3, 3:2, …)
 - Bound-aware crop: the crop box can never leave the rotated image
 - Wheel zooms the crop toward the cursor; `Alt`/`Ctrl` + wheel rotates (fine angle)
+- **Straighten** (`S` or the ruler button): draw a line along a horizon, wall or edge; the image turns so the line becomes exactly level or upright, whichever is nearer
 - The view follows the crop: as the box gets smaller the camera zooms in and pans to keep its edges near the screen edges
 
 **Colour**
@@ -171,6 +172,7 @@ Own images can go into `tests/parity/images/` (not committed).
 | `[` / `]` | Rotate 90° left / right |
 | `,` / `.` | Fine angle ±0.1° (Shift = ±1°) |
 | `H` | Flip horizontal |
+| `S` | Straighten: draw a line along something that should be level or upright (Shift while drawing = steadier aim, Esc = cancel) |
 | `R` | Reset |
 | Mouse wheel | Zoom the crop in / out toward the cursor (Shift = finer) |
 | `Alt` / `Ctrl` + wheel | Fine angle ±0.1° (Shift = ±1°) |

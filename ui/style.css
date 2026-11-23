@@ -814,3 +814,7 @@ button.wide { width: 100%; display: flex; justify-content: center; align-items: 
 .film-pick.open svg { transform: scaleY(-1); }
 #filmFields .fsel label { cursor: pointer; }
 #presetPop.films .pp-meta:empty { display: none; }
+/* crop mode: Straighten button (on while drawing the line) */
+#cropBar button.icon.on { background: rgba(0, 255, 170, .18); border-color: rgba(0, 255, 170, .6); }
+#cropBar button.icon.on svg { stroke: #fff; }
+#straighten svg .fill { fill: currentColor; stroke: none; }

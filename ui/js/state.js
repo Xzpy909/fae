@@ -57,16 +57,13 @@ const FILTERS = [
     '---',
     ['flt_film_opacity', 'Opacity', 100, 0, 100, 1, 0, '%'],
   ] },
-  // Super Contrast: all live (scParams in edit-math.js); Dynamic Contrast is an approximation (≈); Shadows / Highlights use the shared shLut()
+  // Super Contrast: all live (scParams in edit-math.js); Dynamic Contrast is an approximation (≈)
   { sec: 'f_sc', name: 'Super Contrast',
     icon: '<circle cx="12" cy="12" r="9"/><path class="fill" d="M12 3a9 9 0 0 1 0 18z"/>',
     fields: [
     ['flt_sc_cast', 'Correct Color Cast', 0, 0, 100, 1, 0, '%'],
     ['flt_sc_contrast', 'Correct Contrast', 0, 0, 100, 1, 0, '%'],
     ['flt_sc_dynamic', 'Dynamic Contrast ≈', 0, 0, 100, 1, 0, '%'],
-    '---',
-    ['flt_sc_shadows', 'Shadows', 0, 0, 100, 1, 0, '%'],
-    ['flt_sc_highlights', 'Highlights', 0, 0, 100, 1, 0, '%'],
     '---',
     ['flt_sc_opacity', 'Opacity', 100, 0, 100, 1, 0, '%'],
   ] },
@@ -97,8 +94,6 @@ const FILTER_GRADS = {
   flt_sc_cast: 'linear-gradient(90deg, #4f7fd8, #9a8f86 45%, #b0b0b0)',
   flt_sc_contrast: 'linear-gradient(90deg, #6a6a6a, #8a8a8a 50%, #101010 50%, #f2f2f2)',
   flt_sc_dynamic: 'linear-gradient(90deg, rgba(120,120,120,1), rgba(120,120,120,0)), repeating-linear-gradient(90deg, #303030 0 5px, #c8c8c8 5px 10px)',
-  flt_sc_shadows: 'linear-gradient(90deg, #050505, #5a5a5a)',
-  flt_sc_highlights: 'linear-gradient(90deg, #ffffff, #a8a8a8)',
   shp_adaptive: 'linear-gradient(90deg, rgba(120,120,120,1), rgba(120,120,120,0)), repeating-linear-gradient(90deg, #202020 0 1px, #d8d8d8 1px 2px)',
   shp_balance: 'linear-gradient(90deg, #8c8c8c, #b8b8b8 50%, #303030 50%, #f2f2f2)',
   shp_structure: 'linear-gradient(90deg, #6f6f6f, #8a8a8a 50%, #3a3a3a 50%, #d0d0d0)',

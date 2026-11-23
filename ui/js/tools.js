@@ -103,16 +103,31 @@ function buildIslands() {
     card.appendChild(body);
     if (!card.classList.contains('sec')) return;          // the Histogram island has no switch / X
     head.classList.add('isl-head');
-    const title = head.firstElementChild;
+    let title = head.firstElementChild;
     if (title && title.tagName === 'SPAN') title.classList.add('isl-title');
+    else {                                     // e.g. Curves (tabs in the head): give it a title for the folded row
+      title = document.createElement('span');
+      title.className = 'isl-title';
+      title.textContent = document.querySelector(`#toolPills .pill[data-sec="${sec}"]`)?.title || sec;
+      head.prepend(title);
+    }
     head.insertAdjacentHTML('afterbegin',
       `<label class="isw" title="On / off: off keeps the values but leaves them out"><input type="checkbox"><span></span></label>`);
     // the head's own buttons (reset all, clear) sit together on the right, before the X
     const tools = document.createElement('span');
     tools.className = 'isl-tools';
-    [...head.children].slice(2).forEach(el => tools.appendChild(el));
+    [...head.children].slice(2).filter(el => !el.classList.contains('tabs')).forEach(el => tools.appendChild(el));
     head.appendChild(tools);
-    head.insertAdjacentHTML('beforeend', `<button class="isl-x" title="Delete: reset and close">${ISL_X}</button>`);
+    head.insertAdjacentHTML('beforeend', `<button class="isl-x" title="Delete: reset and close">${ISL_X}</button>`
+      + `<button class="isl-chev" title="Fold / unfold"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>`);
+    // fold / unfold: click the title or the chevron (remembered per tool)
+    const fold = () => {
+      const c = S.prefs.collapsed || [];
+      S.prefs.collapsed = c.includes(sec) ? c.filter(x => x !== sec) : [...c, sec];
+      syncIslands(); savePrefsSoon();
+    };
+    head.querySelector('.isl-title').addEventListener('click', fold);
+    head.querySelector('.isl-chev').addEventListener('click', fold);
     const sw = head.querySelector('.isw input');
     sw.addEventListener('change', () => setSecOn(sec, sw.checked));
     head.querySelector('.isl-x').addEventListener('click', () => deleteSec(sec));
@@ -126,8 +141,10 @@ function buildIslands() {
   });
 }
 function syncIslands() {
+  const folded = new Set(S.prefs.collapsed || []);
   document.querySelectorAll('#panel .card.sec').forEach(card => {
     const on = secOn(card.dataset.sec), sw = card.querySelector('.isw input');
+    card.classList.toggle('collapsed', folded.has(card.dataset.sec));
     card.classList.toggle('off', !on);
     if (sw) sw.checked = on;
   });
@@ -200,7 +217,8 @@ const FilterPop = (() => {
     const b = e.target.closest('.fp-tbtn'); if (!b) return;
     const sec = b.parentElement.dataset.sec, cur = S.prefs.secs || [], add = !cur.includes(sec);
     S.prefs.secs = add ? [...cur, sec] : cur.filter(x => x !== sec);
-    syncSections(); savePrefsSoon();
+    if (add) S.prefs.collapsed = (S.prefs.collapsed || []).filter(x => x !== sec);
+    syncSections(); syncIslands(); savePrefsSoon();
     if (add) {
       const card = document.querySelector(`#panel .card.sec[data-sec="${sec}"]`);
       if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -222,7 +240,8 @@ document.querySelectorAll('#toolPills .pill[data-sec]').forEach(p => {
     e.stopPropagation();
     const sec = p.dataset.sec, cur = S.prefs.secs || [];
     S.prefs.secs = cur.includes(sec) ? cur.filter(x => x !== sec) : [...cur, sec];
-    syncSections(); savePrefsSoon();
+    if (S.prefs.secs.includes(sec)) S.prefs.collapsed = (S.prefs.collapsed || []).filter(x => x !== sec);
+    syncSections(); syncIslands(); savePrefsSoon();
   });
 });
 $('#fileList').addEventListener('click', e => {
@@ -317,6 +336,14 @@ window.addEventListener('drop', e => { e.preventDefault(); S.dropT = performance
   splitBtn.addEventListener('pointerdown', e => e.stopPropagation());
   splitBtn.addEventListener('click', e => {
     e.stopPropagation();
-    S.prefs.split = !S.prefs.split; savePrefsSoon(); requestRender(); updateCmp();
+    const on = !(S.prefs.split && !encSplitOn());     // the button shows "on" only while its own split is shown
+    S.prefs.split = on; if (on) S.prefs.encSplit = false;
+    savePrefsSoon(); requestRender(); updateCmp();
+  });
+  // export block: lossless | encoded split (only for lossy formats)
+  $('#btnEncSplit').addEventListener('click', () => {
+    const on = !encSplitOn();
+    S.prefs.encSplit = on; if (on) S.prefs.split = false;
+    savePrefsSoon(); requestRender(); updateCmp();
   });
 })();

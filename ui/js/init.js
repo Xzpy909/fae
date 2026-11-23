@@ -12,6 +12,7 @@ async function init() {
     if (s && typeof s === 'object') {
       if (s.fmt) S.prefs.fmt = s.fmt;
       if (Array.isArray(s.secs)) S.prefs.secs = s.secs.filter(x => SECS.includes(x));
+      if (Array.isArray(s.collapsed)) S.prefs.collapsed = s.collapsed.filter(x => SECS.includes(x));
       if (s.jpeg_q != null) S.prefs.jpeg_q = clamp(Math.round(Number(s.jpeg_q)) || 90, 1, 100);
       if (s.jpeg_d != null && isFinite(Number(s.jpeg_d))) S.prefs.jpeg_d = clamp(Number(s.jpeg_d), 0, 25);
       if (s.jpeg_mode === 'q' || s.jpeg_mode === 'd') S.prefs.jpeg_mode = s.jpeg_mode;
@@ -22,6 +23,7 @@ async function init() {
       if (s.aom_q != null && isFinite(Number(s.aom_q))) S.prefs.aom_q = clamp(Math.round(Number(s.aom_q)), 0, 100);
       if (s.avif_enc === 'svt' || s.avif_enc === 'aom') S.prefs.avif_enc = s.avif_enc;
       if (typeof s.split === 'boolean') S.prefs.split = s.split;
+      if (typeof s.encSplit === 'boolean') S.prefs.encSplit = s.encSplit;
       if (s.aom_speed != null && isFinite(Number(s.aom_speed))) S.prefs.aom_speed = clamp(Math.round(Number(s.aom_speed)), 0, 10);
       if (!['WEBP', 'PNG', 'JPEG', 'AVIF'].includes(S.prefs.fmt)) S.prefs.fmt = 'WEBP';
       if (typeof s.advance === 'boolean') S.prefs.advance = s.advance;

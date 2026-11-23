@@ -44,12 +44,18 @@ function updateSizeChip() {
   el.style.left = x + 'px'; el.style.top = y + 'px';
 }
 
+/* Two split views: the top bar's (original | edited, any format) and the export block's
+   (lossless | encoded, lossy formats only). At most one is on. */
+const encSplitOn = () => !!S.prefs.encSplit && isLossy();
 function updateCmp() {
   updateSizeChip();
-  const el = $('#cmp'), I = S.img;
-  const on = S.prefs.split && I && !S.cropMode && !viewMode();
+  const el = $('#cmp'), I = S.img, enc = encSplitOn();
+  const on = (S.prefs.split || enc) && I && !S.cropMode && !viewMode();
   el.classList.toggle('show', !!on);
-  $('#btnSplit').classList.toggle('on', !!S.prefs.split);
+  $('#btnSplit').classList.toggle('on', !!S.prefs.split && !enc);
+  const eb = $('#btnEncSplit');
+  eb.disabled = !isLossy();
+  eb.classList.toggle('on', enc);
   if (!on) return;
   const v = S.view, r = vp.getBoundingClientRect();
   const left = v.x, top = v.y, w = I.pw * v.z, h = I.ph * v.z;
@@ -59,10 +65,10 @@ function updateCmp() {
   line.style.left = x + 'px'; line.style.top = y0 + 'px'; line.style.height = Math.max(0, y1 - y0) + 'px';
   line.style.display = x < -2 || x > r.width + 2 || y1 <= y0 ? 'none' : 'block';
   const c = S.cmp, ready = cmpReady();
-  const stale = isLossy() && (c.busy || !ready || c.key !== jpegKey());
+  const stale = enc && (c.busy || !ready || c.key !== jpegKey());
   const lbl = $('#cmpR');
-  $('#cmpL').textContent = isLossy() ? 'Lossless' : 'Original';
-  lbl.innerHTML = !isLossy() ? 'Edited' : ready
+  $('#cmpL').textContent = enc ? 'Lossless' : 'Original';
+  lbl.innerHTML = !enc ? 'Edited' : ready
     ? `${encName(c.fmt, c.enc)} ${optsLabel(c.fmt, c.opts, c.enc)}${stale ? ' <span class="muted">&middot; updating…</span>' : ''}`
     : `${encName(S.prefs.fmt, null)} <span class="muted">&middot; encoding…</span>`;
   lbl.classList.toggle('stale', stale);

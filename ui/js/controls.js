@@ -11,17 +11,25 @@ function makeField(parent, spec) {
   const row = document.createElement('div');
   row.className = spec.wheel ? 'field wheel' : spec.grad ? 'field grad' : 'field';
   const defTxt = spec.def == null ? '' : Number(spec.def).toFixed(dec);
+  // the standard slider (shared look): its own track (fill from the anchor) + centre tick, the input on top.
+  // spec.grad (gradient track) / spec.wheel (jog wheel) are kept for the alternative slider, not used now.
+  const anchor = spec.wheel || spec.grad ? null : (spec.center ?? (smin < 0 && smax > 0 ? 0 : null));
   const ctl = spec.wheel ? `<canvas class="jog" title="Drag left/right (Shift fine, Ctrl coarse), double-click to reset"></canvas>`
-                         : `<input type="range" min="${smin}" max="${smax}" step="${step}">`;
+            : spec.grad ? `<input type="range" min="${smin}" max="${smax}" step="${step}">`
+            : `<div class="sl"><div class="trk"></div><span class="tick"></span><input type="range" min="${smin}" max="${smax}" step="${step}" title="Double-click to reset"></div>`;
   const numHtml = `<input type="number" min="${min}" max="${max}" step="${step}">`;
-  row.innerHTML = `<label>${label}</label>${spec.wheel ? '' : ctl}`
+  if (anchor != null) row.classList.add('bip');
+  row.innerHTML = `<label>${label}<i class="cdot"></i></label>${spec.wheel ? '' : ctl}`
     + (spec.unit ? `<span class="numw" data-unit="${spec.unit}">${numHtml}</span>` : numHtml)
-    + `<button class="rst" title="Reset to ${defTxt}"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>`
     + (spec.wheel ? ctl : '');
-  const rng = row.querySelector('input[type=range], canvas'), num = row.querySelector('input[type=number]'), rst = row.querySelector('.rst');
+  const rng = row.querySelector('input[type=range], canvas'), num = row.querySelector('input[type=number]');
+  if (spec.def != null) rng.title = `Double-click to reset to ${defTxt}`;
   // value change per pixel of mouse travel (wheel 1:1 with the ridges; number scrub a bit faster)
   const perPx = spec.perPx ?? (max - min) / 800;
   if (spec.grad) rng.style.setProperty('--track', spec.grad);
+  const trk = row.querySelector('.sl .trk');
+  const pct = v => (clamp(v, smin, smax) - smin) / (smax - smin) * 100;
+  if (anchor != null) row.querySelector('.sl .tick').style.left = pct(anchor) + '%';
   const jog = spec.wheel ? makeJog(rng, () => (S[obj][key] - (spec.def ?? 0)) / perPx) : null;
   const set = (v, fin) => {
     v = clamp(Number(v), min, max);
@@ -36,8 +44,18 @@ function makeField(parent, spec) {
     const v = S[obj][key];
     num.value = Number(v).toFixed(dec);
     if (jog) jog.draw();
-    else { rng.value = v; rng.style.setProperty('--p', ((clamp(v, smin, smax) - smin) / (smax - smin) * 100) + '%'); }
-    rst.classList.toggle('at-def', spec.def == null || Number(v) === Number(spec.def));
+    else {
+      rng.value = v;
+      const p = pct(v);
+      rng.style.setProperty('--p', p + '%');
+      if (trk) {                                  // fill from the anchor (centre-anchored) or from the left
+        const c = anchor != null ? pct(anchor) : 0;
+        trk.style.setProperty('--a', Math.min(p, c) + '%');
+        trk.style.setProperty('--b', Math.max(p, c) + '%');
+      }
+    }
+    const atDef = spec.def == null || Number(v) === Number(spec.def);
+    row.classList.toggle('chg', !atDef);          // changed from default: bright label + mint dot + mint value box
     if (spec.enabled) row.classList.toggle('disabled', !spec.enabled());
   };
   if (jog) {
@@ -52,7 +70,6 @@ function makeField(parent, spec) {
   }
   rng.addEventListener('dblclick', () => { if (spec.def != null) set(spec.def, true); });
   dragScrub(num, perPx * 2, { get: () => S[obj][key], set, field: true, lo: min, hi: max });
-  rst.addEventListener('click', () => { if (spec.def != null) set(spec.def, true); });
   num.addEventListener('change', () => set(num.value, true));
   num.addEventListener('keydown', e => { if (e.key === 'Enter') num.blur(); e.stopPropagation(); });
   num.addEventListener('wheel', e => {
@@ -110,7 +127,7 @@ function makeJog(cv, pos) {
     ctx.save();
     ctx.beginPath(); ctx.roundRect(0.5, 0.5, W - 1, H - 1, rr); ctx.clip();
     let g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#0f2a2d'); g.addColorStop(0.5, '#0a181b'); g.addColorStop(1, '#051012');
+    g.addColorStop(0, '#00373c'); g.addColorStop(0.5, '#002225'); g.addColorStop(1, '#001517');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     // ridges every 6 px of arc at the centre
     const dA = 6 / R, phase = (((pos() / R) % dA) + dA) % dA;
@@ -119,20 +136,20 @@ function makeJog(cv, pos) {
       const lit = 0.10 + 0.55 * c * c;
       ctx.fillStyle = `rgba(0,0,0,${0.55 * c})`;
       ctx.fillRect(x + w * 0.5, 4, Math.max(0.5, 1.6 * c), H - 8);
-      ctx.fillStyle = on ? `rgba(0, 240, 190,${lit})` : `rgba(190, 214, 211,${lit})`;
+      ctx.fillStyle = on ? `rgba(0, 255, 170,${lit})` : `rgba(190, 214, 211,${lit})`;
       ctx.fillRect(x - w * 0.5, 4, w, H - 8);
     }
     // cylinder shading towards the ends + top sheen
     g = ctx.createLinearGradient(0, 0, W, 0);
-    g.addColorStop(0, 'rgba(2, 10, 12,.95)'); g.addColorStop(0.2, 'rgba(2, 10, 12,.15)');
-    g.addColorStop(0.5, 'rgba(2, 10, 12,0)'); g.addColorStop(0.8, 'rgba(2, 10, 12,.15)'); g.addColorStop(1, 'rgba(2, 10, 12,.95)');
+    g.addColorStop(0, 'rgba(0, 13, 14,.95)'); g.addColorStop(0.2, 'rgba(0, 13, 14,.15)');
+    g.addColorStop(0.5, 'rgba(0, 13, 14,0)'); g.addColorStop(0.8, 'rgba(0, 13, 14,.15)'); g.addColorStop(1, 'rgba(0, 13, 14,.95)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, 'rgba(255,255,255,.07)'); g.addColorStop(0.35, 'rgba(255,255,255,0)');
     g.addColorStop(1, 'rgba(0,0,0,.35)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     ctx.restore();
-    ctx.strokeStyle = on ? 'rgba(0, 240, 190,.55)' : 'rgba(255,255,255,.09)';
+    ctx.strokeStyle = on ? 'rgba(0, 255, 170,.55)' : 'rgba(255,255,255,.09)';
     ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(0.5, 0.5, W - 1, H - 1, rr); ctx.stroke();
   };
   new ResizeObserver(draw).observe(cv);
@@ -141,15 +158,16 @@ function makeJog(cv, pos) {
 
 function valueChanged(obj) {
   if (obj === 'stage') { requestStage(); savePrefsSoon(); syncEnabled(); markCurrentEdited(); }
-  else if (obj === 'prefs') { savePrefsSoon(); requestJpeg(); updateCmp(); }
+  else if (obj === 'prefs') { savePrefsSoon(); requestJpeg(); updateCmp(); syncEncChip(); }
   else editChanged();
 }
 
 makeField($('#pointFields'), { obj: 'edit', key: 'tBlack', label: 'Black target', min: 0, max: 255, step: 1, dec: 0, def: 0 });
 makeField($('#pointFields'), { obj: 'edit', key: 'tWhite', label: 'White target', min: 0, max: 255, step: 1, dec: 0, def: 255 });
 makeField($('#pointFields'), { obj: 'edit', key: 'strength', label: 'Strength', min: 0.05, max: 1, step: 0.05, dec: 2, def: 1 });
-for (const [key, label, def, min, max, step, dec] of ADJUST)
-  makeField($('#adjFields'), { obj: 'edit', key, label, min, max, step, dec, def, wheel: true });
+for (const [key, label, def, min, max, step, dec] of ADJUST)   // Saturation / Contrast fill out from their neutral value
+  makeField($('#adjFields'), { obj: 'edit', key, label, min, max, step, dec, def,
+    center: key === 'adj_sat' || key === 'adj_contrast' ? def : undefined });
 $('#resetAdjust').addEventListener('click', () => { Object.assign(S.edit, defaultAdjust()); syncPanel(); editChanged(); commit(); });
 const FILTER_UI = { f_bw: { fields: '#bwFields', reset: '#resetBW' }, f_film: { fields: '#filmFields', reset: '#resetFilm' },
   f_sc: { fields: '#scFields', reset: '#resetSC' }, sharpen: { fields: '#shpFields', reset: '#resetShp' } };
@@ -170,8 +188,8 @@ for (const f of PANELS) {
     if (a === '---') { $(ui.fields).insertAdjacentHTML('beforeend', '<div class="fsep"></div>'); continue; }
     if (!Array.isArray(a)) { makeSelectField($(ui.fields), a); continue; }
     const [key, label, def, min, max, step, dec, unit] = a;
-    // filters use plain sliders with a gradient track that shows what they do
-    makeField($(ui.fields), { obj: 'edit', key, label, min, max, step, dec, def, unit, grad: FILTER_GRADS[key] });
+    // standard slider; FILTER_GRADS (gradient tracks) stay in state.js for the alternative slider
+    makeField($(ui.fields), { obj: 'edit', key, label, min, max, step, dec, def, unit });
   }
   $(ui.reset).addEventListener('click', () => { Object.assign(S.edit, defaultFilter(f)); syncPanel(); editChanged(); commit(); });
 }
@@ -223,7 +241,30 @@ function syncEncRow() {
   $('#aomNote').textContent = !forced ? '' : !S.cmp.svt ? 'aom via Pillow (SvtAv1EncApp.exe not found)'
     : 'aom via Pillow (this image has alpha)';
   $('#aomNote').style.display = forced ? '' : 'none';
+  syncEncChip();
 }
+/* Export block: the settings chip shows the current encoder setting; it opens the encoder popover above the block */
+function syncEncChip() {
+  const f = S.prefs.fmt, P = S.prefs, chip = $('#encChip');
+  updateCmp();                                   // greys out the encoding split for lossless formats
+  chip.hidden = f === 'PNG';
+  if (f === 'PNG') { EncPop.close(); return; }
+  $('#encChipTxt').textContent = f === 'JPEG' ? (P.jpeg_mode === 'd' ? 'd ' + Number(P.jpeg_d).toFixed(2) : 'q ' + P.jpeg_q)
+    : f === 'WEBP' ? (P.webp_lossy ? 'q ' + P.webp_q : 'lossless')
+    : avifEnc() === 'svt' ? `crf ${Number(P.avif_crf)} · p${P.avif_preset}` : `q ${P.aom_q} · s${P.aom_speed}`;
+  $('#encPopTitle').textContent = f === 'JPEG' ? 'JPEG · ' + (S.cmp.jpegli ? 'jpegli' : 'Pillow')
+    : f === 'WEBP' ? 'WEBP · ' + (P.webp_lossy ? 'lossy' : 'lossless')
+    : 'AVIF · ' + (avifEnc() === 'svt' ? 'SVT-AV1 4:4:4' : 'aom');
+}
+const EncPop = (() => {
+  const blk = $('#exportBlock'), chip = $('#encChip'), pop = $('#encPop');
+  const isOpen = () => blk.classList.contains('enc-open');
+  const close = () => { blk.classList.remove('enc-open'); chip.classList.remove('on'); };
+  const open = () => { blk.classList.add('enc-open'); chip.classList.add('on'); };
+  chip.addEventListener('click', () => isOpen() ? close() : open());
+  document.addEventListener('pointerdown', e => { if (isOpen() && !pop.contains(e.target) && !chip.contains(e.target)) close(); }, true);
+  return { open, close, isOpen };
+})();
 $('#prioSel').addEventListener('change', e => { S.stage.prio = e.target.value; valueChanged('stage'); commit(); });
 $('#wpOn').addEventListener('change', e => { S.stage.wp_on = e.target.checked; valueChanged('stage'); commit(); syncPanel(); });
 $('#geOn').addEventListener('change', e => { S.stage.ge_on = e.target.checked; valueChanged('stage'); commit(); syncPanel(); });
@@ -310,6 +351,13 @@ function syncPanel() {
 }
 
 document.querySelectorAll('.tool').forEach(b => b.addEventListener('click', () => toggleTool(b.dataset.tool)));
+// reset one picked point (black / gray / white) without touching the other two
+document.querySelectorAll('.tool-x').forEach(b => b.addEventListener('click', e => {
+  e.stopPropagation();
+  const t = b.dataset.clear;
+  if (!S.edit[t]) return;
+  S.edit[t] = null; editChanged(); commit();
+}));
 $('#clearPoints').addEventListener('click', () => { S.edit.black = S.edit.gray = S.edit.white = null; editChanged(); commit(); });
 
 /* ---------- prefs ---------- */

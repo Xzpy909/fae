@@ -100,7 +100,7 @@ def main():
     port = start_server()
     window = webview.create_window(
         "Fast Image Editor", f"http://127.0.0.1:{port}/{page}", js_api=api,
-        width=1560, height=940, min_size=(1100, 680), background_color="#0e0f11",
+        width=1560, height=940, min_size=(1240, 680), background_color="#0e0f11",
     )
     api.set_window(window)
 

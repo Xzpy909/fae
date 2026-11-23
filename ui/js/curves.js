@@ -28,7 +28,7 @@ function drawCurve() {
   if (!w) return;
   const g = cctx;
   g.clearRect(0, 0, w, h);
-  g.fillStyle = '#07171a'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#001e21'; g.fillRect(0, 0, w, h);
   // grid
   g.strokeStyle = '#22262c'; g.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
@@ -75,8 +75,8 @@ function drawCurve() {
     const [px, py] = c2p(pt[0], pt[1], w, h);
     const active = cdrag && cdrag.idx === i;
     g.beginPath(); g.arc(px, py, active ? 5.5 : 4.5, 0, Math.PI * 2);
-    g.fillStyle = active ? '#00f0be' : '#07171a'; g.fill();
-    g.lineWidth = 1.8; g.strokeStyle = active ? '#00f0be' : CH_COL[ch]; g.stroke();
+    g.fillStyle = active ? '#00ffaa' : '#001e21'; g.fill();
+    g.lineWidth = 1.8; g.strokeStyle = active ? '#00ffaa' : CH_COL[ch]; g.stroke();
   });
 }
 
@@ -167,7 +167,7 @@ function drawHisto() {
   if (!w) return;
   const g = hctx;
   g.clearRect(0, 0, w, h);
-  g.fillStyle = '#07171a'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#001e21'; g.fillRect(0, 0, w, h);
   if (!S.img || !S.n) { $('#clipLo').textContent = $('#clipHi').textContent = '0%'; return; }
   let mx = 1;
   for (let c = 0; c < 3; c++) for (let i = 1; i < 255; i++) mx = Math.max(mx, S.hout[c * 256 + i]);

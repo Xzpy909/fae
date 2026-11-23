@@ -136,7 +136,7 @@ vp.addEventListener('wheel', e => {
 }, { passive: false });
 
 $('#zoomFit').addEventListener('click', fitView);
-$('#zoom100').addEventListener('click', zoom100);
+$('#zoomLabel').addEventListener('click', zoom100);      // the zoom readout doubles as the 100% button
 
 window.addEventListener('resize', () => { if (S.view.fit) fitView(); else applyView(); drawCurve(); drawHisto(); });
 
@@ -178,7 +178,7 @@ function drawLoupe() {
   // 3x3 sample box (what the eyedropper medians)
   lctx.strokeStyle = 'rgba(0,0,0,.85)'; lctx.lineWidth = 3;
   lctx.strokeRect(12 * (half - 1), 12 * (half - 1), 36, 36);
-  lctx.strokeStyle = '#00f0be'; lctx.lineWidth = 1.5;
+  lctx.strokeStyle = '#00ffaa'; lctx.lineWidth = 1.5;
   lctx.strokeRect(12 * (half - 1), 12 * (half - 1), 36, 36);
 }
 
@@ -216,6 +216,7 @@ function updateToolUI() {
   for (const t of ['black', 'gray', 'white']) {
     const sw = $('#sw-' + t), s = S.edit[t];
     sw.classList.toggle('set', !!s);
+    sw.closest('.tool-cell')?.classList.toggle('set', !!s);
     sw.style.background = s ? `rgb(${s.rgb.join(',')})` : 'transparent';
     sw.title = s ? `RGB ${s.rgb.join(', ')}` : 'not set';
   }

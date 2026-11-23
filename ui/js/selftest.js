@@ -150,7 +150,7 @@ async function main() {
       'Saturation + Contrast': e => { e.adj_sat = 75; e.adj_contrast = 1.3; },
       'Film': e => { e.flt_film_preset = 'k_64'; e.flt_film_bright = 30; e.flt_film_opacity = 80; },
       'Perceptual Saturation': e => { e.flt_bw_psat = 45; e.flt_bw_warmth = 20; e.flt_bw_opacity = 70; },
-      'Super Contrast (all)': e => { e.flt_sc_cast = 60; e.flt_sc_contrast = 40; e.flt_sc_dynamic = 50; e.flt_sc_shadows = 30; e.flt_sc_highlights = 20; e.flt_sc_opacity = 90; },
+      'Super Contrast (all)': e => { e.flt_sc_cast = 60; e.flt_sc_contrast = 40; e.flt_sc_dynamic = 50; e.flt_sc_opacity = 90; },
       'Mid/Detail': e => { e.adj_middetail = 60; },
       'Everything': e => { e.adj_middetail = -40; e.adj_sat = 60; e.adj_temp = 800; e.adj_shadows = 30; e.adj_boost = 40; e.flt_bw_psat = 30;
         e.flt_film_preset = 'f_velvia_100'; e.flt_sc_dynamic = 40; e.curves.m = [[0, 10], [128, 140], [255, 245]]; },

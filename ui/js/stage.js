@@ -67,6 +67,7 @@ function updateInfo() {
       + (S.prefs.fmt === 'AVIF' && !S.cmp.svt ? ' · SvtAv1EncApp.exe missing, using aom' : '')
       + (S.prefs.fmt === 'AVIF' && S.prefs.avif_enc === 'svt' && S.cmp.svt && I.alpha ? ' · alpha → aom' : '')
     : '';
+  $('#outInfo').title = $('#outInfo').textContent;     // the block shows one line; the full text on hover
   $('#empty').style.display = S.files.length ? 'none' : 'grid';
   syncResize(); syncEncRow();
 }

@@ -20,14 +20,13 @@
     <div class="tb-group tb-center" id="zoomGroup">
       <span class="tb-label">Zoom</span>
       <button id="zoomFit" class="ghost" title="Fit (0)">Fit</button>
-      <button id="zoom100" class="ghost" title="Actual pixels (1)">1:1</button>
-      <span id="zoomLabel" class="muted mono">–</span>
+      <button id="zoomLabel" class="ghost mono" title="Click for 100% (1)">–</button>
     </div>
     <div class="tb-right">
     <div class="tb-group">
       <!-- compare: hold to see the original (or hold \), split view on / off -->
       <button class="icon" id="btnCompare" title="Compare: hold to see the original (or hold \)"><svg viewBox="0 0 24 24"><rect x="2.5" y="6.5" width="13" height="11" rx="1.5"/><path d="M8.5 6.5V4.5a1.5 1.5 0 0 1 1.5-1.5h10a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-4.5"/></svg></button>
-      <button class="icon" id="btnSplit" title="Split view on / off: drag the divider to compare"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="m8 8-4 4 4 4"/><path d="m16 8 4 4-4 4"/></svg></button>
+      <button class="icon" id="btnSplit" title="Split view: original | edited (drag the divider)"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="m8 8-4 4 4 4"/><path d="m16 8 4 4-4 4"/></svg></button>
       <span class="tb-label">Compare</span>
     </div>
     <div class="tb-group">
@@ -86,9 +85,9 @@
       <button class="pill" data-sec="resize" title="Resize"><svg viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg><i></i></button>
       <button class="pill" data-sec="sharpen" title="Sharpen"><svg viewBox="0 0 24 24"><path d="M12 2.5 21.5 12 12 21.5 2.5 12z"/><path class="fill" d="M12 2.5 21.5 12H2.5z"/></svg><i></i></button>
       <button class="pill" data-sec="color" title="Color Balance"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path class="fill" d="M12 3a9 9 0 0 0 0 18z"/></svg><i></i></button>
+      <!-- Filters: opens a centred, scrollable tile popover -->
+      <button id="filtersPill" class="pill" title="Filters"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="6"/><circle cx="15" cy="15" r="6"/></svg><i></i></button>
     </div>
-    <!-- Filters: its own pill in the top-right corner (next to the histogram); opens a centred, scrollable tile popover -->
-    <button id="filtersPill" class="pill" title="Filters"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="6"/><circle cx="15" cy="15" r="6"/></svg><i></i></button>
     <div id="filterPop">
       <div class="fp-veil"></div>
       <div class="fp-box" role="dialog" aria-label="Filters">
@@ -146,50 +145,46 @@
       </section>
 
       <section class="card sec" data-sec="crop">
-        <div class="card-head"><span>Crop &amp; rotate</span><button id="geomClear" class="link">Clear</button></div>
+        <div class="card-head"><span>Crop &amp; rotate</span><button id="geomClear" class="rst all" title="Reset crop &amp; rotation"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button></div>
         <button id="cropOpen" class="wide">Crop / Rotate <kbd>C</kbd></button>
         <div class="muted small" id="geomInfo">Full image</div>
       </section>
 
       <section class="card sec" data-sec="point">
-        <div class="card-head"><span>Point correction</span><button id="clearPoints" class="link">Clear</button></div>
+        <div class="card-head"><span>Point correction</span><button id="clearPoints" class="rst all" title="Reset point correction"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button></div>
         <div class="tools">
-          <button class="tool" data-tool="black" title="Black point (B)">
+          <div class="tool-cell"><button class="tool" data-tool="black" title="Black point (B)">
             <span class="sw" id="sw-black"></span><span class="tname">Black</span><kbd>B</kbd>
-          </button>
-          <button class="tool" data-tool="gray" title="Neutral gray (G)">
+          </button><button class="tool-x" data-clear="black" title="Reset black point"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button></div>
+          <div class="tool-cell"><button class="tool" data-tool="gray" title="Neutral gray (G)">
             <span class="sw" id="sw-gray"></span><span class="tname">Gray</span><kbd>G</kbd>
-          </button>
-          <button class="tool" data-tool="white" title="White point (W)">
+          </button><button class="tool-x" data-clear="gray" title="Reset gray point"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button></div>
+          <div class="tool-cell"><button class="tool" data-tool="white" title="White point (W)">
             <span class="sw" id="sw-white"></span><span class="tname">White</span><kbd>W</kbd>
-          </button>
+          </button><button class="tool-x" data-clear="white" title="Reset white point"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button></div>
         </div>
         <div id="pointFields"></div>
         <div class="hint">Tool stays active: keep clicking to refine. Hold <kbd>Alt</kbd> for clipping view, scroll to move the threshold. <kbd>Esc</kbd> drops the tool.</div>
       </section>
 
       <section class="card sec" data-sec="f_bw">
-        <div class="card-head"><span>Perceptual Saturation</span><button id="resetBW" class="rst all" title="Reset Perceptual Saturation filter"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
+        <div class="card-head"><span>Perceptual Saturation</span><button id="resetBW" class="rst all" title="Reset Perceptual Saturation filter"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button></div>
         <div id="bwFields"></div>
-        <div class="hint">≈ Perceptual Saturation is an approximation: it behaves like the reference filter (pushes colours away from their surroundings) but does not match it exactly. Opacity sets how strongly the finished filter is applied.</div>
       </section>
 
       <section class="card sec" data-sec="f_film">
-        <div class="card-head"><span>Film Effect</span><button id="resetFilm" class="rst all" title="Reset Film Effect"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
+        <div class="card-head"><span>Film Effect</span><button id="resetFilm" class="rst all" title="Reset Film Effect"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button></div>
         <div id="filmFields"></div>
-        <div class="hint">Presets and Brightness / Contrast are fitted on reference renders. Colours that were not in the reference image are estimated.</div>
       </section>
 
       <section class="card sec" data-sec="f_sc">
-        <div class="card-head"><span>Super Contrast</span><button id="resetSC" class="rst all" title="Reset Super Contrast"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
+        <div class="card-head"><span>Super Contrast</span><button id="resetSC" class="rst all" title="Reset Super Contrast"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button></div>
         <div id="scFields"></div>
-        <div class="hint">Matched to reference renders; Dynamic Contrast (≈) is an approximation of the same idea.</div>
       </section>
 
       <section class="card sec" data-sec="adjust">
-        <div class="card-head"><span>Adjustments</span><button id="resetAdjust" class="rst all" title="Reset all adjustments"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
+        <div class="card-head"><span>Adjustments</span><button id="resetAdjust" class="rst all" title="Reset all adjustments"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button></div>
         <div id="adjFields"></div>
-        <div class="hint">Mid/Detail is a local-contrast effect: the preview computes it at preview size, Process at full size. It is hidden while cropping.</div>
       </section>
 
       <section class="card sec" data-sec="curves">
@@ -200,7 +195,7 @@
             <button data-ch="g" class="g">G</button>
             <button data-ch="b" class="b">B</button>
           </div>
-          <button id="resetCurve" class="link">Reset</button>
+          <button id="resetCurve" class="rst all" title="Reset this curve channel"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
         </div>
         <canvas id="curve"></canvas>
         <div class="curve-foot"><span class="muted" id="curveInfo">Click to add · drag · double-click or drag out to remove</span></div>
@@ -238,9 +233,8 @@
       </section>
 
       <section class="card sec" data-sec="sharpen">
-        <div class="card-head"><span>Sharpen</span><button id="resetShp" class="rst all" title="Reset Sharpen"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></button></div>
+        <div class="card-head"><span>Sharpen</span><button id="resetShp" class="rst all" title="Reset Sharpen"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button></div>
         <div id="shpFields"></div>
-        <div class="hint">Runs last, on the output pixels. Structure ≈ is an approximation of the reference (fine texture and local structure, edges kept); Local Contrast and Focus match it closely (Local Contrast: a wide unsharp mask, negative values give a soft glow; Focus: fine sharpening, negative values a lens-like blur). Adaptive Sharpening: an unsharp mask whose radius grows with the amount; Balance Sharpening moves it towards flat areas (−100: fine texture, strong edges softened) or edges (100). Order: Adaptive Sharpening, Structure, Local Contrast, Focus.</div>
       </section>
 
       <section class="card sec" data-sec="color">
@@ -253,12 +247,25 @@
 
     </div>
 
-    <div class="process">
-      <div class="out-row">
-        <div class="seg compact" id="fmtSeg"><button data-v="WEBP">WEBP</button><button data-v="PNG">PNG</button><button data-v="JPEG">JPEG</button><button data-v="AVIF">AVIF</button></div>
-        <span class="muted small" id="outInfo"></span>
+    <!-- Export block: docked to the bottom of the panel, same height for every format; encoder settings in a popover -->
+    <div class="process" id="exportBlock">
+      <div class="progress" id="progress"><div></div></div>
+      <div class="ex-row">
+        <button id="btnEncSplit" class="enc-cmp" title="Split view: lossless | encoded (lossy formats)"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="m8 8-4 4 4 4"/><path d="m16 8 4 4-4 4"/></svg></button>
+        <div class="seg" id="fmtSeg"><button data-v="WEBP">WEBP</button><button data-v="PNG">PNG</button><button data-v="JPEG">JPEG</button><button data-v="AVIF">AVIF</button></div>
+        <button id="encChip" class="enc-chip" title="Encoder settings"><span id="encChipTxt"></span><svg viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg></button>
       </div>
-      <div id="encRow">
+      <div class="ex-row">
+        <button id="processBtn" class="primary" title="Ctrl+S">Process<span class="kbd-hint">Ctrl+S</span></button>
+        <button id="processAllBtn" class="ex-all" title="Each image with its own edits; untouched images get the current Output / Color settings">Process all</button>
+      </div>
+      <div class="ex-row ex-foot">
+        <label class="check"><input type="checkbox" id="advanceChk">Next image after process</label>
+        <span class="mono" id="outInfo"></span>
+      </div>
+      <div class="enc-pop" id="encPop">
+        <div class="enc-head"><span id="encPopTitle"></span></div>
+        <div id="encRow">
         <div id="grpJPEG" class="egrp">
           <div class="jrow"><div class="seg" id="jModeSeg"><button data-v="q">Quality</button><button data-v="d">Distance</button></div></div>
           <div id="jpegQ"></div>
@@ -274,12 +281,7 @@
           <div id="avifAom"><div class="enc-note" id="aomNote"></div><div id="aomQ"></div><div id="aomS"></div></div>
         </div>
       </div>
-      <button id="processBtn" class="primary" title="Ctrl+S">Process<span class="kbd-hint">Ctrl+S</span></button>
-      <div class="process-row">
-        <label class="check"><input type="checkbox" id="advanceChk">Next image after process</label>
-        <button id="processAllBtn" class="small ghost" title="Each image with its own edits; untouched images get the current Output / Color settings">Process all</button>
       </div>
-      <div class="progress" id="progress"><div></div></div>
     </div>
   </aside>
 

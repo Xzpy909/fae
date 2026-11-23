@@ -298,7 +298,7 @@ const Crop = (() => {
     if (!C) return;
     const d = dpr(), W = view.w, H = view.h;
     g.setTransform(d, 0, 0, d, 0, 0);
-    g.fillStyle = '#051012'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#001517'; g.fillRect(0, 0, W, H);
     // image
     g.save();
     g.translate(view.ox, view.oy); g.scale(view.z, view.z); g.rotate(theta()); g.scale(C.flip ? -1 : 1, 1);
@@ -307,7 +307,7 @@ const Crop = (() => {
     g.restore();
     // mask outside crop
     const c = C.crop, [x0, y0] = toS(c.x - c.w / 2, c.y - c.h / 2), sw = c.w * view.z, sh = c.h * view.z;
-    g.fillStyle = 'rgba(2, 10, 12,.66)';
+    g.fillStyle = 'rgba(0, 13, 14,.66)';
     g.beginPath(); g.rect(0, 0, W, H); g.rect(x0, y0, sw, sh); g.fill('evenodd');
     // grid
     const lines = rotating ? 10 : 3;
@@ -363,7 +363,7 @@ const Crop = (() => {
       else if (major) rg.fillRect(Math.round(x) - .75, H / 2 - 7, 1.5, 14);
       else { rg.beginPath(); rg.arc(x, H / 2, 1.3, 0, Math.PI * 2); rg.fill(); }
     }
-    rg.fillStyle = '#00f0be';
+    rg.fillStyle = '#00ffaa';
     rg.fillRect(cx - 1.5, H / 2 - 11, 3, 22);
     $('#angleLabel').textContent = (C.angle > 0 ? '+' : '') + C.angle.toFixed(1) + '°';
   }
@@ -388,7 +388,7 @@ const Crop = (() => {
     if (!C) return;
     const ra = resizeCropAspect(), cr = ratio();
     const warn = ra && (!cr || Math.abs(cr / ra.r - 1) > 0.005);
-    top.innerHTML = 'Crop &amp; rotate' + (warn ? ` &nbsp;·&nbsp; <span style="color:#00f0be">${ra.label} output will still center-crop to that shape</span>` : '');
+    top.innerHTML = 'Crop &amp; rotate' + (warn ? ` &nbsp;·&nbsp; <span style="color:#00ffaa">${ra.label} output will still center-crop to that shape</span>` : '');
   }
 
   function updateSummary() {

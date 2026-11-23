@@ -303,7 +303,6 @@ function boostGains(v) {
       equalization of M on a coarse grid (DC_GW cells across, 64-bin histograms per cell, Gaussian-smoothed
       across cells, clipped at DC_CLIP x the mean bin), each pixel bilinear between its 4 cells' curves;
       M' = M + s * DC_BETA * (curve(M) - M), colour gain 1 + s * (DC_SAT - 1). Linear in strength, as measured.
-   4. Shadows / Highlights: the shared filter tone curve shLut() (same table on all three channels).
    Opacity mixes the result with the filter input. */
 /* Shared Shadows / Highlights curve for filters (matched to reference renders, max 1 level off).
    One table for all three channels. Shadows s (0..1): x + SH_A s (1 - x / (SH_W s))^SH_P for x < SH_W s,
@@ -332,9 +331,8 @@ const DC_KERNEL = (() => {         // Gaussian over grid cells, sent to the core
 function scParams(e) {
   const cast = (Number(e.flt_sc_cast) || 0) / 100, cc = Number(e.flt_sc_contrast) || 0;
   const dyn = (Number(e.flt_sc_dynamic) || 0) / 100;
-  const shl = shLut((Number(e.flt_sc_shadows) || 0) / 100, (Number(e.flt_sc_highlights) || 0) / 100);
   const op = e.flt_sc_opacity == null ? 1 : Number(e.flt_sc_opacity) / 100;
-  return (cast > 0 || cc > 0 || dyn > 0 || shl) && op > 0 ? { cast, cc, dyn, op, dk: DC_KERNEL, shl } : null;
+  return (cast > 0 || cc > 0 || dyn > 0) && op > 0 ? { cast, cc, dyn, op, dk: DC_KERNEL, shl: null } : null;
 }
 
 /* Sharpen tool (core: sharp.rs, after everything else); null = off. All sliders are live (Balance

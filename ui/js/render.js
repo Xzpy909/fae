@@ -51,8 +51,8 @@ function present(n) {
   let disp = S.outData;
   if (mode === 'before') disp = S.baseData;
   else if (mode) { buildModeView(mode); disp = S.dispData; }
-  else if (S.prefs.split && !isLossy()) { buildSplitOriginal(); disp = S.dispData; }
-  else if (S.prefs.split && cmpReady()) { buildCompare(); disp = S.dispData; }
+  else if (encSplitOn()) { if (cmpReady()) { buildCompare(); disp = S.dispData; } }   // lossless | encoded
+  else if (S.prefs.split) { buildSplitOriginal(); disp = S.dispData; }               // original | edited
   ctx.putImageData(disp, 0, 0);
   S.shown = disp;
   drawHisto(); drawCurve(); updateHud(mode); drawLoupe(); updateCmp();

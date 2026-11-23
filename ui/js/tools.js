@@ -33,6 +33,11 @@ function updatePills() {
   const st = secState();
   document.querySelectorAll('#toolPills .pill[data-sec]').forEach(p => {
     const sec = p.dataset.sec, on = secOn(sec);
+    if (STACKABLE.includes(sec)) {
+      p.dataset.name = p.dataset.name || p.title;
+      const n = (S.prefs.secs || []).includes(sec) ? instancesOf(S.edit, sec).length : 0;
+      p.title = !n ? p.dataset.name : n >= MAX_INST ? `${p.dataset.name}: at most ${MAX_INST} in the chain` : `${p.dataset.name}: add another one`;
+    }
     p.classList.toggle('active', !!st[sec] && on);
     p.classList.toggle('bypass', !!st[sec] && !on);     // has values but its island is switched off
   });
@@ -549,6 +554,9 @@ document.querySelectorAll('#toolPills .pill[data-sec]').forEach(p => {
   p.addEventListener('click', e => {
     e.stopPropagation();
     const sec = p.dataset.sec, cur = S.prefs.secs || [];
+    // a stackable tool that is open already (Adjustments, Curves): the button adds another copy, like
+    // the Filters tiles (a copy is removed with its X). The other tools open / close.
+    if (STACKABLE.includes(sec) && cur.includes(sec)) { if (typeof Inst !== 'undefined') Inst.add(sec); return; }
     S.prefs.secs = cur.includes(sec) ? cur.filter(x => x !== sec) : [...cur, sec];
     const opened = S.prefs.secs.includes(sec);
     if (opened) {

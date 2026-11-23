@@ -63,6 +63,8 @@ full page); stored in `fae_settings.json` with the rest. Candidates (none decide
 - **Every slider is the standard slider** unless the alternative is chosen for it.
 - **Chain:** Crop, Resize, Color balance run first and Sharpen last (pinned); the rest run in panel order,
   added in the order they are opened. Point correction and Sharpen don't stack; the others do, up to 8.
+  A stackable tool's button / tile adds another copy once the tool is open (a copy is removed with its X);
+  the other tool buttons open / close.
 - **Fonts / colours:** Inter for the UI, JetBrains Mono for numbers; Mint background `#001E21`, Dark mint
   `#003D40`, Gradient 1 `#00EBFF → #00FFAA` (accent), Gradient 2 `#E0BDFF → #00FFAC` (lavender = instance
   tags), text `#E6E6E6`.

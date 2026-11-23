@@ -206,7 +206,7 @@ const Crop = (() => {
     C.crop = defaultCrop(); C.desired = { ...C.crop };
     layout(true); draw(); drawRuler();
   }
-  /* Alt/Ctrl + wheel: scale the crop box. Zooms toward the cursor; when growing hits the
+  /* Wheel: scale the crop box. Zooms toward the cursor; when growing hits the
      image edge the box slides inward, and at the limit it becomes the largest box of that
      shape. The aspect ratio of the current box is kept. */
   function zoomCrop(f, px, py) {
@@ -473,12 +473,13 @@ const Crop = (() => {
   cc.addEventListener('wheel', e => {
     e.preventDefault();
     if (!C || !e.deltaY) return;
-    if (e.altKey || e.ctrlKey) {            // zoom the crop (wheel up = zoom in = smaller box)
-      const r = cc.getBoundingClientRect(), step = e.shiftKey ? 1.02 : 1.08;
-      zoomCrop(e.deltaY < 0 ? 1 / step : step, e.clientX - r.left, e.clientY - r.top);
+    if (e.altKey || e.ctrlKey) {            // Alt / Ctrl + wheel: fine angle (Shift = 1° steps)
+      setAngle(C.angle + (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? 1 : 0.1));
       return;
     }
-    setAngle(C.angle + (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? 1 : 0.1));
+    // wheel: zoom the crop (wheel up = zoom in = smaller box), toward the cursor; Shift = finer
+    const r = cc.getBoundingClientRect(), step = e.shiftKey ? 1.02 : 1.08;
+    zoomCrop(e.deltaY < 0 ? 1 / step : step, e.clientX - r.left, e.clientY - r.top);
   }, { passive: false });
   cc.addEventListener('dblclick', e => { if (C && !hit(e.offsetX, e.offsetY)) { C.crop = defaultCrop(); C.desired = { ...C.crop }; draw(); follow(); } });
 

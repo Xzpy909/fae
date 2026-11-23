@@ -26,6 +26,7 @@ function secState() {
     color: !!(S.stage.wp_on || S.stage.ge_on),
   };
   for (const f of PANELS) st[f.sec] = filterActive(f, S.edit);
+  for (const x of chainOf(S.edit)) if (isExtra(x) && instActive(S.edit, x)) st[x.t] = true;
   return st;
 }
 function updatePills() {
@@ -72,6 +73,43 @@ function setSecOn(sec, on, noCommit) {
   if (!noCommit) commit();
   syncPanel();
 }
+/* islands by key: a tool (its first instance) or an extra instance (tool#n) */
+const keyOf = card => card.dataset.id || card.dataset.sec;
+const islandOn = key => key.includes('#') ? instOn(S.edit, key) : secOn(key);
+function setIslandOn(key, on, noCommit) {
+  if (!key.includes('#')) return setSecOn(key, on, noCommit);
+  if (islandOn(key) === on) return;
+  S.edit.off = Object.assign({}, S.edit.off);
+  if (on) delete S.edit.off[key]; else S.edit.off[key] = true;
+  editChanged();
+  if (!noCommit) commit();
+  syncPanel();
+}
+// X on an island: an extra instance is removed; a first instance with extra ones hands over to the next
+function deleteIsland(key) {
+  if (key.includes('#')) return removeInst(key);
+  const next = STACKABLE.includes(key) && instancesOf(S.edit, key).find(isExtra);
+  if (!next) return deleteSec(key);
+  const e = S.edit;
+  Object.assign(e, instValues(e, next.id, key));
+  e.off = Object.assign({}, e.off);
+  if (e.off[next.id]) e.off[key] = true; else delete e.off[key];
+  e.lbl = Object.assign({}, e.lbl);
+  if (e.lbl[next.id]) e.lbl[key] = e.lbl[next.id]; else delete e.lbl[key];
+  e.chain = chainOf(e).filter(x => x.id !== key).map(x => x.id === next.id ? { id: key, t: key } : x);
+  dropInst(e, next.id);
+  editChanged(); commit(); syncPanel();
+}
+function dropInst(e, id) {
+  if (e.inst) { e.inst = Object.assign({}, e.inst); delete e.inst[id]; if (!Object.keys(e.inst).length) delete e.inst; }
+  if (e.off && e.off[id]) { e.off = Object.assign({}, e.off); delete e.off[id]; }
+  if (e.lbl && e.lbl[id]) { e.lbl = Object.assign({}, e.lbl); delete e.lbl[id]; if (!Object.keys(e.lbl).length) delete e.lbl; }
+}
+function removeInst(id) {
+  S.edit.chain = chainOf(S.edit).filter(x => x.id !== id);
+  dropInst(S.edit, id);
+  editChanged(); commit(); syncPanel();
+}
 function deleteSec(sec) {
   if (sec === 'crop') {
     if (S.cropMode && (typeof Crop !== 'undefined')) Crop.exit(true);
@@ -93,10 +131,11 @@ function deleteSec(sec) {
   savePrefsSoon(); commit(); syncPanel();
 }
 const ISL_X = '<svg class="xbtn" viewBox="0 0 20 20"><circle class="c" cx="10" cy="10" r="9.5"/><path class="x" d="M7 7l6 6M13 7l-6 6"/></svg>';
-function buildIslands() {
-  document.querySelectorAll('#panel .card').forEach(card => {
+function buildIslands() { document.querySelectorAll('#panel .card').forEach(buildIsland); }
+function buildIsland(card) {
+  {
     card.classList.add('island');
-    const head = card.querySelector('.card-head'), sec = card.dataset.sec;
+    const head = card.querySelector('.card-head'), sec = card.dataset.sec, key = keyOf(card);
     // everything below the head goes into a body that dims while the island is off
     const body = document.createElement('div');
     body.className = 'isl-body';
@@ -112,6 +151,8 @@ function buildIslands() {
       title.textContent = document.querySelector(`#toolPills .pill[data-sec="${sec}"]`)?.title || sec;
       head.prepend(title);
     }
+    // instance tag ([1], [2] … when the tool is in the chain more than once) and its label
+    if (STACKABLE.includes(sec)) title.insertAdjacentHTML('afterend', '<span class="isl-tag mono" hidden></span><span class="isl-lbl"></span>');
     head.insertAdjacentHTML('afterbegin',
       `<label class="isw" title="On / off: off keeps the values but leaves them out"><input type="checkbox"><span></span></label>`);
     if (CHAIN_TOOLS.includes(sec))           // re-orderable: drag grip + its place in the chain
@@ -121,37 +162,48 @@ function buildIslands() {
     // the head's own buttons (reset all, clear) sit together on the right, before the X
     const tools = document.createElement('span');
     tools.className = 'isl-tools';
-    [...head.children].slice([...head.children].indexOf(title) + 1).filter(el => !el.classList.contains('tabs')).forEach(el => tools.appendChild(el));
+    [...head.children].slice([...head.children].indexOf(title) + 1)
+      .filter(el => !el.classList.contains('tabs') && !el.classList.contains('isl-tag') && !el.classList.contains('isl-lbl')).forEach(el => tools.appendChild(el));
     head.appendChild(tools);
     head.insertAdjacentHTML('beforeend', `<button class="isl-x" title="Delete: reset and close">${ISL_X}</button>`
       + `<button class="isl-chev" title="Fold / unfold"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>`);
     // fold / unfold: click the title or the chevron (remembered per tool)
     const fold = () => {
       const c = S.prefs.collapsed || [];
-      S.prefs.collapsed = c.includes(sec) ? c.filter(x => x !== sec) : [...c, sec];
+      S.prefs.collapsed = c.includes(key) ? c.filter(x => x !== key) : [...c, key];
       syncIslands(); savePrefsSoon();
     };
     head.querySelector('.isl-title').addEventListener('click', fold);
     head.querySelector('.isl-chev').addEventListener('click', fold);
     const sw = head.querySelector('.isw input');
-    sw.addEventListener('change', () => setSecOn(sec, sw.checked));
-    head.querySelector('.isl-x').addEventListener('click', () => deleteSec(sec));
+    sw.addEventListener('change', () => setIslandOn(key, sw.checked));
+    head.querySelector('.isl-x').addEventListener('click', () => deleteIsland(key));
     // touching a control on a switched-off island turns it back on (so the change shows in the preview)
     body.addEventListener('pointerdown', e => {
-      if (!secOn(sec) && e.target.closest('input, select, button, canvas, .toggle')) setSecOn(sec, true, true);
+      if (!islandOn(key) && e.target.closest('input, select, button, canvas, .toggle')) setIslandOn(key, true, true);
     }, true);
     body.addEventListener('focusin', e => {
-      if (!secOn(sec) && e.target.matches('input, select')) setSecOn(sec, true, true);
+      if (!islandOn(key) && e.target.matches('input, select')) setIslandOn(key, true, true);
     });
-  });
+  }
 }
 function syncIslands() {
   const folded = new Set(S.prefs.collapsed || []);
+  // instance tags: the place among the tool's instances (chain order), only when there are several
+  const byT = {};
+  for (const x of chainOf(S.edit)) (byT[x.t] = byT[x.t] || []).push(x.id);
   document.querySelectorAll('#panel .card.sec').forEach(card => {
-    const on = secOn(card.dataset.sec), sw = card.querySelector('.isw input');
-    card.classList.toggle('collapsed', folded.has(card.dataset.sec));
+    const key = keyOf(card), on = islandOn(key), sw = card.querySelector('.isw input');
+    card.classList.toggle('collapsed', folded.has(key));
     card.classList.toggle('off', !on);
     if (sw) sw.checked = on;
+    const tag = card.querySelector('.isl-tag');
+    if (tag) {
+      const l = byT[card.dataset.sec] || [], n = l.length > 1 ? l.indexOf(key) + 1 : 0;
+      tag.hidden = !n; tag.textContent = n || '';
+      const lbl = (S.edit.lbl || {})[key];
+      card.querySelector('.isl-lbl').textContent = lbl ? '· ' + lbl : '';
+    }
   });
   // order numbers: 1, 2, 3 … over the open re-orderable islands, top to bottom
   let n = 0;
@@ -167,9 +219,13 @@ buildIslands();
    ====================================================================== */
 const PIN_TOP = ['crop', 'resize', 'color'], PIN_END = ['sharpen'];
 const panelScroll = $('#panel .scroll');
-const cardOf = sec => panelScroll.querySelector(`:scope > .card.sec[data-sec="${sec}"]`);
+const cardOf = sec => panelScroll.querySelector(`:scope > .card.sec[data-sec="${sec}"]:not(.inst)`);
+// a chain entry's island: the tool's own, or an extra instance's (made on first use, instances.js)
+const cardOfId = id => id.includes('#') ? (typeof Inst !== 'undefined' ? Inst.card(id) : null) : cardOf(id);
 function orderPanel() {
-  const want = [...PIN_TOP, ...chainOf(S.edit).map(c => c.t), ...PIN_END].map(cardOf).filter(Boolean);
+  const chain = chainOf(S.edit);
+  if (typeof Inst !== 'undefined') Inst.prune(new Set(chain.filter(isExtra).map(x => x.id)));
+  const want = [...PIN_TOP, ...chain.map(c => c.id), ...PIN_END].map(cardOfId).filter(Boolean);
   const have = [...panelScroll.querySelectorAll(':scope > .card.sec')];
   if (want.length === have.length && want.every((c, i) => c === have[i])) return;
   let prev = panelScroll.querySelector(':scope > .reorder-space');      // the reorder spacer stays first
@@ -184,11 +240,11 @@ function orderPanel() {
    opening it never changes the image. Moving idle tools doesn't change the output either, so it is no
    undo step of its own. On switching images the idle open tools line up in the order they were opened. */
 function placeIdle(secs) {
-  const st = secState(), c = chainOf(S.edit);
+  const c = chainOf(S.edit);
   let moved = false;
   for (const sec of secs) {
     const i = c.findIndex(x => x.id === sec);
-    if (i < 0 || st[sec]) continue;
+    if (i < 0 || instActive(S.edit, c[i]) || (sec === 'point' && secState().point)) continue;
     c.push(c.splice(i, 1)[0]);
     moved = true;
   }
@@ -202,12 +258,15 @@ function placeIdle(secs) {
    the chain before), the tools that do something take the remaining places in their restored order.
    The output is the restored edit's either way. */
 function arrangeIdle(prev) {
-  const st = secState(), cur = chainOf(S.edit), active = cur.filter(x => st[x.t]);
+  const st = secState(), cur = chainOf(S.edit);
+  const act = x => x.t === 'point' ? st.point : instActive(S.edit, x), active = cur.filter(act);
+  // an instance that does something but had no place before: keep the restored order as it is
+  if (active.some(x => !prev.some(p => p.id === x.id))) return;
   let ai = 0;
   const out = [];
   for (const p of prev) {
     const x = cur.find(y => y.id === p.id);
-    if (x) out.push(st[x.t] ? active[ai++] : x);
+    if (x) out.push(act(x) ? active[ai++] : x);
   }
   for (const x of cur) if (!out.includes(x)) out.push(x);
   if (out.some(x => !x) || JSON.stringify(out) === JSON.stringify(cur)) return;
@@ -223,7 +282,7 @@ function moveInChain(id, beforeId) {
   let to;
   if (beforeId) to = c.findIndex(x => x.id === beforeId);
   else {
-    const open = [...panelScroll.querySelectorAll(':scope > .card.sec.show .isl-grip')].map(g => g.closest('.card').dataset.sec).filter(s => s !== id);
+    const open = [...panelScroll.querySelectorAll(':scope > .card.sec.show .isl-grip')].map(g => keyOf(g.closest('.card'))).filter(s => s !== id);
     to = open.length ? c.findIndex(x => x.id === open[open.length - 1]) + 1 : c.length;
   }
   c.splice(to < 0 ? c.length : to, 0, it);
@@ -251,7 +310,7 @@ function moveInChain(id, beforeId) {
       if (y < r.top + r.height / 2) { before = c; lineY = r.top - 5; break; }
     }
     if (!before) { const last = ts[ts.length - 1]; lineY = last ? last.getBoundingClientRect().bottom + 5 : drag.r0.top; }
-    drag.before = before ? before.dataset.sec : null;
+    drag.before = before ? keyOf(before) : null;
     line.style.top = (lineY - sr.top + panelScroll.scrollTop - 1) + 'px';
   }
   function move(e) {
@@ -302,7 +361,7 @@ function moveInChain(id, beforeId) {
     d.card.classList.remove('dragging'); d.card.style.removeProperty('--dy');
     line.classList.remove('show'); document.body.classList.remove('reordering');
     if (!d.started) return;
-    if (e.type === 'pointerup') moveInChain(d.card.dataset.sec, d.before);
+    if (e.type === 'pointerup') moveInChain(keyOf(d.card), d.before);
     syncIslands();                               // the islands that were open unfold again
     spacerTop.style.height = spacerEnd.style.height = '0px';
     if (!document.body.contains(d.card)) return;
@@ -329,7 +388,8 @@ function moveInChain(id, beforeId) {
 /* ======================================================================
    Filters popover: the Filters pill (top-right corner, next to the histogram) opens a centred,
    scrollable grid of tiles, one per entry in FILTERS, with a search box for when the list grows.
-   Clicking a tile shows / hides that filter's island in the right panel (like a tool pill);
+   Clicking a tile opens that filter's island; when it is open already, it adds another instance of
+   the filter to the chain (stackable filters, instances.js);
    the switch on a tile mirrors the island's switch: on while the filter is open (or has values) and
    switched on; turning it on opens the island too.
    It stays open while you pick; Esc, the X, the pill or a click outside the box closes it.
@@ -351,7 +411,10 @@ const FilterPop = (() => {
       t.classList.toggle('sel', open);
       t.classList.toggle('active', on);
       t.classList.toggle('bypass', has && !on);
-      t.querySelector('.fp-state').textContent = has ? (on ? 'On' : 'Bypassed') : (open ? (on ? 'On · no edits yet' : 'Off') : 'No edits');
+      const ni = open ? instancesOf(S.edit, sec).length : 0;
+      t.querySelector('.fp-state').textContent = (ni > 1 ? `×${ni} in chain · ` : '')
+        + (has ? (on ? 'On' : 'Bypassed') : (open ? (on ? 'On · no edits yet' : 'Off') : 'No edits'));
+      t.querySelector('.fp-tbtn').title = open ? (ni >= MAX_INST ? `At most ${MAX_INST} in the chain` : 'Add another one to the chain') : 'Add to the chain';
       t.querySelector('.fp-sw input').checked = on;
     });
     const cnt = $('#fpCount');
@@ -391,7 +454,9 @@ const FilterPop = (() => {
   grid.addEventListener('click', e => {
     const b = e.target.closest('.fp-tbtn'); if (!b) return;
     const sec = b.parentElement.dataset.sec, cur = S.prefs.secs || [], add = !cur.includes(sec);
-    S.prefs.secs = add ? [...cur, sec] : cur.filter(x => x !== sec);
+    // a filter that is already open: the tile adds another instance of it (stackable filters)
+    if (!add) { if (typeof Inst !== 'undefined') Inst.add(sec); sync(); return; }
+    S.prefs.secs = [...cur, sec];
     if (add) S.prefs.collapsed = (S.prefs.collapsed || []).filter(x => x !== sec);
     if (add) placeIdle([sec]);
     syncSections(); syncIslands(); savePrefsSoon();

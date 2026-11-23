@@ -111,12 +111,26 @@ const filterActive = (f, e) => filterFields(f).map(fieldKD).some(([k, def]) => e
    flt_*...). Default = the tool pill order. */
 const CHAIN_TOOLS = ['point', 'adjust', 'curves', 'f_bw', 'f_film', 'f_sc'];
 const defaultChain = () => CHAIN_TOOLS.map(t => ({ id: t, t }));
+/* Stackable tools (redesign section 8): the same tool more than once in the chain. The first instance
+   of a tool (id = the tool) keeps its values in the edit's flat keys; every extra instance (id =
+   tool#n) has its own in e.inst[id], its switch in e.off[id] and an optional label in e.lbl[id].
+   Curves will stack later (its editor is one canvas). Mid/Detail works on the first Adjustments only
+   (the core keeps one smoothing). */
+const STACKABLE = ['adjust', 'f_bw', 'f_film', 'f_sc'];
+const MAX_INST = 8;                     // instances per tool, the first one included
+const isExtra = x => x.id !== x.t;
 /* the edit's chain, made whole: known tools only, each first instance once, missing ones added at
    their default place (edits from before the chain existed have none) */
 function chainOf(e) {
   const c = Array.isArray(e && e.chain) ? e.chain : [];
   const seen = new Set(), out = [];
-  for (const x of c) if (x && CHAIN_TOOLS.includes(x.t) && !seen.has(x.id)) { seen.add(x.id); out.push({ id: x.id, t: x.t }); }
+  const count = {};
+  for (const x of c) {
+    if (!x || !CHAIN_TOOLS.includes(x.t) || seen.has(x.id)) continue;
+    if (x.id !== x.t && (!STACKABLE.includes(x.t) || (count[x.t] || 0) >= MAX_INST - 1)) continue;
+    if (x.id !== x.t) count[x.t] = (count[x.t] || 0) + 1;
+    seen.add(x.id); out.push({ id: x.id, t: x.t });
+  }
   CHAIN_TOOLS.forEach((t, i) => {
     if (seen.has(t)) return;
     const at = out.findIndex(x => CHAIN_TOOLS.indexOf(x.t) > i);    // before the first tool that comes later by default
@@ -157,6 +171,30 @@ const SEC_NEUTRAL = {
   curves: () => ({ curves: { m: ident(), r: ident(), g: ident(), b: ident() } }),
   ...Object.fromEntries(PANELS.map(f => [f.sec, () => defaultFilter(f)])),
 };
+/* instances: the edit keys of a tool, an instance's values, whether it does anything */
+const TOOL_KEYS = t => Object.keys(SEC_NEUTRAL[t]());
+function instValues(e, id, t) {
+  if (id === t) { const n = SEC_NEUTRAL[t](); return Object.fromEntries(Object.keys(n).map(k => [k, e[k] !== undefined ? clone(e[k]) : n[k]])); }
+  const v = e.inst && e.inst[id];
+  return Object.assign(SEC_NEUTRAL[t](), v ? clone(v) : {});
+}
+const instActive = (e, x) => JSON.stringify(instValues(e, x.id, x.t)) !== JSON.stringify(SEC_NEUTRAL[x.t]());
+const instOn = (e, id) => !(e.off && e.off[id]);
+// the edit an extra instance's tables are computed from: its values in place of the flat ones
+function instEdit(e, x) {
+  const o = Object.assign({}, e, instValues(e, x.id, x.t));
+  if (!instOn(e, x.id)) Object.assign(o, SEC_NEUTRAL[x.t]());
+  if (x.t === 'adjust') o.adj_middetail = 0;
+  delete o.chain; delete o.inst;
+  return o;
+}
+function nextInstId(e, t) {
+  const ids = new Set(chainOf(e).map(x => x.id));
+  for (let n = 2; ; n++) if (!ids.has(t + '#' + n)) return t + '#' + n;
+}
+// the instances of tool t in chain order (the first instance included)
+const instancesOf = (e, t) => chainOf(e).filter(x => x.t === t);
+
 function effectiveEdit(e) {
   let out = e;
   for (const sec in e.off || {}) {

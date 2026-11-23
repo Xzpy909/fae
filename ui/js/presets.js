@@ -18,16 +18,27 @@ const Presets = (() => {
   const NO_BUTTON = ['f_film'];          // values kept for the edit presets, but no preset button
 
   let P = {};                             // the user's presets
-  let pop = null, openSec = null, kind = 'preset', btnOf = {}, filmBtn = null;
+  // islands by key: a tool (its first instance) or an extra instance (tool#n, see instances.js)
+  let pop = null, openSec = null, openKey = null, kind = 'preset', btnOf = {}, filmBtns = {};
   let saved = null, previewName = null;   // hover preview: the real edit while a preset is shown
 
   const valuesOf = (sec, e) => Object.fromEntries(TOOLS[sec].keys.map(k => [k, clone(e[k] !== undefined ? e[k] : TOOLS[sec].def()[k])]));
+  const typeOf = key => key.split('#')[0];
+  // an island's values in edit e, and e with an island's values set
+  const vals = (key, e) => key === typeOf(key) ? valuesOf(key, e)
+    : valuesOf(typeOf(key), Object.assign(TOOLS[typeOf(key)].def(), (e.inst || {})[key] || {}));
+  function setVals(e, key, values) {
+    if (key === typeOf(key)) Object.assign(e, clone(values));
+    else e.inst = Object.assign({}, e.inst, { [key]: Object.assign(TOOLS[typeOf(key)].def(), (e.inst || {})[key], clone(values)) });
+    if (e.off && e.off[key]) { e.off = Object.assign({}, e.off); delete e.off[key]; }
+    return e;
+  }
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const list = sec => P[sec] || (P[sec] = []);
   const realEdit = () => saved || S.edit;
 
-  function label(sec) {
-    const v = valuesOf(sec, realEdit());
+  function label(key) {
+    const sec = typeOf(key), v = vals(key, realEdit());
     if (same(v, valuesOf(sec, TOOLS[sec].def()))) return 'Default';
     const p = list(sec).find(p => same(valuesOf(sec, p.values), v));
     return p ? p.name : 'Custom';
@@ -47,44 +58,50 @@ const Presets = (() => {
   }
   const store = () => { try { api().save_presets(P); } catch (_) {} };
 
-  /* ---------- the button in each tool's row ---------- */
-  for (const sec in TOOLS) {
-    if (NO_BUTTON.includes(sec)) continue;
-    const card = document.querySelector(`#panel .card.sec[data-sec="${sec}"]`);
-    const title = card && card.querySelector('.isl-title');
-    if (!title) continue;
+  /* ---------- the button in each tool's row (and each extra instance's: attach) ---------- */
+  const FILM_FIELD = FILTERS.find(f => f.sec === 'f_film').fields.find(a => a.key === 'flt_film_preset');
+  const filmName = v => (FILM_FIELD.options.find(o => o[0] === v) || FILM_FIELD.options[0])[1];
+  function attach(card) {
+    const key = card.dataset.id || card.dataset.sec, sec = typeOf(key);
+    if (!TOOLS[sec]) return;
+    if (sec === 'f_film') return attachFilm(card, key);
+    if (NO_BUTTON.includes(sec)) return;
+    const title = card.querySelector('.isl-title');
+    if (!title || btnOf[key] === card.querySelector('.isl-preset')) return;
     const b = document.createElement('button');
     b.className = 'isl-preset';
     b.title = 'Presets';
     b.innerHTML = '<span class="pp-label">Default</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>';
-    b.addEventListener('click', e => { e.stopPropagation(); openSec === sec ? close() : open(sec); });
-    title.after(b);
-    btnOf[sec] = b;
+    b.addEventListener('click', e => { e.stopPropagation(); openKey === key && kind === 'preset' ? close() : open(key); });
+    (card.querySelector('.isl-lbl') || title).after(b);
+    btnOf[key] = b;
   }
-
-  /* ---------- Film Effect: the Film field opens the film list ---------- */
-  const FILM_FIELD = FILTERS.find(f => f.sec === 'f_film').fields.find(a => a.key === 'flt_film_preset');
-  const filmName = v => (FILM_FIELD.options.find(o => o[0] === v) || FILM_FIELD.options[0])[1];
-  {
-    const row = document.querySelector('#filmFields .field.fsel'), sel = row && row.querySelector('select');
-    if (row && sel) {
-      sel.hidden = true;                    // kept: FIELDS still syncs it, and it holds the value list
-      filmBtn = document.createElement('button');
-      filmBtn.className = 'film-pick';
-      filmBtn.innerHTML = '<span class="pp-label"></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>';
-      sel.after(filmBtn);
-      const toggle = e => { e.stopPropagation(); kind === 'film' && openSec ? close() : openFilm(); };
-      filmBtn.addEventListener('click', toggle);
-      row.querySelector('label').addEventListener('click', toggle);
-    }
+  /* Film Effect: the Film field opens the film list */
+  function attachFilm(card, key) {
+    const row = card.querySelector('.field.fsel'), sel = row && row.querySelector('select');
+    if (!row || !sel || row.querySelector('.film-pick')) return;
+    sel.hidden = true;                      // kept: FIELDS still syncs it, and it holds the value list
+    const b = document.createElement('button');
+    b.className = 'film-pick';
+    b.innerHTML = '<span class="pp-label"></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>';
+    sel.after(b);
+    const toggle = e => { e.stopPropagation(); kind === 'film' && openKey === key ? close() : open(key, 'film'); };
+    b.addEventListener('click', toggle);
+    row.querySelector('label').addEventListener('click', toggle);
+    filmBtns[key] = b;
   }
+  document.querySelectorAll('#panel .card.sec').forEach(attach);
 
   function sync() {
-    if (filmBtn) filmBtn.querySelector('.pp-label').textContent = filmName(realEdit().flt_film_preset);
-    for (const sec in btnOf) {
-      const l = label(sec), el = btnOf[sec].querySelector('.pp-label');
+    for (const key in filmBtns) {
+      if (!filmBtns[key].isConnected) { delete filmBtns[key]; continue; }
+      filmBtns[key].querySelector('.pp-label').textContent = filmName(vals(key, realEdit()).flt_film_preset);
+    }
+    for (const key in btnOf) {
+      if (!btnOf[key].isConnected) { delete btnOf[key]; continue; }
+      const l = label(key), el = btnOf[key].querySelector('.pp-label');
       if (el.textContent !== l) el.textContent = l;
-      btnOf[sec].classList.toggle('custom', l !== 'Default');
+      btnOf[key].classList.toggle('custom', l !== 'Default');
     }
   }
 
@@ -116,21 +133,20 @@ const Presets = (() => {
   }
   // the edit with sec's values replaced; tools that run after it are left out (the thumbnail shows the
   // chain up to and including this tool)
-  function editWith(sec, values) {
-    const e = Object.assign(clone(realEdit()), clone(values));
+  function editWith(key, values) {
+    const e = setVals(clone(realEdit()), key, values);
     e.off = Object.assign({}, e.off);
-    delete e.off[sec];
-    const c = chainOf(e), at = c.findIndex(x => x.id === sec);
-    if (at >= 0) c.forEach((x, i) => { if (i > at) e.off[x.t] = true; });   // (Sharpen runs after the whole chain)
-    if (sec !== 'sharpen') e.off.sharpen = true;
+    const c = chainOf(e), at = c.findIndex(x => x.id === key);
+    if (at >= 0) c.forEach((x, i) => { if (i > at) e.off[x.id] = true; });   // (Sharpen runs after the whole chain)
+    if (key !== 'sharpen') e.off.sharpen = true;
     return e;
   }
-  function drawThumb(cv, sec, values) {
+  function drawThumb(cv, key, values) {
     const I = S.img, g = cv.getContext('2d');
     if (!I || !I.base) return;
-    const t = smallOf(I, sec === 'sharpen');
+    const t = smallOf(I, key === 'sharpen');
     g.putImageData(new ImageData(new Uint8ClampedArray(t.base), TW, TH), 0, 0);   // unedited until the render is in
-    WP.thumb(t, computeEdit(effectiveEdit(editWith(sec, values)))).then(r => {
+    WP.thumb(t, computeEdit(effectiveEdit(editWith(key, values)))).then(r => {
       if (r && r.w === TW && r.h === TH && cv.isConnected) g.putImageData(new ImageData(new Uint8ClampedArray(r.out), TW, TH), 0, 0);
     });
   }
@@ -139,19 +155,14 @@ const Presets = (() => {
   const chip = document.createElement('div');
   chip.id = 'presetChip';
   vp.appendChild(chip);
-  function preview(sec, values, name) {
+  function preview(key, values, name) {
     if (!saved) saved = S.edit;
-    S.edit = editWithout(sec, values);
+    S.edit = setVals(clone(saved), key, values);
     previewName = name;
     chip.textContent = 'Previewing ' + name;
     chip.classList.add('show');
     editChanged();
   }
-  const editWithout = (sec, values) => {        // the real edit with sec's values (island on)
-    const e = Object.assign(clone(saved), clone(values));
-    if (e.off && e.off[sec]) { e.off = Object.assign({}, e.off); delete e.off[sec]; }
-    return e;
-  };
   function endPreview() {
     chip.classList.remove('show');
     if (!saved) return;
@@ -159,12 +170,10 @@ const Presets = (() => {
     editChanged();
   }
 
-  function apply(sec, values) {
+  function apply(key, values) {
     const base = saved || S.edit;
     saved = null; previewName = null; chip.classList.remove('show');
-    const e = Object.assign(clone(base), clone(values));
-    if (e.off && e.off[sec]) { e.off = Object.assign({}, e.off); delete e.off[sec]; }
-    S.edit = e;
+    S.edit = setVals(clone(base), key, values);
     close();
     syncPanel(); editChanged(); commit();
   }
@@ -177,8 +186,8 @@ const Presets = (() => {
 
   function render() {
     if (!openSec) return;                  // closed meanwhile (e.g. Esc while naming)
-    const sec = openSec, film = kind === 'film';
-    const cur = film ? filmName(realEdit().flt_film_preset) : label(sec);
+    const sec = openSec, key = openKey, film = kind === 'film';
+    const cur = film ? filmName(vals(key, realEdit()).flt_film_preset) : label(key);
     const items = film
       ? FILM_FIELD.options.map(([v, name]) => ({ name, meta: v === 'none' ? 'No film' : '', values: { flt_film_preset: v } }))
       : [{ name: 'Default', meta: 'No changes', values: valuesOf(sec, TOOLS[sec].def()) },
@@ -196,11 +205,11 @@ const Presets = (() => {
     const rows = pop.querySelectorAll('.pp-item');
     rows.forEach(row => {
       const it = items[+row.dataset.k];
-      drawThumb(row.querySelector('canvas'), sec, it.values);
-      row.addEventListener('mouseenter', () => { if (!row.classList.contains('editing')) preview(sec, it.values, it.name); });
+      drawThumb(row.querySelector('canvas'), key, it.values);
+      row.addEventListener('mouseenter', () => { if (!row.classList.contains('editing')) preview(key, it.values, it.name); });
       row.addEventListener('click', e => {
         if (e.target.closest('.pp-acts, input') || row.classList.contains('editing')) return;
-        apply(sec, it.values);
+        apply(key, it.values);
       });
       if (it.i === undefined) return;
       row.querySelector('.pp-ren').addEventListener('click', () => nameInput(row.querySelector('.pp-text'), it.name, name => {
@@ -230,7 +239,7 @@ const Presets = (() => {
       endPreview();
       nameInput(pop.querySelector('.pp-save-row'), '', name => {
         if (!name) return render();
-        const l = list(sec), v = valuesOf(sec, S.edit), at = l.findIndex(p => p.name === name);
+        const l = list(sec), v = vals(key, S.edit), at = l.findIndex(p => p.name === name);
         if (at >= 0) l[at].values = v; else l.push({ name, values: v });
         store(); render(); sync();
       });
@@ -255,7 +264,7 @@ const Presets = (() => {
   }
 
   function place() {
-    const b = kind === 'film' ? filmBtn : btnOf[openSec], panel = $('#panel');
+    const b = anchor(), panel = $('#panel');
     if (!b || !pop) return;
     const pr = panel.getBoundingClientRect(), br = b.getBoundingClientRect();
     pop.style.top = pop.style.bottom = '';
@@ -264,7 +273,8 @@ const Presets = (() => {
     else pop.style.top = (br.bottom - pr.top + 6) + 'px';
   }
 
-  function open(sec, k = 'preset') {
+  const anchor = () => kind === 'film' ? filmBtns[openKey] : btnOf[openKey];
+  function open(key, k = 'preset') {
     close();
     kind = k;
     if (!pop) {
@@ -273,8 +283,8 @@ const Presets = (() => {
       $('#panel').appendChild(pop);
       pop.addEventListener('pointerdown', e => e.stopPropagation());
     }
-    openSec = sec;
-    (kind === 'film' ? filmBtn : btnOf[sec]).classList.add('open');
+    openKey = key; openSec = typeOf(key);
+    anchor().classList.add('open');
     render();
     pop.classList.add('show');
     place();
@@ -283,13 +293,12 @@ const Presets = (() => {
     if (!openSec) return;
     endPreview();
     WP.clearThumbs();
-    (kind === 'film' ? filmBtn : btnOf[openSec]).classList.remove('open');
-    openSec = null;
+    if (anchor()) anchor().classList.remove('open');
+    openSec = null; openKey = null;
     pop.classList.remove('show');
     pop.innerHTML = '';
   }
-  const openFilm = () => open('f_film', 'film');
-  document.addEventListener('pointerdown', e => { if (openSec && !e.target.closest('.isl-preset, .film-pick, #filmFields .fsel label')) close(); });
+  document.addEventListener('pointerdown', e => { if (openSec && !e.target.closest('.isl-preset, .film-pick, .fsel label')) close(); });
   document.addEventListener('keydown', e => { if (openSec && e.key === 'Escape') { e.stopPropagation(); close(); } }, true);
   $('#panel .scroll').addEventListener('scroll', () => { if (openSec) place(); });
   // a shortcut (undo, copy edits…) while a preset is previewed works on the real edit
@@ -297,5 +306,5 @@ const Presets = (() => {
 
   return { load, sync, close, previewing: () => !!saved,
     // shared with the edit presets (chain-presets.js)
-    TOOLS, valuesOf, same, smallOf, data: () => P, store };
+    TOOLS, valuesOf, same, smallOf, data: () => P, store, attach };
 })();

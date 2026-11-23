@@ -9,11 +9,11 @@ function jobFor(f, isCur) {
     : (f.state || { stage: S.stage, edit: defaultEdit(), geom: defaultGeom() });
   const E = computeEdit(effectiveEdit(st.edit));
   const edit = Object.assign(jobEdit(E), { sharp: E.sharp });
-  // a non-default chain order: the steps in order, each with its tool's fields only (fastedit/core.py _steps)
-  // (every step is still the tool's first instance, so its tables are E's)
+  // a non-default chain (order, or a tool more than once): the steps in order, each with its own
+  // instance's tables, that tool's fields only (fastedit/core.py _steps)
   if (E.steps) edit.steps = E.steps.map(s => {
-    const o = { t: s.t };
-    for (const k of STEP_FIELDS[s.t]) o[k] = edit[k];
+    const o = { t: s.t }, je = s === E ? edit : jobEdit(s);
+    for (const k of STEP_FIELDS[s.t]) o[k] = je[k];
     return o;
   });
   return { path: f.path, stage: stageParams(st.stage, st.geom), edit };

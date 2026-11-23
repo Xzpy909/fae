@@ -32,34 +32,50 @@ const ChainPresets = (() => {
   }
 
   // a preset read from disk, made whole (unknown tools / keys dropped, missing values neutral)
+  const typeOf = id => id.split('#')[0], entry = id => ({ id, t: typeOf(id) });
   function clean(p) {
     if (!p || typeof p.name !== 'string') return null;
     const values = {};
     for (const sec of SECS_C) values[sec] = Presets.valuesOf(sec, Object.assign(T[sec].def(), (p.values || {})[sec] || {}));
-    const chain = chainOf({ chain: (Array.isArray(p.chain) ? p.chain : []).map(id => ({ id, t: id })) }).map(x => x.id);
-    const off = (Array.isArray(p.off) ? p.off : []).filter(s => SECS_C.includes(s));
+    const chain = chainOf({ chain: (Array.isArray(p.chain) ? p.chain : []).map(entry) }).map(x => x.id);
+    // extra instances (stackable tools): their values, switches and labels
+    const inst = {}, lbl = {};
+    for (const id of chain.filter(id => id.includes('#'))) {
+      inst[id] = Presets.valuesOf(typeOf(id), Object.assign(T[typeOf(id)].def(), (p.inst || {})[id] || {}));
+      if (p.lbl && typeof p.lbl[id] === 'string') lbl[id] = p.lbl[id].slice(0, 30);
+    }
+    for (const sec of SECS_C) if (p.lbl && typeof p.lbl[sec] === 'string') lbl[sec] = p.lbl[sec].slice(0, 30);
+    const off = (Array.isArray(p.off) ? p.off : []).filter(s => SECS_C.includes(s) || inst[s]);
     const stage = p.stage && typeof p.stage === 'object'
       ? stageOf(Object.assign({}, DEFAULT_STAGE, p.stage.resize || {}, p.stage.color || {})) : null;
-    return { name: p.name.slice(0, 60), chain, values, off, stage };
+    return { name: p.name.slice(0, 60), chain, values, off, stage, inst, lbl };
   }
   // the current edit as a preset
   function capture(name) {
     const e = S.edit, values = {};
     for (const sec of SECS_C) values[sec] = Presets.valuesOf(sec, e);
-    return { name, chain: chainOf(e).map(x => x.id), values,
-      off: SECS_C.filter(sec => e.off && e.off[sec] && !isDefault(sec, values[sec])), stage: stageOf(S.stage) };
+    const chain = chainOf(e), inst = {}, lbl = {};
+    for (const x of chain.filter(isExtra)) inst[x.id] = Presets.valuesOf(x.t, Object.assign(T[x.t].def(), (e.inst || {})[x.id] || {}));
+    for (const x of chain) if (e.lbl && e.lbl[x.id]) lbl[x.id] = e.lbl[x.id];
+    return { name, chain: chain.map(x => x.id), values, inst, lbl, stage: stageOf(S.stage),
+      off: [...SECS_C.filter(sec => e.off && e.off[sec] && !isDefault(sec, values[sec])), ...Object.keys(inst).filter(id => e.off && e.off[id])] };
   }
   // the tools a preset uses, in the order they run: Resize, Color balance, the chain, Sharpen
+  // (ids: a tool, or an extra instance tool#n)
+  const usedId = (p, id) => id.includes('#') ? !isDefault(typeOf(id), (p.inst || {})[id]) : !isDefault(id, p.values[id]);
   const toolsOf = p => [...(p.stage ? ['resize', 'color'].filter(t => stageUsed(t, p.stage[t])) : []),
-    ...[...p.chain.filter(s => SECS_C.includes(s)), 'sharpen'].filter((s, i, a) => a.indexOf(s) === i && !isDefault(s, p.values[s]))];
+    ...[...p.chain.filter(s => SECS_C.includes(typeOf(s))), 'sharpen'].filter((s, i, a) => a.indexOf(s) === i && usedId(p, s))];
   // the edit with the preset applied to it
   function applied(base, p) {
     const e = clone(base);
     for (const sec of SECS_C) Object.assign(e, clone(p.values[sec]));
     e.off = Object.assign({}, e.off);
     for (const sec of SECS_C) delete e.off[sec];
+    for (const x of chainOf(base)) if (isExtra(x)) delete e.off[x.id];
     for (const sec of p.off) e.off[sec] = true;
-    e.chain = chainOf({ chain: p.chain.map(id => ({ id, t: id })) });
+    e.chain = chainOf({ chain: p.chain.map(entry) });
+    if (p.inst && Object.keys(p.inst).length) e.inst = clone(p.inst); else delete e.inst;
+    if (p.lbl && Object.keys(p.lbl).length) e.lbl = clone(p.lbl); else delete e.lbl;
     return e;
   }
 
@@ -92,7 +108,7 @@ const ChainPresets = (() => {
     }
     // open the islands of the tools in the preset
     const open = S.prefs.secs || [];
-    S.prefs.secs = [...open, ...toolsOf(p).filter(s => !open.includes(s))];
+    S.prefs.secs = [...open, ...toolsOf(p).map(typeOf).filter((s, i, a) => a.indexOf(s) === i && !open.includes(s))];
     savePrefsSoon();
     close();
     syncPanel(); editChanged(); commit();
@@ -142,8 +158,8 @@ const ChainPresets = (() => {
         <div class="cp-thumbw"><canvas class="cp-thumb" width="${TW}" height="${TH}"></canvas>
           <button class="cp-apply">Apply</button><button class="cp-more" title="More">${DOTS}</button></div>
         <div class="cp-row"><span class="cp-name">${esc(p.name)}</span><span class="cp-meta">Yours</span></div>
-        <div class="cp-strip">${toolsOf(p).map(s => `<span class="cp-tool" title="${esc(NAME[s])}${p.off.includes(s) ? ' (off)' : ''}"`
-          + `${p.off.includes(s) ? ' data-off' : ''}><svg viewBox="0 0 24 24">${ICON[s]}</svg></span>`).join('<i>›</i>') || '<span class="cp-none">No tools</span>'}</div>
+        <div class="cp-strip">${toolsOf(p).map(s => `<span class="cp-tool" title="${esc(NAME[typeOf(s)])}${(p.lbl || {})[s] ? ' · ' + esc(p.lbl[s]) : ''}${p.off.includes(s) ? ' (off)' : ''}"`
+          + `${p.off.includes(s) ? ' data-off' : ''}><svg viewBox="0 0 24 24">${ICON[typeOf(s)]}</svg></span>`).join('<i>›</i>') || '<span class="cp-none">No tools</span>'}</div>
       </div>`).join('');
     grid.querySelectorAll('.cp-card').forEach(card => {
       const p = l[+card.dataset.i];

@@ -80,9 +80,10 @@ function computeEdit(e) {
     md: (Number(e.adj_middetail) || 0) / 100, bw: bwParams(e), film: filmParams(e), sc: scParams(e),
     sharp: sharpParams(e) };
   // the chain order: E.steps only when it differs from the default (the core's DEFAULT_ORDER, which is the
-  // same order), one step per instance with t = the core's step kind and that tool's tables
+  // same order) or a tool is in it more than once; one step per instance with t = the core's step kind and
+  // that tool's tables (an extra instance's from its own values, see instEdit)
   const chain = chainOf(e);
-  if (!isDefaultChain(chain)) E.steps = chain.map(c => Object.assign({ t: STEP_KIND[c.t] }, E));
+  if (!isDefaultChain(chain)) E.steps = chain.map(c => Object.assign({ t: STEP_KIND[c.t] }, isExtra(c) ? computeEdit(instEdit(e, c)) : E));
   return E;
 }
 /* chain tool -> the core's step kind (wasm-params.js, fastedit/core.py) and the E fields it reads */

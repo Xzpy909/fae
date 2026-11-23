@@ -199,7 +199,7 @@ Progress (implemented in waves):
     2. no flicker on the resolution swap: the last frame stays on the canvas, scaled, until the new resolution's first render is ready; the preview worker keeps the two newest images, so zooming back and forth costs no upload and each keeps its Mid/Detail smoothing and cached measurements; zooming back out reuses the small preview without a load;
     3. the swap stays at 1.01× (back below 0.8×) — a later swap (1.35×) was tried and reverted: the small copy shown scaled up looked soft.
   - **Screen-resolution view — done.** Below 1:1 the browser shrinks the preview canvas with its quick filter, so in-between zooms looked soft, and how soft depended on which preview was on screen (the small copy at 0.95× looked softer than the full-resolution one at 0.33×). Now, 150 ms after the view and the pixels stop changing, the visible part is redrawn at exactly the screen's pixel size with Lanczos-3 (`ui/js/sharp-view.js`, `sharp-worker.js`: up to 8 workers by bands; below half size an f×f block average first, so the filter never shrinks by more than 2×) into `#sharp` over the canvas, like an image viewer settling after a zoom. Any change of view or pixels hides it until the next redraw; not used while a control is held (the canvas is shown as the browser scales it), in crop mode, or at 1:1 and above. Tested: matches PIL's Lanczos within ~1 level, placed pixel-exactly on screen (devicePixelRatio 1 and 1.25), ~0.2 s after the pause with one worker.
-- **Wave 4 — per-tool presets with thumbnails: done** (section 3.4). **Wave 5 — chain presets: done** (section 4.1). Wave 6 — stacking UI.
+- **Wave 4 — per-tool presets with thumbnails: done** (section 3.4). **Wave 5 — chain presets: done** (section 4.1). **Wave 6 — stacking: done** (section 8.9; Curves later).
 
 1. ~~Shared slider component~~ — standard slider done; alternative (gradient tracks) still to design.
 2. Unified window header (section 6) — independent of the panel work, can be done any time; doing it early gives the panel the extra height.
@@ -264,6 +264,18 @@ Single-only tools are about the image as a whole (geometry, output size, white b
 - Cap: **8 per type**.
 - Instance tags **follow chain order** (renumber after a move).
 - Rust core changes are rebuilt on the Windows PC with `core\build_core.bat` when asked.
+
+### 8.9 Status — done (wave 6, first version; Curves later)
+
+Built in `ui/js/instances.js` (islands, Duplicate, row menu, tiles), data model in `state.js`, steps in `edit-math.js` / `process.js`.
+- **Data model:** the first instance of a tool keeps its values in the flat keys (old edits need no migration); every extra instance is a chain entry `tool#n` with its values in `e.inst[id]`, its switch in `e.off[id]` and an optional label in `e.lbl[id]` (labels work on first instances too). Undo / redo, per-image state, Copy / Paste carry all of it.
+- **Pipeline:** an extra instance's tables are computed from its own values (`instEdit`), one step per instance in chain order, for the live preview and for Process (`jobFor` sends each step's own tables). No core change was needed (the core already took a list of steps).
+- **Stackable now:** Adjustments, Perceptual Saturation, Film Effect, Super Contrast. **Curves: later** (its editor is one canvas; needs to become per instance). **Mid/Detail only on the first Adjustments** (the core keeps one smoothing; extra Adjustments have no Mid/Detail slider).
+- **Panel:** each instance has its own island (switch, preset button / film list, Duplicate, reset, X); instance tag `[1]`, `[2]` (lavender, chain order) when a tool is there more than once, then the label (`· grain`). Drag to reorder as before.
+- **Duplicate:** icon in the head, row menu or `Ctrl+D` — the copy goes right after the original with the same values, switch and label. **Row menu** (right-click the head): Duplicate, Rename… (`F2`), Move up, Move down, Reset, Remove (`Del`). Shortcuts work on the island under the mouse, only while the mouse is over the panel.
+- **X on a first instance** that has copies: the next copy takes its values, switch, label and place (the tool stays open).
+- **Filters tiles:** a tile opens the filter; when it is open already, the tile adds another (neutral) instance after the open islands; the tile shows `×N in chain`. Max 8 per tool (toast).
+- **Presets:** per-tool presets and the film list work on the instance they were opened from; edit presets store every instance (`inst`, `lbl`, ids in `chain`) and recreate them.
 
 ### 8.8 Chain order (decided)
 

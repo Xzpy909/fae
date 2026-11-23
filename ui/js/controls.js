@@ -7,6 +7,8 @@
 const FIELDS = [];
 function makeField(parent, spec) {
   const { obj, key, label, min, max, step, dec } = spec;
+  // where the value lives: S[obj], or spec.target() (an extra instance's values, see instances.js)
+  const OBJ = () => (spec.target ? spec.target() : S[obj]) || {};
   const smin = spec.smin ?? min, smax = spec.smax ?? max;
   const row = document.createElement('div');
   row.className = spec.wheel ? 'field wheel' : spec.grad ? 'field grad' : 'field';
@@ -30,18 +32,20 @@ function makeField(parent, spec) {
   const trk = row.querySelector('.sl .trk');
   const pct = v => (clamp(v, smin, smax) - smin) / (smax - smin) * 100;
   if (anchor != null) row.querySelector('.sl .tick').style.left = pct(anchor) + '%';
-  const jog = spec.wheel ? makeJog(rng, () => (S[obj][key] - (spec.def ?? 0)) / perPx) : null;
+  const jog = spec.wheel ? makeJog(rng, () => (OBJ()[key] - (spec.def ?? 0)) / perPx) : null;
   const set = (v, fin) => {
     v = clamp(Number(v), min, max);
     if (!isFinite(v)) return;
     v = dec === 0 ? Math.round(v) : Number(v.toFixed(dec));
-    S[obj][key] = v;
+    const o = spec.target ? spec.target() : S[obj];
+    if (!o) return;
+    o[key] = v;
     sync();
     valueChanged(obj);
     if (fin) commit();
   };
   const sync = () => {
-    const v = S[obj][key];
+    const v = OBJ()[key];
     num.value = Number(v).toFixed(dec);
     if (jog) jog.draw();
     else {
@@ -59,25 +63,25 @@ function makeField(parent, spec) {
     if (spec.enabled) row.classList.toggle('disabled', !spec.enabled());
   };
   if (jog) {
-    dragScrub(rng, perPx, { get: () => S[obj][key], set, onDrag: on => jog.active(on), lo: min, hi: max });
+    dragScrub(rng, perPx, { get: () => OBJ()[key], set, onDrag: on => jog.active(on), lo: min, hi: max });
     rng.addEventListener('wheel', e => {
       e.preventDefault();
-      set(S[obj][key] + (e.deltaY < 0 ? 1 : -1) * step * (e.shiftKey ? 0.1 : e.ctrlKey ? 10 : 1), true);
+      set(OBJ()[key] + (e.deltaY < 0 ? 1 : -1) * step * (e.shiftKey ? 0.1 : e.ctrlKey ? 10 : 1), true);
     }, { passive: false });
   } else {
     rng.addEventListener('input', () => set(rng.value, false));
     rng.addEventListener('change', () => commit());
   }
   rng.addEventListener('dblclick', () => { if (spec.def != null) set(spec.def, true); });
-  dragScrub(num, perPx * 2, { get: () => S[obj][key], set, field: true, lo: min, hi: max });
+  dragScrub(num, perPx * 2, { get: () => OBJ()[key], set, field: true, lo: min, hi: max });
   num.addEventListener('change', () => set(num.value, true));
   num.addEventListener('keydown', e => { if (e.key === 'Enter') num.blur(); e.stopPropagation(); });
   num.addEventListener('wheel', e => {
     e.preventDefault();
-    set(S[obj][key] + (e.deltaY < 0 ? 1 : -1) * step * (e.shiftKey ? 10 : 1), true);
+    set(OBJ()[key] + (e.deltaY < 0 ? 1 : -1) * step * (e.shiftKey ? 10 : 1), true);
   }, { passive: false });
   parent.appendChild(row);
-  FIELDS.push({ sync });
+  FIELDS.push({ sync, row });
 }
 
 /* Horizontal drag that changes a value: Shift = fine (x0.1), Ctrl = coarse (x10).
@@ -171,15 +175,16 @@ for (const [key, label, def, min, max, step, dec] of ADJUST)   // Saturation / C
 $('#resetAdjust').addEventListener('click', () => { Object.assign(S.edit, defaultAdjust()); syncPanel(); editChanged(); commit(); });
 const FILTER_UI = { f_bw: { fields: '#bwFields', reset: '#resetBW' }, f_film: { fields: '#filmFields', reset: '#resetFilm' },
   f_sc: { fields: '#scFields', reset: '#resetSC' }, sharpen: { fields: '#shpFields', reset: '#resetShp' } };
-function makeSelectField(parent, a) {
+function makeSelectField(parent, a, target) {
   const row = document.createElement('div');
   row.className = 'field fsel';
   row.innerHTML = `<label>${a.label}</label><select>${a.options.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>`;
-  const sel = row.querySelector('select');
-  sel.addEventListener('change', () => { S.edit[a.key] = sel.value; valueChanged('edit'); commit(); });
+  const sel = row.querySelector('select'), OBJ = () => (target ? target() : S.edit) || {};
+  sel.addEventListener('change', () => { OBJ()[a.key] = sel.value; valueChanged('edit'); commit(); });
   sel.addEventListener('keydown', e => e.stopPropagation());
   parent.appendChild(row);
-  FIELDS.push({ sync: () => { sel.value = S.edit[a.key] ?? a.def; } });
+  FIELDS.push({ sync: () => { sel.value = OBJ()[a.key] ?? a.def; }, row });
+  return row;
 }
 for (const f of PANELS) {
   const ui = FILTER_UI[f.sec];
@@ -337,6 +342,8 @@ function syncEnabled() {
   $('#prioSel').closest('.field-row').style.opacity = S.stage.mode === 'Mpix' ? 1 : .38;
 }
 function syncPanel() {
+  // fields of islands that were removed (extra instances) drop out
+  for (let i = FIELDS.length - 1; i >= 0; i--) if (FIELDS[i].row && FIELDS[i].row.dead) FIELDS.splice(i, 1);
   FIELDS.forEach(f => f.sync());
   syncSections(); updatePills(); syncResize();
   syncMode(); syncFmt(); syncJMode(); syncWMode();

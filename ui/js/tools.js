@@ -156,6 +156,7 @@ function syncIslands() {
   // order numbers: 1, 2, 3 … over the open re-orderable islands, top to bottom
   let n = 0;
   document.querySelectorAll('#panel .card.sec.show .isl-num').forEach(b => { b.textContent = ++n; });
+  if (typeof Presets !== 'undefined') Presets.sync();
 }
 buildIslands();
 

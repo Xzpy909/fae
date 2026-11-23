@@ -55,6 +55,7 @@ function editChanged() {
   updateMarkers();
   requestRender();
   markCurrentEdited();
+  if (typeof Presets !== 'undefined') Presets.sync();
   if (S.cropMode && (typeof Crop !== "undefined")) Crop.editChanged();
   requestJpeg();
 }

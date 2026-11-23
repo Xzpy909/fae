@@ -35,6 +35,7 @@ async function init() {
   try { const ji = await api().encoder_info(); S.cmp.jpegli = !!(ji && ji.jpegli); S.cmp.avif = !!(ji && ji.avif); S.cmp.svt = !!(ji && ji.svt); } catch (_) {}
   S.committed = snapshot();
   syncPanel(); editChanged(); updateInfo();
+  Presets.load();
   try { const init = await api().initial_files(); if (init && init.length) addPaths(init); } catch (_) {}
 }
 S.E = computeEdit(effectiveEdit(S.edit));

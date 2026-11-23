@@ -83,6 +83,16 @@ Opens under the row's preset button, anchored to the panel's right edge, frosted
 
 Not every tool gets presets — for some they make no sense. Decide tool by tool when implementing; tools without presets simply have no preset button in their row (no empty placeholder).
 
+### 3.4 Status — done (wave 4, first version)
+
+Built in `ui/js/presets.js`; stored in `fae_presets.json` next to the settings (`get_presets` / `save_presets`).
+- **Tools with a preset button:** Adjustments, Curves, Perceptual Saturation, Film Effect, Super Contrast. Not: Crop, Point correction, Resize, Color balance (about one image), Sharpen (for now).
+- **Label** is worked out from the values: `Default` when they are neutral, a preset's name when they equal it, else `Custom` (no stored "active preset").
+- **Dropdown** as in 3.1: thumbnail, name, meta (`No changes` / `Yours`), active row with check; `+ Save current as preset…` opens a name field in place (Enter saves, an existing name is overwritten). Rename / delete are icons on your own rows (hover), delete asks for a second click — instead of a separate `Rename / delete presets` entry.
+- **Thumbnails** are the current image (3:2 centre crop, 108×72) through the edit with the preset, the chain up to and including that tool (later tools and Sharpen left out), rendered by the core in a queue of their own that never delays or replaces live renders (`WP.thumb`).
+- **Hover** previews on the main image with the `Previewing <name>` chip; leaving the list restores the edit; **click** applies (one undo step, turns the island on).
+- No built-in presets yet (only `Default`).
+
 ## 4. Chain presets (approved design — "Edit presets")
 
 A **Presets** button in the top bar, directly before **Copy edits** (`Presets ▾ | Copy edits | Paste | Reset`). It opens a large frosted dropdown (~620 px) under the button:
@@ -179,7 +189,7 @@ Progress (implemented in waves):
     2. no flicker on the resolution swap: the last frame stays on the canvas, scaled, until the new resolution's first render is ready; the preview worker keeps the two newest images, so zooming back and forth costs no upload and each keeps its Mid/Detail smoothing and cached measurements; zooming back out reuses the small preview without a load;
     3. the swap stays at 1.01× (back below 0.8×) — a later swap (1.35×) was tried and reverted: the small copy shown scaled up looked soft.
   - **Screen-resolution view — done.** Below 1:1 the browser shrinks the preview canvas with its quick filter, so in-between zooms looked soft, and how soft depended on which preview was on screen (the small copy at 0.95× looked softer than the full-resolution one at 0.33×). Now, 150 ms after the view and the pixels stop changing, the visible part is redrawn at exactly the screen's pixel size with Lanczos-3 (`ui/js/sharp-view.js`, `sharp-worker.js`: up to 8 workers by bands; below half size an f×f block average first, so the filter never shrinks by more than 2×) into `#sharp` over the canvas, like an image viewer settling after a zoom. Any change of view or pixels hides it until the next redraw; not used while a control is held (the canvas is shown as the browser scales it), in crop mode, or at 1:1 and above. Tested: matches PIL's Lanczos within ~1 level, placed pixel-exactly on screen (devicePixelRatio 1 and 1.25), ~0.2 s after the pause with one worker.
-- Wave 4 — per-tool presets with thumbnails. Wave 5 — chain presets. Wave 6 — stacking UI.
+- **Wave 4 — per-tool presets with thumbnails: done** (section 3.4). Wave 5 — chain presets. Wave 6 — stacking UI.
 
 1. ~~Shared slider component~~ — standard slider done; alternative (gradient tracks) still to design.
 2. Unified window header (section 6) — independent of the panel work, can be done any time; doing it early gives the panel the extra height.

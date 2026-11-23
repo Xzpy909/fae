@@ -8,7 +8,7 @@ import subprocess
 import sys
 import numpy as np
 from PIL import Image
-from .config import HIRES_MAX_MP, IMAGE_EXTS, PREVIEW_MAX, SETTINGS_PATH, StageParams
+from .config import HIRES_MAX_MP, IMAGE_EXTS, PRESETS_PATH, PREVIEW_MAX, SETTINGS_PATH, StageParams
 from .geometry import fit_scale
 from . import core
 from .engine import ENGINE, Entry, collect
@@ -77,6 +77,25 @@ class Api:
         except Exception:
             pass
         return True
+
+    def get_presets(self):
+        """The user's tool presets: {tool: [{name, values}]}."""
+        try:
+            with open(PRESETS_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def save_presets(self, data):
+        try:
+            tmp = PRESETS_PATH + ".tmp"           # write whole, then swap: a crash can't leave half a file
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp, PRESETS_PATH)
+            return True
+        except Exception:
+            return False
 
     def initial_files(self):
         return self._initial

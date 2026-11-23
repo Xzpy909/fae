@@ -29,6 +29,7 @@ FROZEN = getattr(sys, "frozen", False)
 APP_DIR = os.path.dirname(os.path.abspath(sys.executable if FROZEN else os.path.dirname(__file__)))
 UI_DIR = os.path.join(getattr(sys, "_MEIPASS", APP_DIR), "ui")
 SETTINGS_PATH = os.path.join(APP_DIR, "fae_settings.json")
+PRESETS_PATH = os.path.join(APP_DIR, "fae_presets.json")   # the user's tool presets
 # Settings from before the rename to Fae: adopt them once.
 _OLD_SETTINGS = os.path.join(APP_DIR, "fast_image_editor_settings.json")
 if not os.path.exists(SETTINGS_PATH) and os.path.exists(_OLD_SETTINGS):

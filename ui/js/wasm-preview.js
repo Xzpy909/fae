@@ -11,6 +11,10 @@ const WP = (() => {
   // so switching between them costs no upload and keeps each one's cached measurements
   const KEEP = 2, imgIds = new WeakMap(), sent = [];
   let nextImg = 1;
+  // thumbnails (presets): queued, never skipped, rendered only while no live render is waiting; their
+  // small image has a slot of its own, so it never pushes the live images out
+  const thumbs = [];
+  let thumbSent = null;
   const filmIds = new WeakMap(), filmSent = new Set();
   let nextFilm = 1;
 
@@ -33,6 +37,7 @@ const WP = (() => {
     }
     if (worker) worker.terminate();
     worker = null; busy = null; pending = null; sent.length = 0;
+    thumbs.splice(0).forEach(t => t.done(null));
     if (typeof requestRender === 'function') requestRender();
   }
 
@@ -90,8 +95,23 @@ const WP = (() => {
     return id;
   }
 
+  function pumpThumb() {
+    const job = thumbs.shift();
+    let id = imgIds.get(job.img);
+    if (!id || id !== thumbSent) {
+      if (!id) { id = nextImg++; imgIds.set(job.img, id); }
+      const base = job.img.base.slice().buffer;
+      worker.postMessage({ type: 'image', id, drop: thumbSent, w: job.img.pw, h: job.img.ph, base }, [base]);
+      thumbSent = id;
+    }
+    job.seq = ++seq;
+    busy = job;
+    worker.postMessage({ type: 'render', seq: job.seq, img: id, E: pack(job.E, job.img), rect: null });
+  }
+
   function pump() {
-    if (busy || !pending || !worker) return;
+    if (busy || !worker) return;
+    if (!pending) { if (thumbs.length) pumpThumb(); return; }
     const job = pending;
     pending = null;
     const id = upload(job.img);
@@ -112,6 +132,13 @@ const WP = (() => {
       pending = { img, E, done, rect };
       pump();
     },
+    // a thumbnail: img = {base, pw, ph, w} (w = the output width, for Sharpen's scale); resolves with
+    // the full render result, or null if the core is unavailable or the queue was cleared
+    thumb(img, E) {
+      if (!ready) return Promise.resolve(null);
+      return new Promise(done => { thumbs.push({ img, E, done }); pump(); });
+    },
+    clearThumbs() { thumbs.splice(0).forEach(t => t.done(null)); },
     info: () => ({ on: ready, threads, version, lastMs, failed, why }),
   };
 })();

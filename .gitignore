@@ -4,6 +4,7 @@ encoders/*
 
 # Per-user settings (written by the app)
 fae_settings.json
+fae_presets.json
 
 # Python
 __pycache__/

@@ -116,20 +116,29 @@ class Api:
         return True
 
     # ---- stage / preview --------------------------------------------------
-    def load_stage(self, path, params, req_id, full=False):
+    def load_stage(self, path, params, req_id, full=False, lo=False):
+        """Stage preview pixels. full: the full-resolution preview (zoomed in); lo: with full, also the
+        small preview of the same stage (the UI draws live frames from it while a control is dragged)."""
         try:
             P = StageParams.from_dict(params)
             e, img = ENGINE.stage(path, P)
             rgb = np.ascontiguousarray(np.asarray(img.convert("RGB")))
             w, h = img.size
-            pv = img.convert("RGB")
-            if _pv_size(w, h, full) != (w, h):
-                pv = pv.resize(_pv_size(w, h, full), Image.Resampling.LANCZOS)
-            pw, ph = pv.size
-            rgba = np.empty((ph, pw, 4), dtype=np.uint8)
-            rgba[..., :3] = np.asarray(pv)
-            rgba[..., 3] = 255
-            token = ENGINE.put_preview(rgba.tobytes(), pw, ph)   # the preview core does Mid/Detail itself
+            src = img.convert("RGB")
+
+            def preview(size):
+                pv = src if size == (w, h) else src.resize(size, Image.Resampling.LANCZOS)
+                pw, ph = pv.size
+                rgba = np.empty((ph, pw, 4), dtype=np.uint8)
+                rgba[..., :3] = np.asarray(pv)
+                rgba[..., 3] = 255
+                return ENGINE.put_preview(rgba.tobytes(), pw, ph), pw, ph   # the preview core does Mid/Detail itself
+
+            token, pw, ph = preview(_pv_size(w, h, full))
+            lo_info = {}
+            if full and lo and _pv_size(w, h) != (pw, ph):
+                lt, lw, lh = preview(_pv_size(w, h))
+                lo_info = {"lo_token": lt, "lo_w": lw, "lo_h": lh}
             with ENGINE.lock:
                 if req_id >= ENGINE.latest_req:
                     ENGINE.latest_req = req_id
@@ -141,6 +150,7 @@ class Api:
                 "alpha": img.mode == "RGBA",
                 "scale": round(fit_scale(e.geometried(P).size, P), 4),
                 "geo_w": e.geometried(P).size[0], "geo_h": e.geometried(P).size[1],
+                **lo_info,
             }
         except Exception as ex:
             return {"ok": False, "req_id": req_id, "error": f"{type(ex).__name__}: {ex}"}

@@ -188,7 +188,7 @@ const S = {
   modeCount: 0,
   view: { z: 1, x: 0, y: 0, fit: true },
   curveCh: 'm',
-  reqId: 0, newFile: false, hires: false, busy: false, clipboard: null,
+  reqId: 0, newFile: false, hires: false, loImg: null, busy: false, clipboard: null,
   hover: null,
 };
 

@@ -6,7 +6,11 @@
    and render() shows the unedited image. */
 const WP = (() => {
   let worker = null, ready = false, failed = false, why = '', threads = 0, version = '';
-  let sentImg = null, seq = 0, busy = null, pending = null, lastMs = 0;
+  let seq = 0, busy = null, pending = null, lastMs = 0;
+  // images kept in the worker (newest last): the full-resolution stage and its small copy both stay,
+  // so switching between them costs no upload and keeps each one's cached measurements
+  const KEEP = 2, imgIds = new WeakMap(), sent = [];
+  let nextImg = 1;
   const filmIds = new WeakMap(), filmSent = new Set();
   let nextFilm = 1;
 
@@ -28,7 +32,7 @@ const WP = (() => {
       toast('Live preview unavailable (' + reason + '). Run core\\build_core.bat, then restart.', true);
     }
     if (worker) worker.terminate();
-    worker = null; busy = null; pending = null;
+    worker = null; busy = null; pending = null; sent.length = 0;
     if (typeof requestRender === 'function') requestRender();
   }
 
@@ -72,18 +76,33 @@ const WP = (() => {
     return E;
   }
 
+  // the worker's id of img, uploading it first if it isn't there; keep = an id that must not be dropped
+  function upload(img, keep) {
+    let id = imgIds.get(img);
+    const at = id ? sent.indexOf(id) : -1;
+    if (at >= 0) { sent.splice(at, 1); sent.push(id); return id; }
+    if (!id) { id = nextImg++; imgIds.set(img, id); }
+    let drop = null;
+    if (sent.length >= KEEP) {
+      const i = sent.findIndex(x => x !== keep);
+      drop = sent.splice(i, 1)[0];
+    }
+    const base = img.base.slice().buffer;
+    worker.postMessage({ type: 'image', id, drop, w: img.pw, h: img.ph, base }, [base]);
+    sent.push(id);
+    return id;
+  }
+
   function pump() {
     if (busy || !pending || !worker) return;
     const job = pending;
     pending = null;
-    if (sentImg !== job.img) {        // an image is uploaded once and kept until another one comes
-      const base = job.img.base.slice().buffer;
-      worker.postMessage({ type: 'image', w: job.img.pw, h: job.img.ph, base }, [base]);
-      sentImg = job.img;
-    }
+    const loId = job.lo ? upload(job.lo, null) : null;
+    const id = upload(job.img, loId);
     job.seq = ++seq;
     busy = job;
-    worker.postMessage({ type: 'render', seq: job.seq, E: pack(job.E, job.img), rect: job.rect || null });
+    worker.postMessage({ type: 'render', seq: job.seq, img: id, lo: loId, E: pack(job.E, job.img),
+                         rect: job.rect || null });
   }
 
   start();
@@ -92,10 +111,11 @@ const WP = (() => {
     failed: () => failed,
     // img = {base (RGBA), pw, ph}; done(result) gets {out, hin, hout, hmx, hmn, w, h, ms} unless a newer
     // request replaced this one first. rect {x, y, w, h}: a draft of that part only; the result then
-    // has {rect, out} (no histograms), or is a full render when the core can't draft yet.
-    render(img, E, done, rect) {
+    // has {rect, out} (no histograms), or is a full render when the core can't draft yet; with lo (a
+    // smaller copy of the same image) it is then a full render of lo instead, marked {lo: true}.
+    render(img, E, done, rect, lo) {
       if (!ready) return;
-      pending = { img, E, done, rect };
+      pending = { img, E, done, rect, lo };
       pump();
     },
     info: () => ({ on: ready, threads, version, lastMs, failed, why }),

@@ -18,14 +18,17 @@ function applyView() {
   updateCmp();
 }
 
-/* The live preview is at most PREVIEW_MAX px on the long side. Zoomed in past that (output pixels
-   bigger than preview pixels on screen) it is swapped for the full-resolution stage, and back when zoomed out. */
+/* The live preview is at most PREVIEW_MAX px on the long side. Zoomed in past that (each preview pixel
+   HIRES_IN screen pixels or more) it is swapped for the full-resolution stage, and back below HIRES_OUT.
+   Swapping a little past 1:1 keeps the zone where the big stage is on screen but most of it is visible
+   (the costly case) small; the gap between the two avoids swapping back and forth. */
+const HIRES_IN = 1.35, HIRES_OUT = 1.15;
 function checkHires() {
   const I = S.img, v = S.view;
   if (!I || S.cropMode || !I.lo_pw || I.lo_pw >= I.w) return;
   const shown = v.z * dpr() * I.pw / I.w;        // screen pixels per output pixel
   const lo = I.lo_pw / I.w;                       // output scale the small preview covers
-  const want = S.hires ? shown > lo * 0.8 : shown > lo * 1.01;
+  const want = S.hires ? shown > lo * HIRES_OUT : shown > lo * HIRES_IN;
   if (want === S.hires) return;
   S.hires = want;
   requestStage();

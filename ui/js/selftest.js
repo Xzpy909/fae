@@ -133,8 +133,8 @@ async function main() {
         pw.removeEventListener('message', on);
         m.type === 'done' ? resolve(m) : reject(new Error(m.error));
       });
-      if (base) { const b = base.slice().buffer; pw.postMessage({ type: 'image', w: W, h: H, base: b }, [b]); }
-      pw.postMessage({ type: 'render', seq: s, E: e, fresh: !!fresh });
+      if (base) { const b = base.slice().buffer; pw.postMessage({ type: 'image', id: 1, w: W, h: H, base: b }, [b]); }
+      pw.postMessage({ type: 'render', seq: s, img: 1, E: e, fresh: !!fresh });
     });
     const image = (W, H) => {           // smooth gradient + noise
       const a = new Uint8ClampedArray(W * H * 4);

@@ -1,4 +1,4 @@
-# Redesign: right panel, presets, sliders and window header
+# Redesign: right panel, presets, sliders, window header and stackable filters
 
 Status: **design approved, not implemented yet.** This is the plan for the next round of UI work.
 
@@ -10,7 +10,7 @@ The panel keeps two fixed islands and a re-orderable list between them:
 |---|---|---|---|
 | Top (fixed) | Histogram | no | no |
 | Middle | every tool / filter the user has open | **yes** | yes, where it makes sense (see 3.3) |
-| Bottom (fixed) | Export (format, encoder settings, Process, Process all) | no | no |
+| Bottom (fixed) | Export **block** (see 1.4) | no | no |
 
 ### 1.1 Collapsed row
 
@@ -34,10 +34,26 @@ The row grows into a full island: the same header line, then the tool's controls
 - Reordering is an edit: it goes into undo / redo, is stored per image like other edits, and is included in Copy edits / Paste.
 - Histogram and Export cannot be dragged and nothing can be dropped above Histogram or below Export.
 
-### 1.4 What stays from the current panel
+### 1.4 Export block (approved: design C — compact, fixed height)
+
+The export part is **no longer an island**: it is a flat block docked to the bottom of the panel, full panel width, square edges, solid background a step darker than the islands (`#00282B`), 1 px top border and a soft upward shadow. The tool list scrolls behind its top edge with a short fade. Its **height never changes** (≈ 130 px for every format), so nothing has to be resized when the format or encoder changes, and the list keeps the space when there are many filters.
+
+Rows:
+1. **Format picker** (WEBP · PNG · JPEG · AVIF, segmented, fills the row) + a **settings chip** on the right showing the current setting in mono (`q 90`, `d 1.00`, `crf 25`, `lossless`; PNG: no chip or a disabled one). The chip opens the **encoder popover**.
+2. **Process** (Gradient 1, `Ctrl+S` hint, takes the remaining width) + **Process all** (ghost button) beside it.
+3. **Next image after process** checkbox on the left, output size readout on the right in mono (`3840×2160 → 1920×1080`).
+
+**Encoder popover** — opens upward from the chip, frosted glass, inset 15 px from the panel edges, the block's width:
+- header: format + encoder (`JPEG · jpegli`, `AVIF · SVT-AV1 4:4:4`) and the estimated file size for lossy formats,
+- the format's controls as today: Quality / Distance switch + slider (JPEG), Lossy / Lossless + Quality (WEBP), SVT-AV1 / aom + CRF + Preset (AVIF),
+- standard sliders; closes on Esc, click outside, or the chip again.
+
+The progress bar for Process / Process all runs along the block's top edge.
+
+### 1.5 What stays from the current panel
 
 - The X (delete: reset + close) and reset buttons keep their behaviour; in collapsed rows they move into the expanded header (or a row hover) so the collapsed row stays clean.
-- The Filters popover (top-right pill, tile grid) still adds filters; a newly added filter appears at the end of the chain and opens expanded.
+- The Filters popover (Filters pill at the end of the tool pill row over the image, tile grid) still adds filters; a newly added filter appears at the end of the chain and opens expanded.
 
 ## 2. Live preview of presets
 
@@ -85,15 +101,35 @@ Open questions (decide before implementing):
 - Should chain presets include Resize, or leave it like crop and output?
 - Stored format: one JSON file per preset or one presets file, kept next to the settings file.
 
-## 5. Sliders — one standard slider for the whole app (next design task)
+## 5. Sliders — shared standard slider (DONE: design A "Capsule", built)
 
-Make every slider in the app look the same; the mockups' slider is the starting point:
+Design canvas: thumb options A / B / C, states at 2×. **A · Capsule** was picked.
 
-- **Standard slider**: thin rounded track (4 px), accent fill from the zero point (from the left for 0…max, from the centre for −…+ ranges), **white pill / round thumb** with a soft shadow, a monospace value box on the right, the label on the left in a fixed-width column so all tracks line up.
-- **Alternative slider**: same layout, thumb is a **downward-pointing triangle** (for tracks that show a gradient of what the slider does, like the filter gradient tracks, or for target / threshold values). Exact use to be settled in the slider design.
-- Double-click resets to default (as today); scroll-wheel and number box behaviour stay.
+Spec (as built in `ui/style.css` → "shared slider", `makeField` in `ui/js/controls.js`):
 
-This is the next design step after the panel; build both sliders as one shared component before the panel rework so the new rows use it from the start.
+- **Row**: label 140 px | track (fills the rest) | value box 58 px; gap 10 px; islands are **420 px wide** (panel column 450 px — the standard width). **No per-slider reset button** — double-click the slider resets it.
+- **Track**: 4 px, rounded, empty part `#0b4b4f` (`--sl-base`), fill **Gradient 1** `#00EBFF → #00FFAA` (`--sl-fill`), spread over the whole track and revealed up to the value.
+- **Centre-anchored** when the range crosses zero, or at the neutral value via `spec.center` (Adjustments: Saturation 50, Contrast 1.00): fill grows from the anchor either way, with a small tick (2×10 px, 30 % white) at the anchor.
+- **Thumb**: white capsule 20×12, radius 6, soft drop shadow + 1 px dark rim.
+  - hover: 4 px mint glow ring (`rgba(0,255,170,.18)`)
+  - dragging: 6 px ring (`.26`) + scale 1.08
+  - keyboard focus: 2 px gap + 2 px `#00FFAA` ring
+- **Changed from default**: label goes from `#9dbdba` to `#E6E6E6` with a 5 px mint dot; value box text white with a mint border. At default everything stays quiet.
+- **Value box**: monospace, tabular digits, `rgba(0,30,33,.75)` background, 1 px 10 % white border, radius 6; focus = mint border. Drag-scrub, typing and wheel behave as before.
+- **Island off**: track greys out (`#103a3d` + grey fill), thumb `#9fb6b4`.
+- Double-click resets to default (as before).
+
+**Every slider in the app is the standard slider now** — filter sliders (gradient tracks dropped) and Adjustments (jog wheels dropped) included. The alternative slider is used only where chosen, once it is designed; `FILTER_GRADS` (state.js) and the jog-wheel code are kept for it.
+
+### 5.1 Island rules (apply to every island, now and in the new panel)
+
+- **Island reset**: one icon for "reset the whole island" — the circular arrow (no clock hands), top-right next to the X. Used by Crop, Point correction, filters, Adjustments, Curves (current channel) and Sharpen; no "Clear" / "Reset" text links.
+- **Point correction**: each picked point (black / gray / white) gets its own small reset icon on its tile (shown only while that point is set), so one correction can be removed without clearing the others.
+- **Text inside islands is for control instructions only** (how to use the controls, like Point correction's "keep clicking to refine, hold Alt…", or the curve's "click to add · drag…"). No explanations of how a filter works or how it was matched — those belong in the README / docs.
+
+Fonts: **Inter** for the UI and **JetBrains Mono** for every number / value / `kbd` (both bundled in `ui/fonts`, SIL OFL).
+
+Colour note: the app's base palette (`#061113` background, flat `#00f0be` accent) has drifted from the colour scheme (Mint background `#001E21`, Dark mint `#003D40`, Gradient 1 `#00EBFF → #00FFAA`, Gradient 2 `#E0BDFF → #00FFAC`, text `#E6E6E6`, Inter). Re-align it during the panel rework.
 
 ## 6. Unified window header (custom title bar)
 
@@ -101,9 +137,9 @@ Goal: **one header row** instead of the Windows title bar plus the app's own top
 
 ### 6.1 Layout (left to right, one 46 px row)
 
-`[FAE logo + name] [file name + size]  ·  [Zoom: Fit  1:1  31%]  ·  [Compare] [Split] | [Undo] [Redo] | [Presets ▾] [Copy edits] [Paste] [Reset]  [— ▢ ✕]`
+`[FAE logo + name] [file name + size]  ·  [Zoom: Fit  31%]  ·  [Compare] [Split] | [Undo] [Redo] | [Presets ▾] [Copy edits] [Paste] [Reset]  [— ▢ ✕]`
 
-- Logo, file info, zoom (centred), view and edit controls stay as in today's top bar.
+- Logo, file info, zoom (centred: **Fit** + the zoom **percentage, which is the 100% button** — no separate 1:1), view and edit controls stay as in today's top bar.
 - **Window buttons** on the far right: minimize, maximize / restore (icon swaps with the state), close. Same height as the bar, about 46 px wide each, no gap to the window edge. Hover: soft light background, **close turns red** (`#c42b1c`, white ✕) like native Windows.
 - Empty space in the bar (and the logo / file name) is the **drag area**; buttons and other controls are not.
 
@@ -125,9 +161,73 @@ Additive; the editor, panels and Python back end are untouched. Roughly: framele
 
 ## 7. Suggested build order
 
-1. Shared slider component (standard + alternative) and switch over existing sliders.
+Progress (implemented in waves):
+- **Wave 1 — done:** colour scheme applied app-wide (dark teals moved to the scheme's hue: background / panel `#001E21`, surfaces from Dark mint, accent `#00FFAA`, text `#E6E6E6`); export block C (docked, fixed height, settings chip + encoder popover, progress line on its top edge); islands fold to one row (title or chevron; folded state remembered; reset / X on hover); Curves has a title in its head.
+- Wave 2 — unified window header (section 6).
+- Wave 3 — chain of instances + reorder (rows get grip and order number) + core list of steps (needs `core\build_core.bat`).
+- Wave 4 — per-tool presets with thumbnails. Wave 5 — chain presets. Wave 6 — stacking UI.
+
+
+1. ~~Shared slider component~~ — standard slider done; alternative (gradient tracks) still to design.
 2. Unified window header (section 6) — independent of the panel work, can be done any time; doing it early gives the panel the extra height.
-3. Chain-order data model: ordered tool list per image, used by preview (WASM / JS) and Process (Rust core), included in undo, copy / paste.
+3. Chain-order data model: ordered list of **instances** per image (section 8.2), used by preview (WASM / JS) and Process (Rust core, list of steps), included in undo, copy / paste.
 4. Collapsible rows + drag reorder in the panel.
 5. Preset storage + per-tool preset dropdown + thumbnails rendered from the current image.
 6. Chain presets in the top bar.
+7. Stackable filters UI (section 8): instance tags, Duplicate / row menu, tiles that add instances.
+
+## 8. Stackable filters — multiple instances of the same filter (design draft)
+
+Status: **approved** (decisions in 8.7). Mockups: boards "Stacked filters · panel" and "Stacked filters · Filters popover" on the right-panel canvas.
+
+Goal: the same filter can be in the chain more than once, each copy with its own values, preset, switch and position — e.g. Film Effect as a base look early in the chain and a second Film Effect for grain later, or two Sharpen passes.
+
+### 8.1 Which tools can stack
+
+| Stacks | Single only |
+|---|---|
+| Perceptual Saturation, Film Effect, Super Contrast, Adjustments, Curves | Crop & rotate, Point correction, Resize, Color balance, Sharpen |
+
+Single-only tools are about the image as a whole (geometry, output size, white balance / points) or, for Sharpen, a final output pass.
+
+### 8.2 Data model
+
+- The ordered chain (section 7, step 3) is a list of **instances**: `{ id, type, on, label, preset, values }`. `type` is the tool (`f_film`, `sharpen`, …), `id` is unique per image, `values` holds that instance's slider / select values (no more one global `flt_film_*` set per image).
+- Old edits (flat keys), saved settings and pasted edits are **migrated** on load: one instance per tool that has values, in today's fixed order.
+- Undo / redo, Copy edits / Paste and per-image storage all carry the whole chain (instances, order, labels).
+- Build the chain-order data model with instances **from the start**, even if the stacking UI comes later — it avoids a second migration.
+
+### 8.3 Pipeline
+
+- Preview (WASM) and Process (Rust core) run the chain **in order, instance by instance**. The core API moves from fixed slots (one `film`, one `sc`, one `sharp`, …) to a list of steps `[{ kind, params }]`; every step keeps its own Opacity.
+- Each instance is a full pass, so the cost grows with the chain: **max 8 instances per type** (the tile's Add and Duplicate are disabled at 8).
+- Parity tests get chain cases (same filter twice, reordered chains).
+
+### 8.4 Panel (rows)
+
+- Rows of the same type get a small **instance tag** after the title (a small pill: `Film Effect [1]`, `Film Effect [2]`) mono, lavender from **Gradient 2** (`#E0BDFF`) so it reads apart from the mint order number. The tag counts the instances of that type **in chain order** (renumbers when moved). A tool with one instance shows no tag.
+- Optional **label** after the tag (`· base`, `· grain`), set with Rename; stays with the instance when it moves.
+- Expanded header: **Duplicate** icon, island reset, X (remove).
+- **Row menu** (right-click a row, or `⋯`): Duplicate `Ctrl+D`, Rename… `F2`, Move up, Move down, Reset, Remove `Del`.
+- **Duplicate** inserts the copy right after the original with the same values and preset, expanded, and scrolls to it.
+- Each instance has its own switch and preset button; turning one copy off leaves the others running.
+
+### 8.5 Filters popover (tiles)
+
+- A tile **adds a new instance** (end of the chain, opens expanded, panel scrolls to it); it no longer shows / hides an island.
+- The tile shows a **count badge** (`×2`) and where the copies are (`#2, #4 in chain`); hover shows an **Add** button. The on / off switch moves off the tile — switches belong to instances.
+- **Drag a tile into the panel** to insert the new instance at the drop line.
+- Header count becomes `N in chain`. Footer line in the popover (control instructions only): *Click adds to the end of the chain · Drag a tile into the panel to place it*.
+
+### 8.6 Presets with instances
+
+- A per-tool preset applies to **that instance** only.
+- Chain presets store every instance (type, values, order, labels) — a preset can contain the same filter twice.
+- Preset thumbnails render the chain **up to and including** the instance being previewed.
+
+### 8.7 Decisions
+
+- Stackable: the three filters, Adjustments, Curves. Single: Crop, Point correction, Resize, Color balance, **Sharpen**.
+- Cap: **8 per type**.
+- Instance tags **follow chain order** (renumber after a move).
+- Rust core changes are rebuilt on the Windows PC with `core\build_core.bat` when asked.

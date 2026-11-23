@@ -1,4 +1,4 @@
-# Redesign: right panel, presets and sliders
+# Redesign: right panel, presets, sliders and window header
 
 Status: **design approved, not implemented yet.** This is the plan for the next round of UI work.
 
@@ -95,10 +95,39 @@ Make every slider in the app look the same; the mockups' slider is the starting 
 
 This is the next design step after the panel; build both sliders as one shared component before the panel rework so the new rows use it from the start.
 
-## 6. Suggested build order
+## 6. Unified window header (custom title bar)
+
+Goal: **one header row** instead of the Windows title bar plus the app's own top bar, to save working space (about 32 px of height) and give the app one clean, branded strip.
+
+### 6.1 Layout (left to right, one 46 px row)
+
+`[FAE logo + name] [file name + size]  ·  [Zoom: Fit  1:1  31%]  ·  [Compare] [Split] | [Undo] [Redo] | [Presets ▾] [Copy edits] [Paste] [Reset]  [— ▢ ✕]`
+
+- Logo, file info, zoom (centred), view and edit controls stay as in today's top bar.
+- **Window buttons** on the far right: minimize, maximize / restore (icon swaps with the state), close. Same height as the bar, about 46 px wide each, no gap to the window edge. Hover: soft light background, **close turns red** (`#c42b1c`, white ✕) like native Windows.
+- Empty space in the bar (and the logo / file name) is the **drag area**; buttons and other controls are not.
+
+### 6.2 Behaviour to implement
+
+- Window created **frameless** (pywebview `frameless=True`); the startup "Rust core is missing" window keeps the normal Windows frame.
+- Python API: `win_minimize`, `win_toggle_maximize`, `win_close`, `win_is_maximized`; the UI keeps the maximize / restore icon in sync from window events.
+- **Drag** the window from the bar through a native drag (Win32: release capture + `WM_NCLBUTTONDOWN` with `HTCAPTION`) rather than pywebview's emulated drag, so **Aero Snap** works: drag to the screen edges to snap, drag to the top to maximize, drag down off a maximized window to restore.
+- **Double-click** the drag area = maximize / restore.
+- **Resize by the edges and corners**: thin invisible strips (≈ 5 px, 10 px corners) at the window edges start a native resize (`WM_NCLBUTTONDOWN` with `HTLEFT` / `HTTOPRIGHT` / …). Hidden while maximized. `min_size` stays 1100×680.
+- **Shadow and Windows 11 rounded corners** restored through DWM (`DwmExtendFrameIntoClientArea`, `DWMWA_WINDOW_CORNER_PREFERENCE`).
+- **Maximized window must not cover the taskbar** (clamp to the monitor's work area if needed).
+- Keyboard: Alt+F4, Win+arrows and Win+Z keep working.
+- Not available with pywebview: the Snap Layouts flyout when hovering the maximize button (Win+Z still opens it). Accepted.
+
+### 6.3 Size of the change
+
+Additive; the editor, panels and Python back end are untouched. Roughly: frameless window + window API ~20 lines Python; window buttons ~15 HTML / ~30 CSS; drag, double-click and state sync ~25 JS; native drag / resize / DWM / work-area handling ~60–150 lines Python (Win32 via ctypes) + ~30 JS.
+
+## 7. Suggested build order
 
 1. Shared slider component (standard + alternative) and switch over existing sliders.
-2. Chain-order data model: ordered tool list per image, used by preview (WASM / JS) and Process (Rust core), included in undo, copy / paste.
-3. Collapsible rows + drag reorder in the panel.
-4. Preset storage + per-tool preset dropdown + thumbnails rendered from the current image.
-5. Chain presets in the top bar.
+2. Unified window header (section 6) — independent of the panel work, can be done any time; doing it early gives the panel the extra height.
+3. Chain-order data model: ordered tool list per image, used by preview (WASM / JS) and Process (Rust core), included in undo, copy / paste.
+4. Collapsible rows + drag reorder in the panel.
+5. Preset storage + per-tool preset dropdown + thumbnails rendered from the current image.
+6. Chain presets in the top bar.

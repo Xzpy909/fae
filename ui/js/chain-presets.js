@@ -1,13 +1,23 @@
 'use strict';
-/* Edit presets (redesign section 4): the whole chain in one preset — the values of Adjustments, Curves,
-   the filters and Sharpen, which of them are switched off, and the order they run in. Crop, Point
-   correction (its picked colours belong to one image), Resize, Color balance and the output settings stay
-   with the image. The Presets button in the top bar (before Copy edits) opens a grid of cards: thumbnail
+/* Edit presets (redesign section 4): the whole edit in one preset — the values of Adjustments, Curves,
+   the filters and Sharpen, which of them are switched off, the order they run in, and the Resize and
+   Color balance settings. Crop and Point correction (both belong to one image) and the output format
+   stay with the image. Resize and Color balance are worked out by Python before the live preview, so a
+   hover preview and the thumbnails show the rest; they take effect when the preset is applied. The Presets button in the top bar (before Copy edits) opens a grid of cards: thumbnail
    of the current image through the preset, name, the preset's tools in order; hover previews it on the
    image, click (or Apply) applies it as one undo step; ⋯ = rename / update with current edits / delete.
-   Stored with the tool presets in fae_presets.json, under "_chain": [{ name, chain, values, off }]. */
+   Stored with the tool presets in fae_presets.json, under "_chain": [{ name, chain, values, off, stage }]
+   (stage = { resize: {...}, color: {...} }; presets saved before it existed leave Resize / Color balance alone). */
 const ChainPresets = (() => {
   const SECS_C = ['adjust', 'curves', 'f_bw', 'f_film', 'f_sc', 'sharpen'];   // what an edit preset holds
+  // + the stage settings of Resize and Color balance (S.stage keys)
+  const STAGE = {
+    resize: ['resize_on', 'mode', 'mpix', 'prio', 'preset_ar', 'preset_res', 'cw', 'ch', 'cmode'],
+    color: ['color_on', 'wp_on', 'wp_pct', 'wp_strength', 'ge_on', 'ge_p', 'ge_sigma', 'ge_strength'],
+  };
+  const stageOf = st => Object.fromEntries(Object.entries(STAGE).map(([t, keys]) =>
+    [t, Object.fromEntries(keys.map(k => [k, st[k] !== undefined ? st[k] : DEFAULT_STAGE[k]]))]));
+  const stageUsed = (t, v) => t === 'resize' ? v.resize_on !== false : v.color_on !== false && !!(v.wp_on || v.ge_on);
   const TW = 352, TH = 216;                   // thumbnail pixels (shown at 176×108)
   const T = Presets.TOOLS;
   const list = () => { const P = Presets.data(); return P._chain || (P._chain = []); };
@@ -15,7 +25,7 @@ const ChainPresets = (() => {
 
   // the tools' names and icons (from the tool pills and the filter tiles)
   const NAME = {}, ICON = {};
-  for (const sec of SECS_C) {
+  for (const sec of [...SECS_C, 'resize', 'color']) {
     const f = FILTERS.find(f => f.sec === sec), pill = document.querySelector(`#toolPills .pill[data-sec="${sec}"]`);
     NAME[sec] = f ? f.name : (pill ? pill.title : sec);
     ICON[sec] = f ? f.icon : (pill ? pill.querySelector('svg').innerHTML : '');
@@ -28,17 +38,20 @@ const ChainPresets = (() => {
     for (const sec of SECS_C) values[sec] = Presets.valuesOf(sec, Object.assign(T[sec].def(), (p.values || {})[sec] || {}));
     const chain = chainOf({ chain: (Array.isArray(p.chain) ? p.chain : []).map(id => ({ id, t: id })) }).map(x => x.id);
     const off = (Array.isArray(p.off) ? p.off : []).filter(s => SECS_C.includes(s));
-    return { name: p.name.slice(0, 60), chain, values, off };
+    const stage = p.stage && typeof p.stage === 'object'
+      ? stageOf(Object.assign({}, DEFAULT_STAGE, p.stage.resize || {}, p.stage.color || {})) : null;
+    return { name: p.name.slice(0, 60), chain, values, off, stage };
   }
   // the current edit as a preset
   function capture(name) {
     const e = S.edit, values = {};
     for (const sec of SECS_C) values[sec] = Presets.valuesOf(sec, e);
     return { name, chain: chainOf(e).map(x => x.id), values,
-      off: SECS_C.filter(sec => e.off && e.off[sec] && !isDefault(sec, values[sec])) };
+      off: SECS_C.filter(sec => e.off && e.off[sec] && !isDefault(sec, values[sec])), stage: stageOf(S.stage) };
   }
-  const toolsOf = p => [...p.chain.filter(s => SECS_C.includes(s)), 'sharpen']
-    .filter((s, i, a) => a.indexOf(s) === i && !isDefault(s, p.values[s]));
+  // the tools a preset uses, in the order they run: Resize, Color balance, the chain, Sharpen
+  const toolsOf = p => [...(p.stage ? ['resize', 'color'].filter(t => stageUsed(t, p.stage[t])) : []),
+    ...[...p.chain.filter(s => SECS_C.includes(s)), 'sharpen'].filter((s, i, a) => a.indexOf(s) === i && !isDefault(s, p.values[s]))];
   // the edit with the preset applied to it
   function applied(base, p) {
     const e = clone(base);
@@ -56,7 +69,9 @@ const ChainPresets = (() => {
   function preview(p) {
     if (!saved) saved = S.edit;
     S.edit = applied(saved, p);
-    chip.textContent = 'Previewing ' + p.name;
+    const later = p.stage ? ['resize', 'color'].filter(t => stageUsed(t, p.stage[t])
+      || stageUsed(t, stageOf(S.stage)[t])).filter(t => JSON.stringify(p.stage[t]) !== JSON.stringify(stageOf(S.stage)[t])) : [];
+    chip.textContent = 'Previewing ' + p.name + (later.length ? ' · ' + later.map(t => NAME[t]).join(' and ') + ' on click' : '');
     chip.classList.add('show');
     editChanged();
   }
@@ -70,6 +85,11 @@ const ChainPresets = (() => {
     const base = saved || S.edit;
     saved = null; chip.classList.remove('show');
     S.edit = applied(base, p);
+    if (p.stage) {                              // Resize / Color balance: a new stage from Python
+      const before = JSON.stringify(stageOf(S.stage));
+      Object.assign(S.stage, p.stage.resize, p.stage.color);
+      if (JSON.stringify(stageOf(S.stage)) !== before) valueChanged('stage');
+    }
     // open the islands of the tools in the preset
     const open = S.prefs.secs || [];
     S.prefs.secs = [...open, ...toolsOf(p).filter(s => !open.includes(s))];
@@ -94,7 +114,7 @@ const ChainPresets = (() => {
     </div>
     <div class="cp-new"></div>
     <div class="cp-grid"></div>
-    <div class="cp-foot">Applying replaces the filters and their order; crop, point correction, resize and output settings stay as they are.</div>`;
+    <div class="cp-foot">Applying replaces the tools and their order, Resize and Color balance included; crop, point correction and the output format stay as they are.</div>`;
   document.body.appendChild(pop);
   const grid = pop.querySelector('.cp-grid'), search = pop.querySelector('.cp-search'), newRow = pop.querySelector('.cp-new');
   let isOpen = false;

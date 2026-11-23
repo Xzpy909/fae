@@ -76,17 +76,14 @@ const WP = (() => {
     return E;
   }
 
-  // the worker's id of img, uploading it first if it isn't there; keep = an id that must not be dropped
-  function upload(img, keep) {
+  // the worker's id of img, uploading it first if it isn't there (the oldest kept one makes room)
+  function upload(img) {
     let id = imgIds.get(img);
     const at = id ? sent.indexOf(id) : -1;
     if (at >= 0) { sent.splice(at, 1); sent.push(id); return id; }
     if (!id) { id = nextImg++; imgIds.set(img, id); }
     let drop = null;
-    if (sent.length >= KEEP) {
-      const i = sent.findIndex(x => x !== keep);
-      drop = sent.splice(i, 1)[0];
-    }
+    if (sent.length >= KEEP) drop = sent.shift();
     const base = img.base.slice().buffer;
     worker.postMessage({ type: 'image', id, drop, w: img.pw, h: img.ph, base }, [base]);
     sent.push(id);
@@ -97,12 +94,10 @@ const WP = (() => {
     if (busy || !pending || !worker) return;
     const job = pending;
     pending = null;
-    const loId = job.lo ? upload(job.lo, null) : null;
-    const id = upload(job.img, loId);
+    const id = upload(job.img);
     job.seq = ++seq;
     busy = job;
-    worker.postMessage({ type: 'render', seq: job.seq, img: id, lo: loId, E: pack(job.E, job.img),
-                         rect: job.rect || null });
+    worker.postMessage({ type: 'render', seq: job.seq, img: id, E: pack(job.E, job.img), rect: job.rect || null });
   }
 
   start();
@@ -111,11 +106,10 @@ const WP = (() => {
     failed: () => failed,
     // img = {base (RGBA), pw, ph}; done(result) gets {out, hin, hout, hmx, hmn, w, h, ms} unless a newer
     // request replaced this one first. rect {x, y, w, h}: a draft of that part only; the result then
-    // has {rect, out} (no histograms), or is a full render when the core can't draft yet; with lo (a
-    // smaller copy of the same image) it is then a full render of lo instead, marked {lo: true}.
-    render(img, E, done, rect, lo) {
+    // has {rect, out} (no histograms), or is a full render when the core can't draft yet.
+    render(img, E, done, rect) {
       if (!ready) return;
-      pending = { img, E, done, rect, lo };
+      pending = { img, E, done, rect };
       pump();
     },
     info: () => ({ on: ready, threads, version, lastMs, failed, why }),

@@ -15,9 +15,9 @@ function requestRender() {
    zoomed in so only part of the image is on screen, just that part is rendered (the core reuses the
    last full render's whole-image measurements, see run_region). A full render follows once the
    control is let go, or DRAFT_IDLE ms after the last change; the histogram waits for it.
-   With the full-resolution stage on screen (zoomed past the small preview), a draft is whichever is
-   cheaper: the visible part at full resolution, or a whole frame of the small copy (S.loImg), shown
-   scaled up. So dragging never costs more than at fit; the sharp render follows on release. */
+   Drafts are always at the preview's own resolution (never a smaller copy scaled up: what you see
+   while dragging is what you get). With the full-resolution stage on screen, a draft is the visible
+   part however much of the image that is. */
 const DRAFT_IDLE = 200;
 let draftTimer = 0, panelHold = false;
 function setLive(on) { S.live = on; }
@@ -65,11 +65,7 @@ function render() {
   const n = I.pw * I.ph, E = S.E;
   // same image and edit as the pixels in S.outData (only the view changed: before, Alt, compare line)
   if (S.rendered && S.rendered.I === I && S.rendered.E === E) { present(n); return; }
-  const draft = S.live && !viewMode() && !S.cropMode;
-  // the small copy of this stage, while the full-resolution one is on screen
-  const lo = I.full && S.loImg && S.loImg.key === I.key && S.loImg.pw < I.pw ? S.loImg : null;
-  let rect = draft ? visibleRect(!!lo) : null;
-  const loFrame = draft && lo && (!rect || rect.w * rect.h > lo.pw * lo.ph);
+  const rect = S.live && !viewMode() && !S.cropMode ? visibleRect(!!I.full) : null;
   if (!WP.ready()) {                // the core is starting (it asks for a render when ready) or missing
     if (WP.failed()) {              // missing: show the unedited image (WP has said why)
       S.outData.data.set(I.base);
@@ -78,12 +74,7 @@ function render() {
     }
     return;
   }
-  if (loFrame) {                    // a live frame from the small copy
-    WP.render(lo, E, r => { if (S.img === I && S.outData) presentLo(r); });
-    return;
-  }
   WP.render(I, E, r => {            // the Rust core in its worker (wasm-preview.js); shown when it's done
-    if (r.lo) { if (S.img === I && S.outData) presentLo(r); return; }   // no draft possible yet
     if (r.rect) { if (S.img === I && S.outData) presentDraft(r.rect, new Uint8Array(r.out)); return; }
     if (S.img !== I || !S.outData || r.out.byteLength !== S.outData.data.length) return;   // image changed meanwhile
     S.outData.data.set(new Uint8Array(r.out));
@@ -91,42 +82,7 @@ function render() {
     S.rendered = { I, E };
     histoLive(false);
     present(n);
-  }, rect, rect && lo ? lo : null);
-}
-
-/* a live frame of the small copy (r = its full render), drawn scaled up over the whole canvas; the split
-   views put the original / encoded side back from the full-resolution pixels. Histograms, HUD and the
-   rest wait for the full render. */
-const loCanvas = document.createElement('canvas'), loCtx = loCanvas.getContext('2d');
-const srcCanvases = new WeakMap();      // ImageData -> a canvas with it (for drawImage)
-function canvasOf(data) {
-  let c = srcCanvases.get(data);
-  if (!c) {
-    c = document.createElement('canvas');
-    c.width = data.width; c.height = data.height;
-    c.getContext('2d').putImageData(data, 0, 0);
-    srcCanvases.set(data, c);
-  }
-  return c;
-}
-function presentLo(r) {
-  const I = S.img;
-  if (loCanvas.width !== r.w || loCanvas.height !== r.h) { loCanvas.width = r.w; loCanvas.height = r.h; }
-  loCtx.putImageData(new ImageData(new Uint8ClampedArray(r.out), r.w, r.h), 0, 0);
-  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(loCanvas, 0, 0, I.pw, I.ph);
-  const enc = encSplitOn() && cmpReady();
-  if (enc || (!encSplitOn() && S.prefs.split)) {
-    const split = clamp(Math.round(S.cmp.x * I.pw), 0, I.pw);
-    if (enc && split < I.pw)                       // edited | encoded
-      ctx.drawImage(canvasOf(S.cmp.data), split, 0, I.pw - split, I.ph, split, 0, I.pw - split, I.ph);
-    else if (!enc && split > 0)                    // original | edited
-      ctx.drawImage(canvasOf(S.baseData), 0, 0, split, I.ph, 0, 0, split, I.ph);
-  }
-  S.rendered = null;                               // the full render still has to come
-  Sharp.dirty();
-  histoLive(true);
-  updateCmp();
+  }, rect);
 }
 
 /* a draft: its rectangle into the image, and only that rectangle onto the canvas (the split views

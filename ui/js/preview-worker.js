@@ -3,15 +3,13 @@
    not block, so the work can't run there. Messages:
      in : {type:'image', id, drop, w, h, base}  base = RGBA ArrayBuffer (transferred); drop = id to free
           {type:'film', id, d}                  a Film preset table, sent once per preset
-          {type:'render', seq, img, lo, E, fresh, rect}
+          {type:'render', seq, img, E, fresh, rect}
                                                 img = image id; E = computeEdit result, each film.d replaced by its id;
                                                 fresh: forget the kept results first (full render);
-                                                rect {x, y, w, h}: a draft of that part only (if it can;
-                                                else, with lo = id of a smaller copy, a full render of that)
+                                                rect {x, y, w, h}: a draft of that part only (if it can)
      out: {type:'ready', threads, version} | {type:'error', error}
           {type:'done', seq, w, h, out, hin, hout, hmx, hmn, ms}       a full render
           {type:'done', seq, rect, out, ms}                             a draft: out = the rectangle
-          {type:'done', seq, lo: true, w, h, out, hin, ...}             a full render of the small copy
           {type:'fail', seq, error} */
 import init, * as fe from '../wasm/fastedit_wasm.js';
 import { toParams } from './wasm-params.js';
@@ -49,7 +47,7 @@ onmessage = async ({ data: m }) => {
     films.set(m.id, m.d);
   } else if (m.type === 'render') {
     try {
-      let preview = previews.get(m.img), lo = false;
+      const preview = previews.get(m.img);
       if (!preview) throw new Error('no image');
       const t0 = performance.now();
       const p = toParams(fe, m.E, id => {
@@ -69,14 +67,13 @@ onmessage = async ({ data: m }) => {
                       [out.buffer]);
           return;
         }
-        if (m.lo != null && previews.has(m.lo)) { preview = previews.get(m.lo); lo = true; }
       }
       try { preview.render(p); } finally { p.free(); }
       // one copy straight out of WebAssembly memory (a view on the shared memory can't be transferred)
       const tc = performance.now();
       const out = new Uint8Array(wasm.memory.buffer, preview.out_ptr(), preview.out_len()).slice();
       const phases = preview.timing() + ` | copy out ${(performance.now() - tc).toFixed(1)}`;
-      const r = { type: 'done', seq: m.seq, lo, w: preview.width(), h: preview.height(), out: out.buffer, phases,
+      const r = { type: 'done', seq: m.seq, w: preview.width(), h: preview.height(), out: out.buffer, phases,
         hin: preview.hin(), hout: preview.hout(), hmx: preview.hmx(), hmn: preview.hmn(), ms: performance.now() - t0 };
       postMessage(r, [out.buffer]);
     } catch (e) {

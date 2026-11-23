@@ -3,7 +3,7 @@ encoders/*
 !encoders/.gitkeep
 
 # Per-user settings (written by the app)
-fast_image_editor_settings.json
+fae_settings.json
 
 # Python
 __pycache__/

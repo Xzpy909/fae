@@ -4,7 +4,7 @@
    rotation. The crop rectangle is axis-aligned in frame space ({x, y} = centre, w, h).
    A frame point p maps back to the source with R(-theta): that is what keeps the crop
    "bound aware" (every corner must land inside the source), and it is exactly what
-   apply_geometry() in fast_image_editor.py does with cv2.warpAffine. */
+   apply_geometry() in fae.py does with cv2.warpAffine. */
 
 const Crop = (() => {
   const layer = $('#cropLayer'), cc = $('#cropCanvas'), g = cc.getContext('2d');

@@ -1,5 +1,5 @@
 @echo off
-rem Builds dist\FastImageEditor\FastImageEditor.exe (folder build, no console window).
+rem Builds dist\Fae\Fae.exe (folder build, no console window).
 rem Encoders are not bundled: they are copied next to the exe into encoders\ if present.
 cd /d "%~dp0"
 
@@ -13,19 +13,19 @@ set ICON=
 if exist app.ico set ICON=--icon app.ico
 
 python -m PyInstaller --noconfirm --clean --windowed --onedir ^
-  --name FastImageEditor %ICON% ^
+  --name Fae %ICON% ^
   --add-data "ui;ui" ^
   --collect-all pillow_heif ^
   --collect-all pillow_jxl ^
-  fast_image_editor.py || goto :fail
+  fae.py || goto :fail
 
-if not exist "dist\FastImageEditor\encoders" mkdir "dist\FastImageEditor\encoders"
-if exist "encoders\*.exe" copy /y "encoders\*.exe" "dist\FastImageEditor\encoders\" >nul
-copy /y README.md "dist\FastImageEditor\" >nul
+if not exist "dist\Fae\encoders" mkdir "dist\Fae\encoders"
+if exist "encoders\*.exe" copy /y "encoders\*.exe" "dist\Fae\encoders\" >nul
+copy /y README.md "dist\Fae\" >nul
 
 echo.
-echo Done: dist\FastImageEditor\FastImageEditor.exe
-echo Zip the whole dist\FastImageEditor folder for the release.
+echo Done: dist\Fae\Fae.exe
+echo Zip the whole dist\Fae folder for the release.
 pause
 exit /b 0
 

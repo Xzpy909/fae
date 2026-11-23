@@ -1,5 +1,5 @@
 'use strict';
-/* Fast Image Editor - front end.
+/* Fae - front end.
    Python delivers the "stage" image (resize + White-Patch + Gray-Edge); everything after
    that (point correction, curves, clipping views) runs here, live, on every change.
    Process sends the same parameters back to Python, which applies identical math at full res.

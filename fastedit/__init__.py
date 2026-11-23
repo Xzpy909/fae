@@ -1,1 +1,1 @@
-"""Fast Image Editor back end (see fast_image_editor.py for the overview)."""
+"""Fae (Fast Image Editor) back end (see fae.py for the overview)."""

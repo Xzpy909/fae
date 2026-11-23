@@ -89,7 +89,7 @@ def main():
     page = "selftest.html" if selftest else ""     # Rust core / WASM / isolation checks
     if not core.available() and not selftest:      # no NumPy fallback any more: say how to build it
         msg = (core.error() or "").replace("&", "&amp;").replace("<", "&lt;")
-        webview.create_window("Fast Image Editor", html=(
+        webview.create_window("Fae", html=(
             "<body style='background:#0e0f11;color:#ddd;font:15px system-ui;margin:40px'>"
             "<h2 style='font-weight:600'>The Rust core is missing</h2>"
             f"<p>{msg}</p><p style='color:#888'>Then start the editor again.</p></body>"),
@@ -103,7 +103,7 @@ def main():
     from .winchrome import IS_WIN, Chrome
     frameless = IS_WIN and "--native-frame" not in sys.argv and not selftest
     window = webview.create_window(
-        "Fast Image Editor", f"http://127.0.0.1:{port}/{page}", js_api=api,
+        "Fae", f"http://127.0.0.1:{port}/{page}", js_api=api,
         width=1560, height=940, min_size=(1240, 680), background_color="#001e21",
         frameless=frameless, easy_drag=False,
     )

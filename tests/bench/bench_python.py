@@ -2,7 +2,7 @@
 
   python tests/bench/bench_python.py                  # Rust core, 24 MP synthetic image
   python tests/bench/bench_python.py --mp 12 --image some.jpg
-(live-preview timings: the self-test page, fast_image_editor.py --selftest)
+(live-preview timings: the self-test page, fae.py --selftest)
 
 Cases: tests/bench/cases.json (ids from the parity cases, so every filter is covered).
 Results also go to tests/parity/.work/bench_python.json (not committed).

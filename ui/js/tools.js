@@ -447,7 +447,7 @@ $('#addFolder').addEventListener('click', pickFolder);
 $('#clearBtn').addEventListener('click', () => { S.files = []; S.cur = -1; clearView(); renderList(); updateInfo(); });
 
 // Python receives the real file paths from the native drop on #dropZone (see bind_drop in
-// fast_image_editor.py). The zone is an empty full-window overlay shown only during a file
+// fae.py). The zone is an empty full-window overlay shown only during a file
 // drag, so pywebview's event serialisation stays tiny.
 let dragDepth = 0;
 const dropZone = $('#dropZone');

@@ -28,7 +28,14 @@ PLUGIN_HINT = {
 FROZEN = getattr(sys, "frozen", False)
 APP_DIR = os.path.dirname(os.path.abspath(sys.executable if FROZEN else os.path.dirname(__file__)))
 UI_DIR = os.path.join(getattr(sys, "_MEIPASS", APP_DIR), "ui")
-SETTINGS_PATH = os.path.join(APP_DIR, "fast_image_editor_settings.json")
+SETTINGS_PATH = os.path.join(APP_DIR, "fae_settings.json")
+# Settings from before the rename to Fae: adopt them once.
+_OLD_SETTINGS = os.path.join(APP_DIR, "fast_image_editor_settings.json")
+if not os.path.exists(SETTINGS_PATH) and os.path.exists(_OLD_SETTINGS):
+    try:
+        os.replace(_OLD_SETTINGS, SETTINGS_PATH)
+    except OSError:
+        pass
 ENCODERS_DIR = os.path.join(APP_DIR, "encoders")
 _EXE = ".exe" if sys.platform.startswith("win") else ""
 CJPEGLI = os.path.join(ENCODERS_DIR, "cjpegli" + _EXE)

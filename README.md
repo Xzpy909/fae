@@ -1,12 +1,12 @@
-# Fast Image Editor
+# Fae
 
-A fast, keyboard-friendly desktop editor for batch-preparing images: crop and rotate, colour-correct with eyedroppers and curves, resize to 720p or a target megapixel count, then export to lossless WEBP/PNG or lossy JPEG (jpegli), AVIF (SVT-AV1) or WEBP. Lossy formats have a split-view preview, so you can judge the real encode at the chosen settings before saving.
+**Fast Image Editor.** A fast, keyboard-friendly desktop editor for batch-preparing images: crop and rotate, colour-correct with eyedroppers and curves, resize to 720p or a target megapixel count, then export to lossless WEBP/PNG or lossy JPEG (jpegli), AVIF (SVT-AV1) or WEBP. Lossy formats have a split-view preview, so you can judge the real encode at the chosen settings before saving.
 
 Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/JS; the edit math is a Rust core (Python extension + WebAssembly, see below); loading, geometry, resizing and encoding use NumPy, OpenCV and Pillow.
 
 ## Preview
 
-![img](https://github.com/Xzpy909/fast-image-editor/blob/main/preview%201.webp?raw=true)
+![img](https://github.com/Xzpy909/fae/blob/main/preview%201.webp?raw=true)
 
 ## Features
 
@@ -100,10 +100,10 @@ run.bat [images or folders...]
 or
 
 ```
-python fast_image_editor.py [images or folders...]
-python fast_image_editor.py --debug     # opens the web inspector
-python fast_image_editor.py --selftest  # checks for the Rust core (WASM, threads, Python extension)
-python fast_image_editor.py --native-frame  # normal Windows title bar instead of the app's own header
+python fae.py [images or folders...]
+python fae.py --debug     # opens the web inspector
+python fae.py --selftest  # checks for the Rust core (WASM, threads, Python extension)
+python fae.py --native-frame  # normal Windows title bar instead of the app's own header
 ```
 
 ## Rust core
@@ -133,7 +133,7 @@ python tests/parity/parity.py check --impl core   # Python extension
 python tests/parity/parity.py check --impl wasm   # WebAssembly (single-threaded in node)
 python tests/parity/parity.py record              # only after a deliberate change of the math
 python tests/bench/bench_python.py                # full-resolution timings
-python fast_image_editor.py --selftest            # WebView2 checks + live-preview timings
+python fae.py --selftest            # WebView2 checks + live-preview timings
 ```
 
 Cases are random slider values run through the UI's own `computeEdit` / `jobFor`, stored in
@@ -185,7 +185,7 @@ Own images can go into `tests/parity/images/` (not committed).
 ## Project layout
 
 ```
-fast_image_editor.py   # entry point
+fae.py   # entry point
 fastedit/              # Python back end
 ├── config.py          # paths, defaults, per-image stage parameters
 ├── geometry.py        # resize presets, crop / rotate / flip
@@ -211,7 +211,7 @@ run.bat
 requirements.txt
 ```
 
-Settings are saved to `fast_image_editor_settings.json` next to the script.
+Settings are saved to `fae_settings.json` next to the script.
 
 ## Trademarks
 

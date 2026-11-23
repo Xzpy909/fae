@@ -1,5 +1,5 @@
 """
-Fast Image Editor - pywebview front end, numpy/OpenCV/Pillow back end.
+Fae (Fast Image Editor) - pywebview front end, numpy/OpenCV/Pillow back end.
 
 What it does (per image, nothing is written until you press Process):
     Output     : Resize - Preset (aspect + 2160p..360p, cover-crop), Target Mpix (with priority),
@@ -22,7 +22,7 @@ Requirements:
     optional input formats: pip install pillow-heif (HEIC/HEIF)  pillow-jxl-plugin (JPEG XL)
 
 Run:
-    python fast_image_editor.py [images or folders...]   (--debug opens dev tools)
+    python fae.py [images or folders...]   (--debug opens dev tools)
 """
 
 from fastedit.app import main

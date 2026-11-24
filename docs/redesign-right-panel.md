@@ -44,9 +44,10 @@ Built and tested in headless Chrome only (no Python core there):
 - **Mid/Detail on more than one Adjustments:** the core keeps one smoothing (`MdCache`), so only the first
   Adjustments has Mid/Detail. Would need a smoothing per step.
 
-### 2.1 Settings (planned — not built)
-A place for app-wide settings. Open questions: where it opens (gear in the top bar → panel / dialog, or a
-full page); stored in `fae_settings.json` with the rest. Candidates (none decided):
+### 2.1 Settings (started)
+The gear in the title bar opens a small Preferences popover (commands.js, `Ctrl+,`), stored in
+`fae_settings.json` with the rest. Built so far: **Show tool dock** (`dock`) and **Next image after process**.
+Further candidates (none decided): Candidates (none decided):
 - **Output:** output folder (next to the source or a chosen folder), file name pattern (`name_WxH.ext` now),
   what to do when the file exists.
 - **Defaults for new images:** start with a chosen edit preset; default format / encoder settings.
@@ -68,7 +69,9 @@ full page); stored in `fae_settings.json` with the rest. Candidates (none decide
   added in the order they are opened. Point correction and Sharpen don't stack; the others do, up to 8.
   A stackable tool's button / tile adds another copy once the tool is open (a copy is removed with its X);
   the other tool buttons open / close.
-- **Fonts / colours:** Inter for the UI, JetBrains Mono for numbers; Mint background `#001E21`, Dark mint
-  `#003D40`, Gradient 1 `#00EBFF → #00FFAA` (accent), Gradient 2 `#E0BDFF → #00FFAC` (lavender = instance
-  tags), text `#E6E6E6`.
+- **Fonts / colours (direction E):** Inter for the UI, JetBrains Mono for numbers; professional grey, no blur:
+  ground `#232326`, title bar `#1C1C1F`, panels `#1F1F22`, image area `#161618`, lines `#333338` / `#404046`,
+  text `#E6E6E6`, muted `#9A9AA0`, light grey `#D4D4D8` for what is on. Switches: `#171717` capsule, knob
+  `#999999` off / `#E64545` on, shaded centre on hover. Sliders: name and value on one line, full-width track
+  below (`#3A3A40`, fill `#8E8E95`, white upright thumb).
 - Rust core changes are rebuilt on the Windows PC with `core\build_core.bat` when asked.

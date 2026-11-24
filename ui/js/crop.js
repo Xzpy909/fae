@@ -359,7 +359,7 @@ const Crop = (() => {
     if (!C) return;
     const d = dpr(), W = view.w, H = view.h;
     g.setTransform(d, 0, 0, d, 0, 0);
-    g.fillStyle = '#001517'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#1e1e21'; g.fillRect(0, 0, W, H);
     // image
     g.save();
     g.translate(view.ox, view.oy); g.scale(view.z, view.z); g.rotate(theta()); g.scale(C.flip ? -1 : 1, 1);
@@ -368,7 +368,7 @@ const Crop = (() => {
     g.restore();
     // mask outside crop
     const c = C.crop, [x0, y0] = toS(c.x - c.w / 2, c.y - c.h / 2), sw = c.w * view.z, sh = c.h * view.z;
-    g.fillStyle = 'rgba(0, 13, 14,.66)';
+    g.fillStyle = 'rgba(24, 24, 27, .66)';
     g.beginPath(); g.rect(0, 0, W, H); g.rect(x0, y0, sw, sh); g.fill('evenodd');
     // grid
     const lines = rotating ? 10 : 3;
@@ -387,15 +387,15 @@ const Crop = (() => {
     // straighten line
     if (sline) {
       const a = straightAngle(sline);
-      g.strokeStyle = '#00ffaa'; g.lineWidth = 2;
+      g.strokeStyle = '#d4d4d8'; g.lineWidth = 2;
       g.beginPath(); g.moveTo(sline.x0, sline.y0); g.lineTo(sline.x1, sline.y1); g.stroke();
-      g.fillStyle = '#00ffaa';
+      g.fillStyle = '#d4d4d8';
       for (const [x, y] of [[sline.x0, sline.y0], [sline.x1, sline.y1]]) { g.beginPath(); g.arc(x, y, 3.5, 0, Math.PI * 2); g.fill(); }
       if (a !== null) {
         const t = `${a > 0 ? '+' : ''}${clamp(Math.round(a * 10) / 10, -45, 45).toFixed(1)}°`;
         g.font = '12px JetBrains Mono, monospace'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
         const tw = g.measureText(t).width;
-        g.fillStyle = 'rgba(0, 20, 22, .85)'; g.fillRect(sline.x1 + 10, sline.y1 - 22, tw + 12, 20);
+        g.fillStyle = 'rgba(29, 29, 32, .85)'; g.fillRect(sline.x1 + 10, sline.y1 - 22, tw + 12, 20);
         g.fillStyle = '#e6e6e6'; g.fillText(t, sline.x1 + 16, sline.y1 - 8);
       }
     }
@@ -416,7 +416,7 @@ const Crop = (() => {
       const tw = g.measureText(txt).width + 14;
       g.fillStyle = 'rgba(20,22,25,.82)'; g.beginPath();
       g.roundRect ? g.roundRect(cx - tw / 2, cy - 10, tw, 20, 4) : g.rect(cx - tw / 2, cy - 10, tw, 20);
-      g.fill(); g.fillStyle = '#e4f5f3'; g.fillText(txt, cx, cy + .5);
+      g.fill(); g.fillStyle = '#f2f2f5'; g.fillText(txt, cx, cy + .5);
     };
     if (C.aspect !== 'free' && sh > 60) pill(ASPECTS.find(a => a[0] === C.aspect)[1].replace(/ /g, ''), x0 + sw / 2, y0 + 22);
     if (sh > 40) pill(`${Math.round(c.w)} × ${Math.round(c.h)}`, x0 + sw / 2, y0 + sh - 22);
@@ -439,7 +439,7 @@ const Crop = (() => {
       else if (major) rg.fillRect(Math.round(x) - .75, H / 2 - 7, 1.5, 14);
       else { rg.beginPath(); rg.arc(x, H / 2, 1.3, 0, Math.PI * 2); rg.fill(); }
     }
-    rg.fillStyle = '#00ffaa';
+    rg.fillStyle = '#d4d4d8';
     rg.fillRect(cx - 1.5, H / 2 - 11, 3, 22);
     $('#angleLabel').textContent = (C.angle > 0 ? '+' : '') + C.angle.toFixed(1) + '°';
   }
@@ -464,7 +464,7 @@ const Crop = (() => {
     if (!C) return;
     const ra = resizeCropAspect(), cr = ratio();
     const warn = ra && (!cr || Math.abs(cr / ra.r - 1) > 0.005);
-    top.innerHTML = 'Crop &amp; rotate' + (warn ? ` &nbsp;·&nbsp; <span style="color:#00ffaa">${ra.label} output will still center-crop to that shape</span>` : '');
+    top.innerHTML = 'Crop &amp; rotate' + (warn ? ` &nbsp;·&nbsp; <span style="color:#d4d4d8">${ra.label} output will still center-crop to that shape</span>` : '');
   }
 
   function updateSummary() {

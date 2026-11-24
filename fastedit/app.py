@@ -114,7 +114,7 @@ def main():
     frameless = IS_WIN and "--native-frame" not in sys.argv and not selftest
     window = webview.create_window(
         "Fae", f"http://127.0.0.1:{port}/{page}", js_api=api,
-        width=1560, height=940, min_size=(1240, 680), background_color="#001e21",
+        width=1560, height=940, min_size=(1240, 680), background_color="#232326",
         frameless=frameless, easy_drag=False,
     )
     api.set_window(window)

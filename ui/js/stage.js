@@ -61,9 +61,8 @@ function updateInfo() {
   const f = S.files[S.cur];
   $('#fileName').textContent = f ? f.name : 'No image';
   const I = S.img;
-  // the side panels' frosted islands sit on a heavily blurred copy of the current image
-  $('#app').style.setProperty('--amb', f ? `url("${Bridge.thumbUrl(f.path)}")` : 'none');
   $('#fileDims').textContent = I && f ? `${I.src_w}×${I.src_h}  →  ${I.w}×${I.h}` : '';
+  $('#filePos').textContent = f && S.files.length > 1 ? `${S.cur + 1} / ${S.files.length}` : '';
   $('#outInfo').textContent = I && f
     ? `Output ${I.w}×${I.h} · ${(I.w * I.h / 1e6).toFixed(2)} MP${I.alpha ? (isJpeg() ? ' · alpha → white' : ' · alpha') : ''}`
       + (isJpeg() && !S.cmp.jpegli ? ' · cjpegli.exe missing, using Pillow' : '')

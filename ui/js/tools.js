@@ -547,7 +547,7 @@ const FilterPop = (() => {
     const b = e.target.closest('.fp-tbtn'); if (!b || grid.dataset.justDragged) return;
     addFilter(b.parentElement.dataset.sec);
   });
-  return { open, close, isOpen, sync };
+  return { open, close, isOpen, sync, add: addFilter };
 })();
 document.querySelectorAll('#toolPills .pill[data-sec]').forEach(p => {
   p.addEventListener('pointerdown', e => e.stopPropagation());     // don't start a pan / eyedropper sample
@@ -626,12 +626,12 @@ function clearView() {
   S.img = null; S.reqId++; canvas.style.display = 'none'; GV.hide(); dropJpeg(); updateCmp();
   S.edit = defaultEdit(); S.geom = defaultGeom(); S.hist = []; S.fut = []; S.committed = snapshot();
   syncPanel(); editChanged(); updateMarkers(); $('#zoomLabel').textContent = '–';
+  $('#zoomFit').classList.remove('on'); $('#zoom100').classList.remove('on');
 }
 
 async function pickFiles() { const p = await api().pick_files(); if (p && p.length) addPaths(p); }
 async function pickFolder() { const p = await api().pick_folder(); if (p && p.length) addPaths(p); else if (p) status('No images in that folder'); }
-$('#addFiles').addEventListener('click', pickFiles);
-$('#addFolder').addEventListener('click', pickFolder);
+// adding files / folders: File menu, Ctrl+O, drag and drop (commands.js)
 $('#clearBtn').addEventListener('click', () => { S.files = []; S.cur = -1; clearView(); renderList(); updateInfo(); });
 
 // Python receives the real file paths from the native drop on #dropZone (see bind_drop in

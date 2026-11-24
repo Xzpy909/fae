@@ -119,7 +119,7 @@ const ChainPresets = (() => {
   btn.id = 'chainBtn'; btn.className = 'ghost';
   btn.title = 'Edit presets: the whole chain of tools, in order';
   btn.innerHTML = 'Presets <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>';
-  $('#copyBtn').before(btn);
+  $('#searchBtn').before(btn);         // title bar, left of search
   const pop = document.createElement('div');
   pop.id = 'chainPop';
   pop.innerHTML = `
@@ -156,7 +156,7 @@ const ChainPresets = (() => {
     grid.innerHTML = shown.map(({ p, i }) => `
       <div class="cp-card" data-i="${i}">
         <div class="cp-thumbw"><canvas class="cp-thumb" width="${TW}" height="${TH}"></canvas>
-          <button class="cp-apply">Apply</button><button class="cp-more" title="More">${DOTS}</button></div>
+          <button class="cp-more" title="More">${DOTS}</button></div>
         <div class="cp-row"><span class="cp-name">${esc(p.name)}</span><span class="cp-meta">Yours</span></div>
         <div class="cp-strip">${toolsOf(p).map(s => `<span class="cp-tool" title="${esc(NAME[typeOf(s)])}${(p.lbl || {})[s] ? ' · ' + esc(p.lbl[s]) : ''}${p.off.includes(s) ? ' (off)' : ''}"`
           + `${p.off.includes(s) ? ' data-off' : ''}><svg viewBox="0 0 24 24">${ICON[typeOf(s)]}</svg></span>`).join('<i>›</i>') || '<span class="cp-none">No tools</span>'}</div>
@@ -274,5 +274,5 @@ const ChainPresets = (() => {
   // a shortcut (undo, copy edits…) while a preset is previewed works on the real edit
   window.addEventListener('keydown', () => { if (saved) endPreview(); }, true);
 
-  return { open, close };
+  return { open, close, isOpen: () => isOpen, list, apply };
 })();

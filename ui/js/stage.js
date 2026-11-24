@@ -10,60 +10,36 @@ function requestStage(immediate) {
   stageTimer = setTimeout(loadStage, immediate ? 0 : 140);
 }
 
+/* The stage at the preview's resolution: full resolution when the GPU draws the preview (up to what
+   its device takes, GV.maxPixels()), else PREVIEW_MAX on the long side for the CPU core. When that
+   changes (the GPU became ready, or failed) gpu-view.js asks for the stage again. */
 async function loadStage() {
   const f = S.files[S.cur];
   if (!f) return;
   const id = ++S.reqId, t0 = S.loadT || performance.now();
   spinner(true);
-  if (S.newFile) S.hires = false;
-  const full = S.hires, params = stageParams(S.stage, S.geom);
-  const key = f.path + '|' + JSON.stringify(params);       // the stage these pixels are of
-  const haveLo = S.loImg && S.loImg.key === key;
+  await GV.started;                    // the resolution depends on whether the GPU draws (quick)
+  const full = GV.maxPixels(), params = stageParams(S.stage, S.geom);
   let r;
-  // zoomed back out: the small preview of this stage is still here
-  if (!full && haveLo && !S.newFile && S.img && S.img.key === key && S.loImg.token) r = S.loImg;
-  else {
-    try { r = await api().load_stage(f.path, params, id, full); }
-    catch (e) { r = { ok: false, req_id: id, error: String(e) }; }
-  }
+  try { r = await api().load_stage(f.path, params, id, full); }
+  catch (e) { r = { ok: false, req_id: id, error: String(e) }; }
   if (id !== S.reqId) return;
   if (!r || !r.ok) { spinner(false); toast(r ? r.error : 'Load failed', true); return; }
   let buf;
-  try {
-    buf = r === S.loImg ? r.base.buffer : await (await fetch('/preview/' + r.token)).arrayBuffer();
-  }
+  try { buf = await (await fetch('/preview/' + r.token)).arrayBuffer(); }
   catch (e) { spinner(false); toast('Preview transfer failed: ' + e, true); return; }
   if (id !== S.reqId) return;
   spinner(false);
   const old = S.img;
   const sizeChanged = !old || old.pw !== r.pw || old.ph !== r.ph;
-  // same output, only the preview resolution changed (zoom crossed PREVIEW_MAX): keep the view where it is
+  // same output at another preview resolution (the GPU came or went): keep the view where it is
   const resSwap = sizeChanged && old && !S.newFile && old.path === f.path && old.w === r.w && old.h === r.h;
-  if (r === S.loImg) S.img = S.loImg;
-  else {
-    const base = new Uint8ClampedArray(buf);
-    S.img = Object.assign({}, r, { base, path: f.path, key });
-  }
-  if (!r.full) S.loImg = S.img;            // kept: zooming back out shows it again without a load
-  else if (S.loImg && S.loImg.key !== key) S.loImg = null;
+  S.img = Object.assign({}, r, { base: new Uint8ClampedArray(buf), path: f.path });
   if (sizeChanged) {
-    // a resolution swap keeps showing the last frame, scaled, until the new resolution's first render
-    // is ready (resizing the canvas clears it)
-    let snap = null;
-    if (resSwap && canvas.width && canvas.height) {
-      snap = document.createElement('canvas');
-      snap.width = canvas.width; snap.height = canvas.height;
-      snap.getContext('2d').drawImage(canvas, 0, 0);
-    }
     canvas.width = r.pw; canvas.height = r.ph;
     S.outData = new ImageData(r.pw, r.ph);
     S.dispData = new ImageData(r.pw, r.ph);
     S.shown = null; S.rendered = null;
-    Sharp.dirty();
-    if (snap) {
-      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(snap, 0, 0, r.pw, r.ph);
-    }
   }
   S.baseData = new ImageData(S.img.base, r.pw, r.ph);
   canvas.style.display = 'block';

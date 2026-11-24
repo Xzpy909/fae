@@ -8,7 +8,7 @@ import subprocess
 import sys
 import numpy as np
 from PIL import Image
-from .config import HIRES_MAX_MP, IMAGE_EXTS, PRESETS_PATH, PREVIEW_MAX, SETTINGS_PATH, StageParams
+from .config import IMAGE_EXTS, PRESETS_PATH, PREVIEW_MAX, SETTINGS_PATH, StageParams
 from .geometry import fit_scale
 from . import core
 from .engine import ENGINE, Entry, collect
@@ -21,10 +21,11 @@ from .output import encode_lossy, norm_fmt, save_image
 # ---------------------------------------------------------------------------
 # JS API (window.pywebview.api.*)
 # ---------------------------------------------------------------------------
-def _pv_size(w, h, full=False):
-    """Preview size: PREVIEW_MAX on the long side, or full resolution (capped at HIRES_MAX_MP) when zoomed in."""
+def _pv_size(w, h, full=0):
+    """Preview size: full resolution when the GPU draws the preview (`full` = the most pixels its
+    device takes, the image is scaled down only beyond that), else PREVIEW_MAX on the long side."""
     if full:
-        s = min(1.0, (HIRES_MAX_MP / (w * h)) ** 0.5)
+        s = min(1.0, (float(full) / (w * h)) ** 0.5)
     else:
         s = min(1.0, PREVIEW_MAX / max(w, h))
     return (max(1, round(w * s)), max(1, round(h * s))) if s < 1 else (w, h)
@@ -135,7 +136,7 @@ class Api:
         return True
 
     # ---- stage / preview --------------------------------------------------
-    def load_stage(self, path, params, req_id, full=False):
+    def load_stage(self, path, params, req_id, full=0):
         try:
             P = StageParams.from_dict(params)
             e, img = ENGINE.stage(path, P)
@@ -155,7 +156,7 @@ class Api:
                     ENGINE.current = {"path": path, "rgb": rgb, "req": req_id}
             return {
                 "ok": True, "req_id": req_id, "token": token,
-                "w": w, "h": h, "pw": pw, "ph": ph, "lo_pw": _pv_size(w, h)[0], "full": bool(full),
+                "w": w, "h": h, "pw": pw, "ph": ph, "full": float(full or 0),
                 "src_w": e.base.size[0], "src_h": e.base.size[1],
                 "alpha": img.mode == "RGBA",
                 "scale": round(fit_scale(e.geometried(P).size, P), 4),
@@ -223,7 +224,7 @@ class Api:
         preview_begin(int(req_id))
         return True
 
-    def lossy_preview(self, job, fmt, opts, req_id, full=False):
+    def lossy_preview(self, job, fmt, opts, req_id, full=0):
         """Encode the fully edited image with the lossy format, decode it again, hand back preview pixels."""
         preview_begin(req_id)
         _TL.preview_req = req_id

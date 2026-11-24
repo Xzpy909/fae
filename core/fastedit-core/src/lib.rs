@@ -20,16 +20,6 @@ pub mod sharp;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// A clock for the preview's timing breakdown (ms); set by the WebAssembly binding
-/// (performance.now), none elsewhere.
-static CLOCK: std::sync::OnceLock<fn() -> f64> = std::sync::OnceLock::new();
-pub fn set_clock(f: fn() -> f64) {
-    let _ = CLOCK.set(f);
-}
-pub(crate) fn now() -> f64 {
-    CLOCK.get().map_or(0.0, |f| f())
-}
-
 /// Rows per band when splitting the image over threads.
 pub const BAND_ROWS: usize = 64;
 

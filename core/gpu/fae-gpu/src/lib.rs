@@ -16,7 +16,8 @@
 //!   ([`Gpu::readback_rgba_start`], the preview's pixels); the UI's histograms counted on the GPU
 //!   ([`Gpu::set_stats`], [`Gpu::stats_start`]).
 
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub use wgpu;
 
@@ -535,6 +536,90 @@ pub(crate) enum Pipe {
     StPrep,
     StFine,
     StApply,
+    Decode,
+    Encode,
+    EncodeRgba,
+    HistIn,
+    HistOut,
+}
+
+/// Shader modules: one per WGSL file (with what it's built from), shared by its entry points.
+#[derive(Clone, Copy, Debug)]
+enum Module { Curves, Point, Adjust, Bw, Film, MdPrep, BoxH, BoxV, Ps, Sc, SharpBlur, SharpSt, Decode, Encode, EncodeRgba, Hist }
+
+impl Module {
+    fn source(self) -> String {
+        let common = |src: &str| format!("{COMMON_WGSL}\n{src}");
+        let fixed = |src: &str| format!("{}\n{}", ops::FIXED_WGSL, src);
+        match self {
+            Module::Curves => CURVES_WGSL.into(),
+            Module::Point => common(POINT_WGSL),
+            Module::Adjust => common(ADJUST_WGSL),
+            Module::Bw => common(BW_WGSL),
+            Module::Film => common(FILM_WGSL),
+            Module::MdPrep => ops::MD_PREP_WGSL.into(),
+            Module::BoxH => fixed(ops::BOX_H_WGSL),
+            Module::BoxV => fixed(ops::BOX_V_WGSL),
+            Module::Ps => ops::PS_WGSL.into(),
+            Module::Sc => ops::SC_WGSL.into(),
+            Module::SharpBlur => sharp::BLUR_WGSL.into(),
+            Module::SharpSt => sharp::ST_WGSL.into(),
+            Module::Decode => DECODE_WGSL.into(),
+            Module::Encode => ENCODE_WGSL.into(),
+            Module::EncodeRgba => ENCODE_RGBA_WGSL.into(),
+            Module::Hist => HIST_WGSL.into(),
+        }
+    }
+}
+
+impl Pipe {
+    const COUNT: usize = Pipe::HistOut as usize + 1;
+    const ALL: [Pipe; Pipe::COUNT] = [
+        Pipe::Curves, Pipe::Point, Pipe::Adjust, Pipe::Bw, Pipe::Film, Pipe::MdPrep, Pipe::BoxH, Pipe::BoxV,
+        Pipe::PsMeasure, Pipe::PsMean, Pipe::PsBlur, Pipe::PsApply, Pipe::ScHist, Pipe::ScReduce, Pipe::ScCellHist,
+        Pipe::ScNorm, Pipe::ScBlur, Pipe::ScClip, Pipe::ScCurve, Pipe::ScApply, Pipe::SbMeans, Pipe::SbAcross,
+        Pipe::SbDown, Pipe::SbApply, Pipe::StPrep, Pipe::StFine, Pipe::StApply, Pipe::Decode, Pipe::Encode,
+        Pipe::EncodeRgba, Pipe::HistIn, Pipe::HistOut,
+    ];
+
+    /// the module and entry point of each pipeline
+    fn spec(self) -> (Module, &'static str) {
+        use Module as M;
+        match self {
+            Pipe::Curves => (M::Curves, "main"),
+            Pipe::Point => (M::Point, "main"),
+            Pipe::Adjust => (M::Adjust, "main"),
+            Pipe::Bw => (M::Bw, "main"),
+            Pipe::Film => (M::Film, "main"),
+            Pipe::MdPrep => (M::MdPrep, "main"),
+            Pipe::BoxH => (M::BoxH, "main"),
+            Pipe::BoxV => (M::BoxV, "main"),
+            Pipe::PsMeasure => (M::Ps, "measure"),
+            Pipe::PsMean => (M::Ps, "mean"),
+            Pipe::PsBlur => (M::Ps, "blur"),
+            Pipe::PsApply => (M::Ps, "apply"),
+            Pipe::ScHist => (M::Sc, "hist_main"),
+            Pipe::ScReduce => (M::Sc, "reduce"),
+            Pipe::ScCellHist => (M::Sc, "cellhist"),
+            Pipe::ScNorm => (M::Sc, "norm"),
+            Pipe::ScBlur => (M::Sc, "blur"),
+            Pipe::ScClip => (M::Sc, "clip"),
+            Pipe::ScCurve => (M::Sc, "curve"),
+            Pipe::ScApply => (M::Sc, "apply"),
+            Pipe::SbMeans => (M::SharpBlur, "means"),
+            Pipe::SbAcross => (M::SharpBlur, "across"),
+            Pipe::SbDown => (M::SharpBlur, "down"),
+            Pipe::SbApply => (M::SharpBlur, "apply"),
+            Pipe::StPrep => (M::SharpSt, "prep"),
+            Pipe::StFine => (M::SharpSt, "fine"),
+            Pipe::StApply => (M::SharpSt, "apply"),
+            Pipe::Decode => (M::Decode, "main"),
+            Pipe::Encode => (M::Encode, "main"),
+            Pipe::EncodeRgba => (M::EncodeRgba, "main"),
+            Pipe::HistIn => (M::Hist, "count_in"),
+            Pipe::HistOut => (M::Hist, "count_out"),
+        }
+    }
 }
 
 pub struct Gpu {
@@ -542,13 +627,10 @@ pub struct Gpu {
     pub queue: wgpu::Queue,
     pub adapter: wgpu::Adapter,
     pub info: Info,
-    decode: wgpu::ComputePipeline,
-    encode: wgpu::ComputePipeline,
-    encode_rgba: wgpu::ComputePipeline,
-    hist_in: wgpu::ComputePipeline,
-    hist_out: wgpu::ComputePipeline,
-    /// by Pipe
-    pipes: Vec<wgpu::ComputePipeline>,
+    /// by Pipe, each made the first time a pass needs it (pipe()): compiling every shader up front
+    /// kept the browser's GPU process (and with it the whole window) busy for seconds at start-up
+    pipes: Vec<OnceLock<wgpu::ComputePipeline>>,
+    modules: Mutex<HashMap<u8, wgpu::ShaderModule>>,
     /// bound where a pass has nothing to bind (Adjustments without Mid/Detail)
     dummy: wgpu::Buffer,
     /// the histograms (HIST_BINS u32) and their read-back copy
@@ -573,6 +655,44 @@ pub struct Gpu {
 }
 
 impl Gpu {
+    /// The pipeline, compiled on first use (its module too, once for all its entry points).
+    pub(crate) fn pipe(&self, p: Pipe) -> &wgpu::ComputePipeline {
+        self.pipes[p as usize].get_or_init(|| {
+            let (m, entry) = p.spec();
+            let mut mods = self.modules.lock().unwrap();
+            let module = mods.entry(m as u8).or_insert_with(|| shader_module(&self.device, &m.source(), entry));
+            self.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some(entry),
+                layout: None,
+                module,
+                entry_point: Some(entry),
+                compilation_options: Default::default(),
+                cache: None,
+            })
+        })
+    }
+
+    /// How many pipelines warm() can compile.
+    pub fn pipeline_count() -> usize {
+        Pipe::COUNT
+    }
+
+    /// Compile pipeline `i` now (0 .. pipeline_count()) instead of on first use: the preview does it
+    /// one at a time behind its loading screen, so nothing compiles while the app is in use.
+    pub fn warm(&self, i: usize) {
+        if let Some(&p) = Pipe::ALL.get(i) {
+            self.pipe(p);
+        }
+    }
+
+    /// Pipeline i's name for logs: "module:entry", e.g. "Sc:hist_main".
+    pub fn pipeline_name(i: usize) -> String {
+        Pipe::ALL.get(i).map_or(String::new(), |p| {
+            let (m, e) = p.spec();
+            format!("{m:?}:{e}")
+        })
+    }
+
     pub fn instance(opts: &Options) -> wgpu::Instance {
         let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
         desc.backends = opts.backends.unwrap_or_else(default_backends);
@@ -629,41 +749,7 @@ impl Gpu {
             max_buffer: dl.max_buffer_size,
             max_storage_binding: dl.max_storage_buffer_binding_size as u64,
         };
-        let decode = compute_pipeline(&device, DECODE_WGSL, "decode");
-        let encode = compute_pipeline(&device, ENCODE_WGSL, "encode");
-        let encode_rgba = compute_pipeline(&device, ENCODE_RGBA_WGSL, "encode_rgba");
-        let hist_in = compute_pipeline_at(&device, HIST_WGSL, "hist", "count_in");
-        let hist_out = compute_pipeline_at(&device, HIST_WGSL, "hist", "count_out");
-        let with_common = |src: &str, label: &str| compute_pipeline(&device, &format!("{COMMON_WGSL}\n{src}"), label);
-        let pipes = vec![
-            compute_pipeline(&device, CURVES_WGSL, "curves"),
-            with_common(POINT_WGSL, "point"),
-            with_common(ADJUST_WGSL, "adjust"),
-            with_common(BW_WGSL, "bw"),
-            with_common(FILM_WGSL, "film"),
-            compute_pipeline(&device, ops::MD_PREP_WGSL, "md_prep"),
-            compute_pipeline(&device, &format!("{}\n{}", ops::FIXED_WGSL, ops::BOX_H_WGSL), "box_h"),
-            compute_pipeline(&device, &format!("{}\n{}", ops::FIXED_WGSL, ops::BOX_V_WGSL), "box_v"),
-            compute_pipeline_at(&device, ops::PS_WGSL, "ps_measure", "measure"),
-            compute_pipeline_at(&device, ops::PS_WGSL, "ps_mean", "mean"),
-            compute_pipeline_at(&device, ops::PS_WGSL, "ps_blur", "blur"),
-            compute_pipeline_at(&device, ops::PS_WGSL, "ps_apply", "apply"),
-            compute_pipeline_at(&device, ops::SC_WGSL, "sc_hist", "hist_main"),
-            compute_pipeline_at(&device, ops::SC_WGSL, "sc_reduce", "reduce"),
-            compute_pipeline_at(&device, ops::SC_WGSL, "sc_cellhist", "cellhist"),
-            compute_pipeline_at(&device, ops::SC_WGSL, "sc_norm", "norm"),
-            compute_pipeline_at(&device, ops::SC_WGSL, "sc_blur", "blur"),
-            compute_pipeline_at(&device, ops::SC_WGSL, "sc_clip", "clip"),
-            compute_pipeline_at(&device, ops::SC_WGSL, "sc_curve", "curve"),
-            compute_pipeline_at(&device, ops::SC_WGSL, "sc_apply", "apply"),
-            compute_pipeline_at(&device, sharp::BLUR_WGSL, "sb_means", "means"),
-            compute_pipeline_at(&device, sharp::BLUR_WGSL, "sb_across", "across"),
-            compute_pipeline_at(&device, sharp::BLUR_WGSL, "sb_down", "down"),
-            compute_pipeline_at(&device, sharp::BLUR_WGSL, "sb_apply", "apply"),
-            compute_pipeline_at(&device, sharp::ST_WGSL, "st_prep", "prep"),
-            compute_pipeline_at(&device, sharp::ST_WGSL, "st_fine", "fine"),
-            compute_pipeline_at(&device, sharp::ST_WGSL, "st_apply", "apply"),
-        ];
+        let pipes = (0..Pipe::COUNT).map(|_| OnceLock::new()).collect();
         let dummy = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("dummy"),
             size: 16,
@@ -687,12 +773,8 @@ impl Gpu {
             queue,
             adapter,
             info,
-            decode,
-            encode,
-            encode_rgba,
-            hist_in,
-            hist_out,
             pipes,
+            modules: Mutex::new(HashMap::new()),
             dummy,
             hist,
             hist_staging,
@@ -788,14 +870,14 @@ impl Gpu {
         self.queue.write_buffer(&dims_enc, 0, &dims(w, h, gx * 256));
         let bg_decode = bind_group(
             d,
-            &self.decode,
+            self.pipe(Pipe::Decode),
             &[packed_in.as_entire_binding(), wgpu::BindingResource::TextureView(&views[0]), dims_dec.as_entire_binding()],
         );
         let hb = |p: &wgpu::ComputePipeline, t: usize| {
             bind_group(d, p, &[wgpu::BindingResource::TextureView(&views[t]), self.hist.as_entire_binding()])
         };
-        let hb_in = [0, 1, 2].map(|t| hb(&self.hist_in, t));
-        let hb_out = [0, 1, 2].map(|t| hb(&self.hist_out, t));
+        let hb_in = [0, 1, 2].map(|t| hb(self.pipe(Pipe::HistIn), t));
+        let hb_out = [0, 1, 2].map(|t| hb(self.pipe(Pipe::HistOut), t));
         let hist_groups = (n.div_ceil(16384) as u32).clamp(1, 1024);
         self.stage = Some(Stage {
             w,
@@ -837,7 +919,7 @@ impl Gpu {
         let mut enc = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = enc.begin_compute_pass(&Default::default());
-            pass.set_pipeline(&self.decode);
+            pass.set_pipeline(self.pipe(Pipe::Decode));
             pass.set_bind_group(0, &s.bg_decode, &[]);
             pass.dispatch_workgroups(w.div_ceil(16), h.div_ceil(16), 1);
         }
@@ -1035,7 +1117,7 @@ impl Gpu {
         if st.kind == Kind::Adjust {
             res.push(extra.as_ref().unwrap_or(&self.dummy).as_entire_binding());
         }
-        let bg = bind_group(&self.device, &self.pipes[pipe as usize], &res);
+        let bg = bind_group(&self.device, self.pipe(pipe), &res);
         passes.push(Pass { pipe, bg, groups: (s.w.div_ceil(16), s.h.div_ceil(16), 1) });
         Op { kind: st.kind, aux: st.aux.clone(), len: st.data.len(), params, passes, clears, keep, inp, out }
     }
@@ -1084,23 +1166,23 @@ impl Gpu {
                 }
                 for (i, o) in self.ops.iter().enumerate() {
                     if stats && t == 0 && first_curves == Some(i) {
-                        pass.set_pipeline(&self.hist_in);
+                        pass.set_pipeline(self.pipe(Pipe::HistIn));
                         pass.set_bind_group(0, &s.hb_in[o.inp], &[]);
                         pass.dispatch_workgroups(s.hist_groups, 1, 1);
                     }
                     for p in &o.passes {
-                        pass.set_pipeline(&self.pipes[p.pipe as usize]);
+                        pass.set_pipeline(self.pipe(p.pipe));
                         pass.set_bind_group(0, &p.bg, &[]);
                         pass.dispatch_workgroups(p.groups.0, p.groups.1, p.groups.2);
                     }
                 }
             }
             if stats {
-                pass.set_pipeline(&self.hist_out);
+                pass.set_pipeline(self.pipe(Pipe::HistOut));
                 pass.set_bind_group(0, &s.hb_out[self.result], &[]);
                 pass.dispatch_workgroups(s.hist_groups, 1, 1);
                 if first_curves.is_none() {
-                    pass.set_pipeline(&self.hist_in);
+                    pass.set_pipeline(self.pipe(Pipe::HistIn));
                     pass.set_bind_group(0, &s.hb_in[self.result], &[]);
                     pass.dispatch_workgroups(s.hist_groups, 1, 1);
                 }
@@ -1120,7 +1202,7 @@ impl Gpu {
         let s = self.stage.as_ref().ok_or("readback: no image")?;
         let bg = bind_group(
             &self.device,
-            &self.encode,
+            self.pipe(Pipe::Encode),
             &[
                 wgpu::BindingResource::TextureView(&s.views[self.result]),
                 s.out.as_entire_binding(),
@@ -1130,7 +1212,7 @@ impl Gpu {
         let mut enc = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = enc.begin_compute_pass(&Default::default());
-            pass.set_pipeline(&self.encode);
+            pass.set_pipeline(self.pipe(Pipe::Encode));
             pass.set_bind_group(0, &bg, &[]);
             pass.dispatch_workgroups(s.enc_groups.0, s.enc_groups.1, 1);
         }
@@ -1167,13 +1249,13 @@ impl Gpu {
         self.queue.write_buffer(&uni, 0, &dims(s.w, s.h, gx * 256));
         let bg = bind_group(
             &d,
-            &self.encode_rgba,
+            self.pipe(Pipe::EncodeRgba),
             &[wgpu::BindingResource::TextureView(&s.views[self.result]), out.as_entire_binding(), uni.as_entire_binding()],
         );
         let mut enc = d.create_command_encoder(&Default::default());
         {
             let mut pass = enc.begin_compute_pass(&Default::default());
-            pass.set_pipeline(&self.encode_rgba);
+            pass.set_pipeline(self.pipe(Pipe::EncodeRgba));
             pass.set_bind_group(0, &bg, &[]);
             pass.dispatch_workgroups(gx, gy, 1);
         }
@@ -1232,10 +1314,14 @@ pub(crate) fn compute_pipeline(d: &wgpu::Device, src: &str, label: &str) -> wgpu
     compute_pipeline_at(d, src, label, "main")
 }
 
-pub(crate) fn compute_pipeline_at(d: &wgpu::Device, src: &str, label: &str, entry: &str) -> wgpu::ComputePipeline {
+fn shader_module(d: &wgpu::Device, src: &str, label: &str) -> wgpu::ShaderModule {
     #[cfg(feature = "emulate")]
     let src = &emulate::wgsl(src);
-    let m = d.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some(label), source: wgpu::ShaderSource::Wgsl(src.into()) });
+    d.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some(label), source: wgpu::ShaderSource::Wgsl(src.into()) })
+}
+
+pub(crate) fn compute_pipeline_at(d: &wgpu::Device, src: &str, label: &str, entry: &str) -> wgpu::ComputePipeline {
+    let m = shader_module(d, src, label);
     d.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: Some(label),
         layout: None,
@@ -1291,5 +1377,17 @@ impl Readback {
     pub fn finish_blocking(self, gpu: &Gpu) -> Result<Vec<u8>, String> {
         gpu.wait()?;
         pollster::block_on(self.finish())
+    }
+}
+
+#[cfg(test)]
+mod pipe_tests {
+    use super::Pipe;
+
+    #[test]
+    fn all_lists_every_pipe_in_order() {
+        for (i, p) in Pipe::ALL.iter().enumerate() {
+            assert_eq!(*p as usize, i, "{p:?}");
+        }
     }
 }

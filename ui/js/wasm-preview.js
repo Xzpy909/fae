@@ -1,5 +1,6 @@
 'use strict';
-/* Live preview through the Rust core (WebAssembly, multithreaded) in preview-worker.js.
+/* The CPU core (WebAssembly, multithreaded) in preview-worker.js: the live preview when the GPU
+   doesn't draw it (gpu-view.js), crop mode's image and the preset thumbnails always (small images).
    render() and crop mode hand their image and edit here; the result arrives asynchronously, and only
    the newest pending request is rendered next (steps in between are skipped while a slider moves).
    There is no JS fallback: if the core can't start, WP.failed() is true, the app says how to fix it,
@@ -7,8 +8,7 @@
 const WP = (() => {
   let worker = null, ready = false, failed = false, why = '', threads = 0, version = '';
   let seq = 0, busy = null, pending = null, lastMs = 0;
-  // images kept in the worker (newest last): the full-resolution stage and its small copy both stay,
-  // so switching between them costs no upload and keeps each one's cached measurements
+  // images kept in the worker (newest last): the live image and crop mode's source both stay
   const KEEP = 2, imgIds = new WeakMap(), sent = [];
   let nextImg = 1;
   // thumbnails (presets): queued, never skipped, rendered only while no live render is waiting; their
@@ -106,7 +106,7 @@ const WP = (() => {
     }
     job.seq = ++seq;
     busy = job;
-    worker.postMessage({ type: 'render', seq: job.seq, img: id, E: pack(job.E, job.img), rect: null });
+    worker.postMessage({ type: 'render', seq: job.seq, img: id, E: pack(job.E, job.img) });
   }
 
   function pump() {
@@ -117,7 +117,7 @@ const WP = (() => {
     const id = upload(job.img);
     job.seq = ++seq;
     busy = job;
-    worker.postMessage({ type: 'render', seq: job.seq, img: id, E: pack(job.E, job.img), rect: job.rect || null });
+    worker.postMessage({ type: 'render', seq: job.seq, img: id, E: pack(job.E, job.img) });
   }
 
   start();
@@ -125,11 +125,10 @@ const WP = (() => {
     ready: () => ready,
     failed: () => failed,
     // img = {base (RGBA), pw, ph}; done(result) gets {out, hin, hout, hmx, hmn, w, h, ms} unless a newer
-    // request replaced this one first. rect {x, y, w, h}: a draft of that part only; the result then
-    // has {rect, out} (no histograms), or is a full render when the core can't draft yet.
-    render(img, E, done, rect) {
+    // request replaced this one first
+    render(img, E, done) {
       if (!ready) return;
-      pending = { img, E, done, rect };
+      pending = { img, E, done };
       pump();
     },
     // a thumbnail: img = {base, pw, ph, w} (w = the output width, for Sharpen's scale); resolves with

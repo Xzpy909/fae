@@ -1,19 +1,19 @@
 'use strict';
-/* GPU preview (GPU core plan, waves G1-G4): when every step of the edit runs on the GPU core
-   (ui/gpu/, WebGPU), the image is shown by a WebGPU canvas over the viewport, drawn at exactly the
-   screen's pixels (Lanczos-3; nearest from 2 screen px per image px, like the pixel view) on every
-   edit, pan and zoom - no drafts, no screen-resolution redraw. The original | edited split and the
-   before view are drawn there too.
+/* GPU preview (GPU core plan, waves G1-G6): the GPU core (ui/gpu/, WebGPU) renders the edit on the
+   full-resolution stage (stage.js asks for it at GV.maxPixels()), and a WebGPU canvas over the
+   viewport shows it at exactly the screen's pixels (Lanczos-3; nearest from 2 screen px per image
+   px, like the pixel view) on every edit, pan and zoom. The original | edited split and the before
+   view are drawn there too; the Alt views, the encoded compare and crop mode are drawn on the 2D
+   canvas from the GPU's pixels (show(I, E, false): the GPU computes, its canvas stays hidden).
    The GPU also counts the histograms (every frame, so they follow a dragged slider) and, once the
    edit settles, hands back the pixels (S.outData: RGB readout, loupe, the Alt views on the 2D
-   canvas). The CPU core isn't used for such an edit at all. Since G4 every tool runs on the GPU,
-   Sharpen included (its blurs get the preview's scale, as the CPU preview's). Off with ?gpu=0 (fae.py --no-gpu); without WebGPU or ui/gpu/ the app works
-   as before. */
+   canvas). The CPU core isn't used for the live image at all. Off with ?gpu=0 (fae.py --no-gpu);
+   without WebGPU or ui/gpu/ the CPU core draws a PREVIEW_MAX copy (wasm-preview.js). */
 const GV = (() => {
   const params = new URLSearchParams(location.search);
   const cv = document.createElement('canvas');
   cv.id = 'gpu';
-  ($('#sharp') || stageEl).after(cv);       // over the image and the Lanczos overlay, under markers / split line
+  stageEl.after(cv);                       // over the image, under markers / split line
 
   let g = null, ready = false, failed = false, why = '', info = null;
   let img = null, edit = null, editImg = null, on = false, queued = false, checking = false;
@@ -100,7 +100,9 @@ const GV = (() => {
     failed = true; ready = false; why = reason; g = null; img = null; edit = null; editImg = null;
     hide();
     console.warn('GPU preview off: ' + reason);
-    if (typeof requestRender === 'function') requestRender();
+    // the stage was loaded at full resolution for the GPU: the CPU core gets its small copy instead
+    if (S.img && S.img.full) requestStage(true);
+    else if (typeof requestRender === 'function') requestRender();
   }
 
   async function start() {
@@ -109,13 +111,29 @@ const GV = (() => {
     try {
       const mod = await import('../gpu/fae_gpu_wasm.js');
       await mod.default();
+      Boot.mark('gpu wasm');
       cv.width = cv.height = 1;
       g = await mod.create(cv);
+      Boot.mark('gpu device');
+      // compile every shader now, behind the loading screen, one at a time (the browser's GPU process
+      // compiles them and draws nothing meanwhile; waiting for each lets the screen update in between)
+      const n = g.warm_count ? g.warm_count() : 0;                  // (an older ui/gpu build: compile on first use)
+      const took = [];
+      for (let i = 0; i < n; i++) {
+        const t0 = performance.now();
+        g.warm(i);
+        await g.done();
+        took.push([Math.round(performance.now() - t0), g.warm_name ? g.warm_name(i) : String(i)]);
+        Boot.progress(i + 1, n);
+        await new Promise(requestAnimationFrame);
+      }
+      Boot.mark('gpu shaders');
+      if (took.length) Boot.note('slowest shaders: ' + took.sort((a, b) => b[0] - a[0]).slice(0, 4).map(([ms, nm]) => `${nm} ${ms}`).join(', ') + ' ms');
       info = JSON.parse(g.info());
       info.version = mod.version();
       console.info(`GPU preview: fae-gpu ${info.version} on ${info.name || 'WebGPU adapter'} (${info.backend})`);
       ready = true;
-      if (typeof requestRender === 'function') requestRender();
+      if (typeof requestRender === 'function') requestRender();     // also updates the status bar's engine
     } catch (e) {
       fail(String((e && e.message) || e));
     }
@@ -169,19 +187,23 @@ const GV = (() => {
     cv.classList.remove('show');
   }
 
-  start();
+  const started = start();
   return {
     ready: () => ready,
     on: () => on,
-    // can the GPU show this image and edit in the current view?
-    wants(I, E, mode) {
-      if (!ready || !I || !E || S.cropMode || encSplitOn()) return false;
-      if (mode && mode !== 'before') return false;
+    // resolves once the GPU is ready or known to be unavailable (stage.js waits for it)
+    started,
+    // the stage's pixels for the preview: the GPU's limit when it draws, 0 = the CPU core's small copy
+    maxPixels: () => (ready && info ? info.max_pixels : 0),
+    // can the GPU render this image and edit?
+    wants(I, E) {
+      if (!ready || !I || !E) return false;
       if (info && I.pw * I.ph > info.max_pixels) return false;
       return plan(E) !== null;
     },
-    // show I with E (upload / new steps as needed) and draw now; false if the GPU failed
-    show(I, E) {
+    /* render I with E on the GPU (upload / new steps as needed); display: draw its canvas now (else
+       hidden: the 2D canvas shows the pixels, see results()). False if the GPU failed. */
+    show(I, E, display = true) {
       try {
         if (img !== I) { g.upload(I.base, I.pw, I.ph, 4); img = I; }
         const P = plan(E), scaled = P.some(st => st.scaled);
@@ -192,6 +214,7 @@ const GV = (() => {
           edit = E; editImg = I;
         }
       } catch (e) { fail(String((e && e.message) || e)); return false; }
+      if (!display) { hide(); return !failed; }
       on = true;
       cv.classList.add('show');
       draw();
@@ -215,14 +238,11 @@ const GV = (() => {
     info: () => ({ ready, failed, why, info }),
     /* the status bar's engine badge: which core draws the preview right now, and why not the GPU.
        While the GPU core is being built up this makes it obvious which path an edit takes. */
-    badge(I, E, mode) {
+    badge(I, E) {
       const el = $('#stEngine');
       if (!el) return;
       let gpu = false, text, why2 = '';
       if (!ready) { text = 'CPU preview'; why2 = failed ? 'GPU off: ' + why : 'GPU starting…'; }
-      else if (S.cropMode) { text = 'CPU preview'; why2 = 'crop mode'; }
-      else if (encSplitOn()) { text = 'CPU preview'; why2 = 'encoded compare'; }
-      else if (mode && mode !== 'before') { text = 'CPU preview'; why2 = 'Alt view'; }
       else if (E && plan(E) === null) { text = 'CPU preview'; why2 = (TOOL_NAMES[blockers.get(E)] || blockers.get(E)) + ' not on the GPU yet'; }
       else if (I && info && I.pw * I.ph > info.max_pixels) { text = 'CPU preview'; why2 = 'image too big for this GPU'; }
       else { gpu = true; text = 'GPU preview'; }

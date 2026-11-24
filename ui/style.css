@@ -43,7 +43,31 @@
   --mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
 }
 
+/* The app's one scrollbar (every scrolling area: panel, file list, film list, popups): a see-through
+   grey-mint capsule floating in a transparent track (2 px inset on each side, clear of rounded
+   corners), no arrow buttons; brighter on hover, mint while dragged. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-track { margin: 4px 0; }           /* clear of rounded corners */
+::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+::-webkit-scrollbar-thumb {        /* see-through: reads on the panel, the cards and the popups alike */
+  background: rgba(143, 176, 174, .32); border-radius: 5px;
+  border: 2px solid transparent; background-clip: padding-box; min-height: 28px;
+}
+::-webkit-scrollbar-thumb:hover { background-color: rgba(143, 176, 174, .55); }
+::-webkit-scrollbar-thumb:active { background-color: rgba(0, 255, 170, .7); }
+
 * { box-sizing: border-box; }
+
+/* Loading screen (startup.js): over everything until the app can be used. A bar, not a spinner: while
+   the browser's GPU process compiles a shader nothing on screen moves, between them the bar steps on. */
+#splash { position: fixed; inset: 0; z-index: 10000; background: var(--bg); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 18px; color: var(--muted); font: 12px/16px var(--font);
+  transition: opacity .3s; }
+#splash.gone { opacity: 0; pointer-events: none; }
+#splash img { width: 72px; height: 72px; }
+#splash .bar { width: 180px; height: 4px; border-radius: 2px; background: rgba(0, 255, 170, .12); overflow: hidden; }
+#splash .bar i { display: block; height: 100%; width: 0; background: var(--grad); border-radius: 2px; transition: width .15s; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
   font: 13px/18px var(--font); -webkit-font-smoothing: antialiased; overflow: hidden;
   user-select: none; }
@@ -188,9 +212,6 @@ button.primary:hover { background: var(--grad); filter: brightness(1.08) saturat
 #stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
 #view { display: none; box-shadow: 0 10px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.05); }
 #view.pixel { image-rendering: pixelated; }
-/* screen-resolution redraw of the visible part (sharp-view.js), over the canvas once the view settles */
-#sharp { position: absolute; display: none; pointer-events: none; }
-#sharp.show { display: block; }
 #gpu { position: absolute; display: none; pointer-events: none; }   /* GPU preview (gpu-view.js) */
 #gpu.show { display: block; }
 #markers { position: absolute; inset: 0; pointer-events: none; }
@@ -378,27 +399,11 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .island.off .isl-title, .island.off .tabs { color: var(--dim); }
 .island.off .isl-body { opacity: .4; filter: grayscale(.7); transition: opacity .15s; }
 .island.off .isl-body:hover { opacity: .6; }
-#panel .scroll::-webkit-scrollbar, #fileList::-webkit-scrollbar { width: 8px; }
-#panel .scroll::-webkit-scrollbar-thumb, #fileList::-webkit-scrollbar-thumb { background: #00464c; border-radius: 4px; }
 
 .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
   font-size: 11px; text-transform: uppercase; letter-spacing: .7px; color: #a9c3c1; font-weight: 600; }
 .card-head .mono { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11px; }
 
-/* while drafts of part of the image are shown (dragging a control, zoomed in): the histogram dims and
-   a mint shimmer sweeps across it until the full render brings the real one */
-#histoBlock .histo-wrap { overflow: hidden; border-radius: 8px; }
-#histoBlock #histo { transition: opacity .15s, filter .15s; }
-#histoBlock.live #histo { opacity: .35; filter: saturate(.5); }
-#histoBlock .histo-wrap::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0;
-  background: linear-gradient(100deg, transparent 30%, rgba(0, 235, 255, .16) 45%, rgba(0, 255, 170, .26) 50%, rgba(0, 255, 170, 0) 62%);
-  background-size: 260% 100%; transition: opacity .2s; }
-#histoBlock.live .histo-wrap::after { opacity: 1; animation: histo-sweep 1.15s linear infinite; }
-@keyframes histo-sweep { from { background-position: 130% 0; } to { background-position: -30% 0; } }
-#histoBlock .card-head > span:first-child::after { content: "live"; margin-left: 8px; padding: 0 6px; border-radius: 8px;
-  font: 600 9.5px/15px var(--mono); letter-spacing: .04em; text-transform: none; color: var(--accent-ink); background: var(--grad);
-  opacity: 0; transition: opacity .15s; vertical-align: 1px; }
-#histoBlock.live .card-head > span:first-child::after { opacity: 1; }
 /* Histogram block: docked to the panel's top, the export block's twin (the tool list scrolls under it) */
 .histo-block { position: relative; z-index: 2; flex: none; padding: 11px 15px 13px; background: #00272a;
   border-bottom: 1px solid rgba(255, 255, 255, .09); box-shadow: 0 14px 28px rgba(0, 0, 0, .35); }

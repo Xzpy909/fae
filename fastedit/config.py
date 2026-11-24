@@ -51,8 +51,7 @@ WEBP_Q_DEFAULT = 90
 FORMATS = ("WEBP", "PNG", "JPEG", "AVIF")
 EXTS = {"WEBP": ".webp", "PNG": ".png", "JPEG": ".jpg", "AVIF": ".avif"}
 
-PREVIEW_MAX = 2560          # longest side of the image sent to the live preview
-HIRES_MAX_MP = 36e6         # cap for the full-resolution preview used when zoomed in past PREVIEW_MAX
+PREVIEW_MAX = 2560          # longest side of the live preview on the CPU core (the GPU gets full resolution)
 THUMB_SIZE = 112
 
 TARGET_W, TARGET_H = 1280, 720

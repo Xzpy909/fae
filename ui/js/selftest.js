@@ -121,7 +121,7 @@ async function main() {
   if (pw) {
     let seq = 0, nextFilm = 1;
     const filmIds = new Map();          // table -> id, as wasm-preview.js does
-    const ask = (E, W, H, base, fresh) => new Promise((resolve, reject) => {
+    const ask = (E, W, H, base) => new Promise((resolve, reject) => {
       const s = ++seq, e = Object.assign({}, E);
       if (E.film && E.film.d) {
         let id = filmIds.get(E.film.d);
@@ -134,7 +134,7 @@ async function main() {
         m.type === 'done' ? resolve(m) : reject(new Error(m.error));
       });
       if (base) { const b = base.slice().buffer; pw.postMessage({ type: 'image', id: 1, w: W, h: H, base: b }, [b]); }
-      pw.postMessage({ type: 'render', seq: s, img: 1, E: e, fresh: !!fresh });
+      pw.postMessage({ type: 'render', seq: s, img: 1, E: e });
     });
     const image = (W, H) => {           // smooth gradient + noise
       const a = new Uint8ClampedArray(W * H * 4);
@@ -180,50 +180,23 @@ async function main() {
       return bad.length ? ['bad', bad.join('; ')] : ['ok', `${Object.keys(edits).length} edits identical at ${W}x${H} (pixels and histograms)`];
     });
 
-    await check('Draft = part of the full render', async () => {
-      // the zoomed-in drafts (run_region): a rectangle with the last full render's measurements must
-      // equal that rectangle of the full render (Sharpen aside: it sees only a margin)
-      if (!wasm) return ['bad', 'skipped: the WASM core did not load on the page'];
-      const { toParams } = await import('./wasm-params.js');
-      const W = 1600, H = 1000, base = image(W, H), bad = [];
-      const pv = new wasm.Preview(W, H, new Uint8Array(base.buffer));
+    // the CPU preview's size (PREVIEW_MAX on the long side): what it costs without a GPU
+    await check('CPU preview speed 2560x1440', async () => {
+      const W = 2560, H = 1440, base = image(W, H), parts = [];
+      let first = true;
       for (const [name, f] of Object.entries(edits)) {
         const E = editOf(f);
-        let p = toParams(wasm, E); pv.forget(); pv.render(p); p.free();
-        const full = pv.output();
-        for (const [x, y, w, h] of [[300, 200, 640, 360], [0, 0, 1600, 1], [1500, 900, 100, 100]]) {
-          p = toParams(wasm, E);
-          const ok = pv.render_region(p, x, y, w, h); p.free();
-          if (!ok) { bad.push(`${name}: no draft`); continue; }
-          const part = pv.part();
-          let n = 0;
-          for (let r = 0; r < h; r++) for (let i = 0; i < w * 4; i++) if (part[r * w * 4 + i] !== full[((y + r) * W + x) * 4 + i]) n++;
-          if (n) bad.push(`${name} ${w}x${h}@${x},${y}: ${n} bytes`);
+        await ask(E, W, H, first ? base : null); first = false;       // warm-up (and image upload)
+        let tw = Infinity, tc = Infinity;
+        for (let r = 0; r < 3; r++) {
+          const t = performance.now(); const m = await ask(E, W, H, null);
+          tw = Math.min(tw, performance.now() - t);
+          tc = Math.min(tc, m.ms);
         }
+        parts.push(`${name}: ${tw.toFixed(0)} ms (core ${tc.toFixed(0)})`);
       }
-      pv.free();
-      return bad.length ? ['bad', bad.join('; ')] : ['ok', `${Object.keys(edits).length} edits, 3 rectangles each: identical`];
+      return ['info', parts.join(' | ')];
     });
-
-    for (const [W, H] of [[2560, 1440], [7360, 4912]]) {
-      await check(`Preview speed ${W}x${H}`, async () => {
-        const base = image(W, H), parts = [], phases = [];
-        let first = true;
-        for (const [name, f] of Object.entries(edits)) {
-          const E = editOf(f);
-          await ask(E, W, H, first ? base : null); first = false;       // warm-up (and image upload)
-          let tw = Infinity, tc = Infinity, ph = '';
-          for (let r = 0; r < 3; r++) {
-            const t = performance.now(); const m = await ask(E, W, H, null, true);   // full render (no kept results)
-            tw = Math.min(tw, performance.now() - t);
-            if (m.ms < tc) { tc = m.ms; ph = m.phases || ''; }
-          }
-          parts.push(`${name}: ${tw.toFixed(0)} ms (core ${tc.toFixed(0)})`);
-          phases.push(`${name}: ${ph}`);
-        }
-        return ['info', parts.join(' | ') + '\n      phases (ms): ' + phases.join('\n      phases (ms): ')];
-      });
-    }
     pw.terminate();
   }
 

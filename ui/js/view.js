@@ -12,28 +12,10 @@ function applyView() {
   const sx = Math.round((r.left + v.x) * d) / d - r.left, sy = Math.round((r.top + v.y) * d) / d - r.top;
   stageEl.style.transform = `translate(${sx}px, ${sy}px) scale(${v.z})`;
   canvas.classList.toggle('pixel', v.z * d >= 2);
-  checkHires();
-  if (typeof Sharp !== 'undefined') Sharp.dirty();
   if (typeof GV !== 'undefined') GV.viewChanged();
   $('#zoomLabel').textContent = I ? Math.round(v.z * dpr() * (I.pw / I.w) * 100) + '%' : '–';
   updateMarkers();
   updateCmp();
-}
-
-/* The live preview is at most PREVIEW_MAX px on the long side. Zoomed in past that (output pixels
-   bigger than preview pixels on screen) it is swapped for the full-resolution stage, and back when zoomed
-   out below HIRES_OUT. The small copy is never shown scaled up when idle: that would make the sharpness
-   jump at the swap. (Dragging in that zone uses the small copy anyway, see render.js.) */
-const HIRES_IN = 1.01, HIRES_OUT = 0.8;
-function checkHires() {
-  const I = S.img, v = S.view;
-  if (!I || S.cropMode || !I.lo_pw || I.lo_pw >= I.w) return;
-  const shown = v.z * dpr() * I.pw / I.w;        // screen pixels per output pixel
-  const lo = I.lo_pw / I.w;                       // output scale the small preview covers
-  const want = S.hires ? shown > lo * HIRES_OUT : shown > lo * HIRES_IN;
-  if (want === S.hires) return;
-  S.hires = want;
-  requestStage();
 }
 
 function fitView() {

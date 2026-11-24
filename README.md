@@ -151,9 +151,12 @@ Own images can go into `tests/parity/images/` (not committed).
 The edit math is moving to the GPU (wgpu + WGSL shaders, `core/gpu/`), in waves. The GPU core runs
 every tool (Point correction, Adjustments with Mid/Detail, Curves, Perceptual Saturation, Film Effect,
 Super Contrast, Sharpen) and counts the histograms. The live preview uses it whenever WebGPU is
-available (`ui/js/gpu-view.js`; the status bar says which core draws): the image is then drawn at
-exactly the screen's pixels on every change, pan and zoom, and the histograms follow a dragged
-slider. Process (and the encoded compare preview) renders on the GPU core too when it is installed
+available (`ui/js/gpu-view.js`; the status bar says which core draws): it renders the image at full
+resolution and draws it at exactly the screen's pixels on every change, pan and zoom, and the
+histograms follow a dragged slider. Without a GPU the CPU core renders a copy of at most 2560 px on
+the long side (zooming in shows it scaled up); crop mode and the preset thumbnails always use the
+CPU core (small images). The GPU core compiles all its shaders once at start-up, behind the loading screen
+(`ui/js/startup.js`; `python fae.py --debug` logs how long each start-up step took). Process (and the encoded compare preview) renders on the GPU core too when it is installed
 and has a device; otherwise, with `--no-gpu`, for an image too big for the GPU, or after a GPU error,
 the CPU core renders it, with the same result within the tolerance rule. The GPU computes in f32 (the CPU core in f64): 99.99 % of the
 values match exactly, the rest are 1 level off with rare outliers (`tests/gpu/tolerance.py` explains
@@ -229,8 +232,8 @@ fastedit/              # Python back end
 ui/
 ├── index.html
 ├── style.css
-└── js/                # state, film-tables, film/*, edit-math, render, compare, stage, view, sharp-view,
-    │                  # curves, controls, files, tools, presets, instances, chain-presets, process, init, crop (loaded in that order)
+└── js/                # state, film-tables, film/*, edit-math, wasm-preview, render, compare, stage, view, gpu-view,
+    │                  # curves, controls, files, tools, presets, instances, chain-presets, process, winchrome, init, crop (loaded in that order)
     └── film/          # one file per Film Effect preset (33×33×33 colour table)
 core/                  # Rust core: fastedit-core (math), fastedit-py (Python), fastedit-wasm
 tests/parity/          # bit-exactness tests of both core builds against stored goldens

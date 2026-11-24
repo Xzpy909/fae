@@ -187,7 +187,7 @@ impl Gpu {
         let s = self.stage.as_ref().unwrap();
         let (w2, h2) = (s.w.div_ceil(k), s.h.div_ceil(k));
         let d = &self.device;
-        let px = |p: Pipe| &self.pipes[p as usize];
+        let px = |p: Pipe| self.pipe(p);
         let tv = |i: usize| wgpu::BindingResource::TextureView(&s.views[i]);
         let pr = || params.as_entire_binding();
         let gg = (w2.div_ceil(16), h2.div_ceil(16), 1);
@@ -231,7 +231,7 @@ impl Gpu {
             let pv0 = self.small_storage(&[w2 as f32, h2 as f32, r2 as f32, 0.0, ST_EPS]);
             let pv1 = self.small_storage(&[w2 as f32, h2 as f32, r2 as f32, 1.0, ST_EPS]);
             let d = &self.device;
-            let px = |p: Pipe| &self.pipes[p as usize];
+            let px = |p: Pipe| self.pipe(p);
             let grow = (w2.div_ceil(64).div_ceil(64), h2, 1);
             let gcol = (w2.div_ceil(64), h2.div_ceil(64), 1);
             let bb = |a: &wgpu::Buffer, b2: &wgpu::Buffer, p: &wgpu::Buffer, pipe: Pipe| Pass {
@@ -249,7 +249,7 @@ impl Gpu {
             keep.extend([b1, pp, ph, pv0, pv1]);
         }
         let d = &self.device;
-        let px = |p: Pipe| &self.pipes[p as usize];
+        let px = |p: Pipe| self.pipe(p);
         let tv = |i: usize| wgpu::BindingResource::TextureView(&s.views[i]);
         passes.push(Pass { pipe: Pipe::StFine, groups: gfull,
             bg: bind_group_at(d, px(Pipe::StFine), &[(0, tv(inp)), (5, f0.as_entire_binding()), (6, f1.as_entire_binding())]) });

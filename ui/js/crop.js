@@ -116,7 +116,7 @@ const Crop = (() => {
     C.crop = G.crop ? shrink({ ...G.crop }) : defaultCrop();
     C.desired = { ...C.crop };
     S.cropMode = true;
-    Sharp.hide();
+    requestRender();                   // the GPU canvas hides while the crop layer is up
     layer.classList.add('show');
     buildAspects();
     updateHint();
@@ -127,7 +127,7 @@ const Crop = (() => {
     if (!S.cropMode) return;
     S.cropMode = false;
     straightOn = false; sline = null; $('#straighten').classList.remove('on');
-    Sharp.dirty();
+    requestRender();
     layer.classList.remove('show');
     if (!cancel && C) {
       const [fw, fh] = frameWH(), c = C.crop;

@@ -122,7 +122,7 @@ async function loadJpeg() {
   S.cmp.busy = true; updateCmp();
   let r;
   const fmt = S.prefs.fmt;
-  try { r = await api().lossy_preview(jobFor(f, true), fmt, encOpts(), id, !!S.img.full); }
+  try { r = await api().lossy_preview(jobFor(f, true), fmt, encOpts(), id, S.img.full || 0); }
   catch (e) { r = { ok: false, error: String(e) }; }
   if (id !== S.cmp.req || (r && r.cancelled)) return;
   if (!r || !r.ok) { S.cmp.busy = false; updateCmp(); toast('JPEG preview failed: ' + (r ? r.error : 'unknown'), true); return; }

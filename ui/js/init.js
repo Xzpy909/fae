@@ -7,7 +7,11 @@
 window.app = { addPaths, winState: m => WinChrome.setMax(m) };   // winState: Python reports maximize / restore
 
 async function init() {
+  try { await initSteps(); } finally { Boot.init(); }               // the loading screen waits for this
+}
+async function initSteps() {
   try { WinChrome.init(await api().win_info()); } catch (_) {}      // unified header (frameless window on Windows)
+  Boot.mark('window');
   try {
     const s = await api().get_settings();
     if (s && typeof s === 'object') {
@@ -32,11 +36,14 @@ async function init() {
       if (S.stage.mode === '720p') Object.assign(S.stage, { mode: 'preset', preset_ar: '16:9', preset_res: 720 });
     }
   } catch (_) {}
+  Boot.mark('settings');
   try { const ji = await api().encoder_info(); S.cmp.jpegli = !!(ji && ji.jpegli); S.cmp.avif = !!(ji && ji.avif); S.cmp.svt = !!(ji && ji.svt); } catch (_) {}
+  Boot.mark('encoders');
   S.committed = snapshot();
   syncPanel(); editChanged(); updateInfo();
   Presets.load();
   try { const init = await api().initial_files(); if (init && init.length) addPaths(init); } catch (_) {}
+  Boot.mark('files');
 }
 S.E = computeEdit(effectiveEdit(S.edit));
 syncPanel(); updateInfo();

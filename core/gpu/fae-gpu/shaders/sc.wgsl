@@ -75,7 +75,9 @@ fn cc_tab(t: array<f32, 11>, s: f32) -> f32 {
     return tt[i] + (tt[i + 1u] - tt[i]) * f;
 }
 
-var<private> hs: array<u32, 768>;
+// the histograms after Color Cast; in workgroup memory, not private: a big freely indexed private
+// array made the D3D12 shader compiler take seconds over this pass (3.6 s on the PC)
+var<workgroup> hs: array<u32, 768>;
 
 // percentile q of channel c's 256 bins (n samples); positions in integers: exact
 fn pct(c: u32, n: u32, q: u32) -> f32 {
@@ -137,10 +139,17 @@ fn reduce() {
                 hs[c * 256u + to] += atomicLoad(&hist[c * 256u + v]);
             }
         }
-        let p2 = vec3<f32>(pct(0u, n, 2u), pct(1u, n, 2u), pct(2u, n, 2u));
-        let p98 = vec3<f32>(pct(0u, n, 98u), pct(1u, n, 98u), pct(2u, n, 98u));
-        let p10 = vec3<f32>(pct(0u, n, 10u), pct(1u, n, 10u), pct(2u, n, 10u));
-        let p90 = vec3<f32>(pct(0u, n, 90u), pct(1u, n, 90u), pct(2u, n, 90u));
+        // in a loop over the channels: 4 calls to inline instead of 12 (compile time)
+        var p2: vec3<f32>;
+        var p98: vec3<f32>;
+        var p10: vec3<f32>;
+        var p90: vec3<f32>;
+        for (var c = 0u; c < 3u; c++) {
+            p2[c] = pct(c, n, 2u);
+            p98[c] = pct(c, n, 98u);
+            p10[c] = pct(c, n, 10u);
+            p90[c] = pct(c, n, 90u);
+        }
         let a_lo = min(min(p2.r, p2.g), p2.b);
         let a_hi = max(max(p98.r, p98.g), p98.b);
         let b_lo = min(min(p10.r, p10.g), p10.b) + 1.0;

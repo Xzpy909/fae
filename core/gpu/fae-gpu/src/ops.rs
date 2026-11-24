@@ -67,7 +67,7 @@ impl Gpu {
         let ax0 = self.small_storage(&[0.0]);
         let ax1 = self.small_storage(&[1.0]);
         let d = &self.device;
-        let px = |p: Pipe| &self.pipes[p as usize];
+        let px = |p: Pipe| self.pipe(p);
         let tv = |i: usize| wgpu::BindingResource::TextureView(&s.views[i]);
         let g16 = (w.div_ceil(16), h.div_ceil(16), 1);
         let gc = ((cells as u32).div_ceil(64), 1, 1);
@@ -102,7 +102,7 @@ impl Gpu {
         let ax0 = self.small_storage(&[0.0]);
         let ax1 = self.small_storage(&[1.0]);
         let d = &self.device;
-        let px = |p: Pipe| &self.pipes[p as usize];
+        let px = |p: Pipe| self.pipe(p);
         let tv = |i: usize| wgpu::BindingResource::TextureView(&s.views[i]);
         let g16 = (w.div_ceil(16), h.div_ceil(16), 1);
         let n64 = |n: u64| ((n as u32).div_ceil(64), 1, 1);
@@ -179,7 +179,7 @@ impl Gpu {
         let pv0 = self.small_storage(&[w as f32, h as f32, r, 0.0, MD_EPS]);
         let pv1 = self.small_storage(&[w as f32, h as f32, r, 1.0, MD_EPS]);
         let d = &self.device;
-        let px = |p: Pipe| &self.pipes[p as usize];
+        let px = |p: Pipe| self.pipe(p);
         let g16 = (w.div_ceil(16), h.div_ceil(16), 1);
         // box filters: one thread per segment of 64 pixels (shaders' SEG), 64 threads per group
         let grow = (w.div_ceil(64).div_ceil(64), h, 1);

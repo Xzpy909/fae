@@ -187,6 +187,22 @@ impl GpuPreview {
     }
 
     /// Resolves when the GPU has finished everything submitted so far.
+    /// How many shader pipelines warm() compiles.
+    pub fn warm_count(&self) -> u32 {
+        Gpu::pipeline_count() as u32
+    }
+
+    /// Compile pipeline i now (the loading screen does all of them, one at a time, waiting for each
+    /// with done(): the browser's GPU process compiles them and can't draw meanwhile).
+    pub fn warm(&self, i: u32) {
+        self.g.warm(i as usize);
+    }
+
+    /// Pipeline i's name ("module:entry"), for the start-up log.
+    pub fn warm_name(&self, i: u32) -> String {
+        Gpu::pipeline_name(i as usize)
+    }
+
     pub fn done(&self) -> js_sys::Promise {
         let f = self.g.done();
         wasm_bindgen_futures::future_to_promise(async move {

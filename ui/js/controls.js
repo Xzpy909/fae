@@ -237,7 +237,7 @@ const syncJMode = segInit('#jModeSeg', () => S.prefs.jpeg_mode, v => { S.prefs.j
 const syncWMode = segInit('#wModeSeg', () => S.prefs.webp_lossy ? 'lossy' : 'lossless',
   v => { S.prefs.webp_lossy = v === 'lossy'; savePrefsSoon(); fmtChanged(); });
 const syncAEnc = segInit('#aEncSeg', () => avifEnc(), v => { S.prefs.avif_enc = v; savePrefsSoon(); fmtChanged(); });
-/* AVIF encoder actually used: SVT-AV1 if chosen and possible (exe found, image without alpha), else aom */
+/* AVIF encoder actually used: SVT-AV1 if chosen and possible (exe found, image without alpha), else rav1e (the "aom" settings; Pillow's aom before B4) */
 const svtUsable = () => !!S.cmp.svt && !(S.img && S.img.alpha);
 const avifEnc = () => S.prefs.avif_enc === 'svt' && svtUsable() ? 'svt' : 'aom';
 function syncEncRow() {
@@ -256,8 +256,8 @@ function syncEncRow() {
   $('#avifSvt').style.display = aom ? 'none' : '';
   $('#avifAom').style.display = aom ? '' : 'none';
   const forced = S.prefs.avif_enc === 'svt' && aom;
-  $('#aomNote').textContent = !forced ? '' : !S.cmp.svt ? 'aom via Pillow (SvtAv1EncApp.exe not found)'
-    : 'aom via Pillow (this image has alpha)';
+  $('#aomNote').textContent = !forced ? '' : !S.cmp.svt ? 'rav1e (SvtAv1EncApp.exe not found)'
+    : 'rav1e (this image has alpha)';
   $('#aomNote').style.display = forced ? '' : 'none';
   syncEncChip();
 }
@@ -272,7 +272,7 @@ function syncEncChip() {
     : avifEnc() === 'svt' ? `crf ${Number(P.avif_crf)} · p${P.avif_preset}` : `q ${P.aom_q} · s${P.aom_speed}`;
   $('#encPopTitle').textContent = f === 'JPEG' ? 'JPEG · ' + (S.cmp.jpegli ? 'jpegli' : 'Pillow')
     : f === 'WEBP' ? 'WEBP · ' + (P.webp_lossy ? 'lossy' : 'lossless')
-    : 'AVIF · ' + (avifEnc() === 'svt' ? 'SVT-AV1 4:4:4' : 'aom');
+    : 'AVIF · ' + (avifEnc() === 'svt' ? 'SVT-AV1 4:4:4' : 'rav1e');
 }
 const EncPop = (() => {
   const blk = $('#exportBlock'), chip = $('#encChip'), pop = $('#encPop');

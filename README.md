@@ -2,7 +2,7 @@
 
 **Fast Image Editor.** A fast, keyboard-friendly desktop editor for batch-preparing images: crop and rotate, colour-correct with eyedroppers and curves, resize to 720p or a target megapixel count, then export to lossless WEBP/PNG or lossy JPEG (jpegli), AVIF (SVT-AV1) or WEBP. Lossy formats have a split-view preview, so you can judge the real encode at the chosen settings before saving.
 
-Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/JS; the edit math is a Rust core (Python extension + WebAssembly, see below); the stage (loading, geometry, resizing, colour balance) is a Rust back end; encoding uses Pillow and the encoders.
+Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/JS; the edit math is a Rust core (Python extension + WebAssembly, see below); the stage (loading, geometry, resizing, colour balance) is a Rust back end; encoding is in the Rust back end too (libwebp, libjpeg-turbo, rav1e, and the cjpegli / SvtAv1EncApp encoders).
 
 ## Preview
 
@@ -55,10 +55,10 @@ JPEG, PNG, WEBP, AVIF, BMP, GIF, TIFF, TGA, PPM/PGM, ICO, plus **HEIC/HEIF** and
 
 | Format | Encoder | Settings |
 |---|---|---|
-| WEBP | libwebp (Pillow), `method=6` | Lossless, or Lossy + quality |
-| PNG | Pillow, `compress_level=9` | — |
-| JPEG | **jpegli** (`encoders/cjpegli.exe`), Pillow fallback | Quality *or* Butteraugli distance |
-| AVIF | **SVT-AV1** (`encoders/SvtAv1EncApp.exe`), 10-bit 4:4:4, `--tune 3`; Pillow/aom fallback | CRF (0.25 steps), preset 0–8 |
+| WEBP | libwebp, `method=6` | Lossless, or Lossy + quality |
+| PNG | Pillow's filter choice, zlib level 9 | — |
+| JPEG | **jpegli** (`encoders/cjpegli.exe`), libjpeg-turbo fallback | Quality *or* Butteraugli distance |
+| AVIF | **SVT-AV1** (`encoders/SvtAv1EncApp.exe`), 10-bit 4:4:4, `--tune 3`; rav1e fallback | CRF (0.25 steps), preset 0–8 |
 
 - ICC profiles from the source are carried over
 - **Split-view compare** for lossy formats: drag the divider. Left is the lossless edit, right is the actual encode decoded back
@@ -76,7 +76,7 @@ Pipeline order: `geometry → resize → White-Patch → Gray-Edge → point cor
 pip install -r requirements.txt
 ```
 
-(`pywebview>=5.0`, `pillow>=11.2`, `numpy`, `pillow-heif`, `pillow-jxl-plugin`). Pillow 11.2 or newer is needed for AVIF decoding in the preview and for the aom fallback.
+(`pywebview>=5.0`, `pillow>=11.2`, `numpy`, `pillow-heif`, `pillow-jxl-plugin`). Pillow 11.2 or newer is needed for AVIF files the Rust decoder doesn't open (grids).
 The Rust core and the Rust back end are required as well: build them once with `core\build_core.bat` and
 `core\backend\build_backend.bat` (see [Rust core](#rust-core)).
 
@@ -93,8 +93,8 @@ encoders/
 ```
 
 Both are optional:
-- Without `cjpegli.exe`, JPEG uses Pillow's libjpeg-turbo, which has no distance mode.
-- Without `SvtAv1EncApp.exe`, AVIF uses Pillow's libavif/aom.
+- Without `cjpegli.exe`, JPEG uses libjpeg-turbo, which has no distance mode.
+- Without `SvtAv1EncApp.exe`, AVIF uses rav1e (built in).
 
 The app shows which encoder is in use.
 
@@ -154,11 +154,12 @@ Own images can go into `tests/parity/images/` (not committed).
 The Python back end (`fastedit/`) moves to Rust wave by wave (`core/backend/`, Python extension
 `fae_backend`), behind one table of commands, so the app shell stays thin and could later be swapped
 (pywebview → Tauri) without touching the rest. `ui/js/bridge.js` is the only UI file that knows the
-shell. So far in Rust: settings, presets, opening images (every format but AVIF, with the same
-pixels Pillow gave; HEIC through the libheif that comes with pillow-heif; with [nasm](https://nasm.us)
+shell. So far in Rust: settings, presets, opening images (with the same pixels Pillow gave, AVIF through
+rav1d; HEIC through the libheif that comes with pillow-heif; with [nasm](https://nasm.us)
 installed, `build_backend.bat` builds libjpeg-turbo's faster SIMD code), crop / rotate / flip,
 resizing, the file-list thumbnails, White-Patch / Gray-Edge and the whole stage with its cache and
-previews (Pillow's, OpenCV's and NumPy's maths ported, multi-threaded; OpenCV is no longer needed).
+previews (Pillow's, OpenCV's and NumPy's maths ported, multi-threaded; OpenCV is no longer needed), and the
+encoders (PNG, WebP, JPEG, AVIF through SvtAv1EncApp or rav1e, saving).
 Before a part moves, its Python results are stored as
 goldens; the Rust version must match them (exactly, or within the tolerance rule for the parts that
 re-implement OpenCV maths):
@@ -168,6 +169,7 @@ core\backend\build_backend.bat           # Python extension fae_backend (build.b
 python tests/stage/stage_check.py        # decode, geometry, resize, colour balance, the stage vs the goldens
                                          #   (--impl python: Pillow's decode / thumbnails; --own: own photos too)
 python tests/backend/commands_check.py   # the commands moved so far vs their Python behaviour
+python tests/backend/encoders_check.py   # the encoders and the AVIF decoder vs Pillow / the Python versions
 python tests/stage/stage_bench.py        # timing of the stage in Rust (Pillow next to it where it still does the job)
 ```
 
@@ -248,7 +250,7 @@ python fae.py --test-filters        # the kit's hidden test filters in the Filte
 ## Notes on encoding
 
 - **JPEG (jpegli)**: the image is handed to `cjpegli` as a PNG with its ICC profile. Transparent images are flattened onto white.
-- **AVIF (SVT-AV1)**: RGB is converted to 10-bit full-range BT.709 YUV 4:4:4 and encoded as a still picture with `--avif 1 --tune 3`. The AV1 bitstream is then wrapped into an `.avif` container by the app itself, so no `avifenc` is needed. The file is tagged as sRGB / full range, plus ICC if present. Images with alpha use the aom fallback.
+- **AVIF (SVT-AV1)**: RGB is converted to 10-bit full-range BT.709 YUV 4:4:4 and encoded as a still picture with `--avif 1 --tune 3`. The AV1 bitstream is then wrapped into an `.avif` container by the app itself, so no `avifenc` is needed. The file is tagged as sRGB / full range, plus ICC if present. Images with alpha are encoded with rav1e (alpha as a second 10-bit image in the file).
 - **WEBP lossless** uses `quality=100, method=6, exact=True` (maximum effort).
 
 ## Project layout
@@ -259,9 +261,9 @@ fastedit/              # Python back end
 ├── config.py          # paths, defaults, per-image stage parameters
 ├── core.py            # Process / compare preview: GPU core (fae_gpu) or CPU core (fastedit_core)
 ├── backend.py         # the Rust back end (fae_backend): the stage, settings, presets
-├── engine.py          # Pillow decode (AVIF), file lists, thumbnails
+├── engine.py          # Pillow decode for the AVIFs Rust doesn't open, file lists
 ├── proc.py            # running external encoders (cancellable preview encodes)
-├── jpeg.py, avif.py   # JPEG (jpegli) and AVIF (SVT-AV1 + container muxer, aom fallback)
+├── jpeg.py, avif.py   # JPEG (jpegli) and AVIF (Python versions, kept until B4 is checked)
 ├── output.py          # WEBP, lossy dispatch, saving
 ├── api.py             # JS API used by the UI
 └── app.py             # local HTTP server, window, drag and drop

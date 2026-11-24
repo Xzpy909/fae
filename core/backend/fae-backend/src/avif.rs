@@ -345,3 +345,219 @@ mod tests {
         assert_eq!(&v[4..8], &[0, 2, 0, 2]); // Cb: 512, 512
     }
 }
+
+// ---- rav1e (B4: replaces Pillow's libavif / aom for alpha, the UI's "aom" choice, no SvtAv1EncApp) --------
+
+/// ravif's quality (0..100) → rav1e quantizer.
+fn quality_to_quantizer(quality: f32) -> usize {
+    let q = quality / 100.0;
+    let x = if q >= 0.82 { (1.0 - q) * 2.6 } else if q > 0.25 { q.mul_add(-0.5, 1.0 - 0.125) } else { 1.0 - q };
+    (x * 255.0).round().clamp(0.0, 255.0) as usize
+}
+
+/// rav1e's settings for a still image at `speed` (ravif's tweaks of the speed preset).
+fn speed_settings(speed: u8, quantizer: usize) -> rav1e::config::SpeedSettings {
+    use rav1e::config::*;
+    use rav1e::prelude::*;
+    let low_quality = quantizer < quality_to_quantizer(55.0);
+    let high_quality = quantizer > quality_to_quantizer(80.0);
+    let max_block = if high_quality { 16 } else { 64 };
+    let mut s = SpeedSettings::from_preset(speed);
+    s.multiref = false;
+    s.rdo_lookahead_frames = 1;
+    s.scene_detection_mode = SceneDetectionSpeed::None;
+    s.motion.include_near_mvs = false;
+    s.motion.use_satd_subpel = false;
+    s.fast_deblock = speed >= 7 && !high_quality;
+    s.transform.reduced_tx_set = speed == 4 || speed >= 9;
+    s.transform.tx_domain_rate = speed >= 10;
+    s.transform.rdo_tx_decision = speed <= 4 && !high_quality;
+    s.transform.enable_inter_tx_split = speed >= 9;
+    s.partition.encode_bottomup = speed <= 2;
+    s.cdef = low_quality && speed <= 9;
+    s.lrf = low_quality && speed <= 8;
+    s.sgr_complexity = if speed <= 2 { SGRComplexityLevel::Full } else { SGRComplexityLevel::Reduced };
+    s.prediction.fine_directional_intra = speed <= 6;
+    s.prediction.prediction_modes = if speed <= 1 { PredictionModesSetting::ComplexAll } else { PredictionModesSetting::Simple };
+    let (lo, hi) = match speed {
+        0 => (4, 64.min(max_block)),
+        1 if low_quality => (4, 64.min(max_block)),
+        2 if low_quality => (4, 32.min(max_block)),
+        1..=4 => (4, 16),
+        5..=8 => (8, 16),
+        _ => (16, 16),
+    };
+    let sz = |s: u32| match s {
+        4 => BlockSize::BLOCK_4X4,
+        8 => BlockSize::BLOCK_8X8,
+        16 => BlockSize::BLOCK_16X16,
+        32 => BlockSize::BLOCK_32X32,
+        _ => BlockSize::BLOCK_64X64,
+    };
+    s.partition.partition_range = PartitionRange::new(sz(lo), sz(hi));
+    s
+}
+
+/// One still frame through rav1e: 10-bit full range, 4:4:4 (3 planes) or monochrome (1 plane, alpha).
+/// The OBUs (sequence header + frame).
+fn rav1e_encode(w: usize, h: usize, planes: &[&[u16]], quantizer: usize, speed: u8) -> Result<Vec<u8>, Error> {
+    use rav1e::prelude::*;
+    let mono = planes.len() == 1;
+    let min_tile = match speed {
+        0 => 4096,
+        1 => 2048,
+        2 => 1024,
+        3 => 512,
+        4 => 256,
+        _ => 128,
+    } * if quantizer > quality_to_quantizer(80.0) { 2 } else { 1 };
+    let threads = rayon::current_num_threads();
+    let enc = EncoderConfig {
+        width: w,
+        height: h,
+        bit_depth: 10,
+        chroma_sampling: if mono { ChromaSampling::Cs400 } else { ChromaSampling::Cs444 },
+        chroma_sample_position: ChromaSamplePosition::Unknown,
+        pixel_range: PixelRange::Full,
+        color_description: if mono {
+            None
+        } else {
+            Some(ColorDescription {
+                color_primaries: ColorPrimaries::BT709,
+                transfer_characteristics: TransferCharacteristics::SRGB,
+                matrix_coefficients: MatrixCoefficients::BT709,
+            })
+        },
+        still_picture: true,
+        quantizer,
+        min_quantizer: quantizer as u8,
+        tune: Tune::Psychovisual,
+        tiles: threads.min((w * h) / (min_tile * min_tile)).max(1),
+        speed_settings: speed_settings(speed, quantizer),
+        ..EncoderConfig::with_speed_preset(speed)
+    };
+    let cfg = Config::new().with_encoder_config(enc).with_threads(threads);
+    let mut ctx: Context<u16> = cfg.new_context().map_err(|e| bad(format!("rav1e: {e}")))?;
+    let mut frame = ctx.new_frame();
+    for (i, p) in planes.iter().enumerate() {
+        frame.planes[i].copy_from_raw_u8(&p.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>(), w * 2, 2);
+    }
+    ctx.send_frame(frame).map_err(|e| bad(format!("rav1e: {e}")))?;
+    ctx.flush();
+    let mut out = ctx.container_sequence_header()[4..].to_vec(); // av1C's configOBUs: the sequence header
+    loop {
+        match ctx.receive_packet() {
+            Ok(p) => out.extend_from_slice(&p.data),
+            Err(EncoderStatus::Encoded) => continue,
+            Err(EncoderStatus::LimitReached) => break,
+            Err(e) => return Err(bad(format!("rav1e: {e}"))),
+        }
+    }
+    Ok(out)
+}
+
+/// AVIF through rav1e: 10-bit 4:4:4 full-range BT.709 colour (the same YUV as the SvtAv1EncApp path)
+/// and, for RGBA, a 10-bit monochrome alpha item. `quality` / `speed` as the UI's aom settings.
+pub fn encode_rav1e(px: &[u8], w: usize, h: usize, c: usize, quality: i64, speed: i64, icc: Option<&[u8]>) -> Result<Vec<u8>, Error> {
+    let q = quality.clamp(0, 100) as f32;
+    let speed = speed.clamp(0, 10) as u8;
+    let yuv = rgb_to_yuv444p10(px, c);
+    let s: Vec<u16> = yuv.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
+    let n = w * h;
+    let color = rav1e_encode(w, h, &[&s[..n], &s[n..2 * n], &s[2 * n..]], quality_to_quantizer(q), speed)?;
+    if c != 4 {
+        return mux(&color, w as u32, h as u32, icc, (1, 13, 1, 1));
+    }
+    let a: Vec<u16> = px.chunks_exact(4).map(|p| ((p[3] as u16) << 2) | (p[3] as u16 >> 6)).collect();
+    let aq = ((q + 100.0) / 2.0).min(q + q / 4.0 + 2.0);
+    let alpha = rav1e_encode(w, h, &[&a], quality_to_quantizer(aq), speed)?;
+    mux_alpha(&color, &alpha, w as u32, h as u32, icc, (1, 13, 1, 1))
+}
+
+/// av1C of a stream: its 4 config bytes + the sequence header OBU; and the item data (no TD / padding).
+fn av1c_and_item(stream: &[u8]) -> Result<(Vec<u8>, Vec<u8>, SeqHeader), Error> {
+    let obus = split_obus(stream)?;
+    let seq = obus.iter().find(|(t, _)| *t == 1).map(|(_, o)| *o).ok_or_else(|| bad("no sequence header in AV1 stream"))?;
+    let item: Vec<u8> = obus.iter().filter(|(t, _)| *t != 2 && *t != 15).flat_map(|(_, o)| o.iter().copied()).collect();
+    let s = parse_seq_header(seq)?;
+    let mut av1c = vec![
+        0x81,
+        (s.profile << 5) | (s.level & 0x1F),
+        (s.tier << 7) | (s.high_bitdepth << 6) | (s.twelve_bit << 5) | (s.mono << 4) | (s.sx << 3) | (s.sy << 2) | (s.csp & 3),
+        0,
+    ];
+    av1c.extend_from_slice(seq);
+    Ok((av1c, item, s))
+}
+
+/// A still image with an alpha item (auxl, auxC "…:auxiliary:alpha"), colour first in mdat.
+pub fn mux_alpha(color: &[u8], alpha: &[u8], width: u32, height: u32, icc: Option<&[u8]>, nclx: (u16, u16, u16, u8)) -> Result<Vec<u8>, Error> {
+    let (av1c, item, s) = av1c_and_item(color)?;
+    let (av1c_a, item_a, sa) = av1c_and_item(alpha)?;
+    let mut ispe = width.to_be_bytes().to_vec();
+    ispe.extend_from_slice(&height.to_be_bytes());
+    let pixi = |s: &SeqHeader| {
+        let ch: u8 = if s.mono != 0 { 1 } else { 3 };
+        let mut p = vec![ch];
+        p.extend(std::iter::repeat_n(s.depth, ch as usize));
+        fbx(b"pixi", 0, 0, &p)
+    };
+    let mut nclx_p = b"nclx".to_vec();
+    nclx_p.extend_from_slice(&nclx.0.to_be_bytes());
+    nclx_p.extend_from_slice(&nclx.1.to_be_bytes());
+    nclx_p.extend_from_slice(&nclx.2.to_be_bytes());
+    nclx_p.push((nclx.3 & 1) << 7);
+    let icc = icc.filter(|i| !i.is_empty());
+    // 1 ispe, 2 pixi, 3 av1C, 4 colr nclx, [5 colr prof], then the alpha's pixi, av1C, auxC
+    let mut props = vec![fbx(b"ispe", 0, 0, &ispe), pixi(&s), bx(b"av1C", &av1c), bx(b"colr", &nclx_p)];
+    let mut color_assoc: Vec<(u8, bool)> = vec![(1, false), (2, false), (3, true), (4, false)];
+    if let Some(icc) = icc {
+        let mut p = b"prof".to_vec();
+        p.extend_from_slice(icc);
+        props.push(bx(b"colr", &p));
+        color_assoc.push((5, false));
+    }
+    let base = props.len() as u8;
+    props.push(pixi(&sa));
+    props.push(bx(b"av1C", &av1c_a));
+    let mut auxc = b"urn:mpeg:mpegB:cicp:systems:auxiliary:alpha\0".to_vec();
+    auxc.splice(0..0, [0u8; 4]);
+    props.push(bx(b"auxC", &auxc));
+    let alpha_assoc: Vec<(u8, bool)> = vec![(1, false), (base + 1, false), (base + 2, true), (base + 3, true)];
+    let mut ipma_p = vec![0, 0, 0, 2];
+    for (id, assoc) in [(1u16, &color_assoc), (2u16, &alpha_assoc)] {
+        ipma_p.extend_from_slice(&id.to_be_bytes());
+        ipma_p.push(assoc.len() as u8);
+        ipma_p.extend(assoc.iter().map(|&(idx, ess)| if ess { 0x80 } else { 0 } | idx));
+    }
+    let iprp = bx(b"iprp", &[bx(b"ipco", &props.concat()), fbx(b"ipma", 0, 0, &ipma_p)].concat());
+    let ftyp = bx(b"ftyp", b"avif\0\0\0\0avifmif1miaf");
+    let mut hdlr_p = vec![0u8; 4];
+    hdlr_p.extend_from_slice(b"pict");
+    hdlr_p.extend_from_slice(&[0u8; 13]);
+    let hdlr = fbx(b"hdlr", 0, 0, &hdlr_p);
+    let pitm = fbx(b"pitm", 0, 0, &[0, 1]);
+    let infe = |id: u16| {
+        let mut p = id.to_be_bytes().to_vec();
+        p.extend_from_slice(&[0, 0]);
+        p.extend_from_slice(b"av01\0");
+        fbx(b"infe", 2, 0, &p)
+    };
+    let iinf = fbx(b"iinf", 0, 0, &[&[0u8, 2][..], &infe(1), &infe(2)].concat());
+    let iref = fbx(b"iref", 0, 0, &bx(b"auxl", &[0, 2, 0, 1, 0, 1]));
+    let build = |offset: u32| {
+        let mut p = vec![0x44, 0x00, 0, 2];
+        for (id, off, len) in [(1u16, offset, item.len()), (2, offset + item.len() as u32, item_a.len())] {
+            p.extend_from_slice(&id.to_be_bytes());
+            p.extend_from_slice(&[0, 0, 0, 1]);
+            p.extend_from_slice(&off.to_be_bytes());
+            p.extend_from_slice(&(len as u32).to_be_bytes());
+        }
+        let iloc = fbx(b"iloc", 0, 0, &p);
+        fbx(b"meta", 0, 0, &[&hdlr[..], &pitm, &iloc, &iinf, &iref, &iprp].concat())
+    };
+    let meta = build(0);
+    let offset = (ftyp.len() + meta.len() + 8) as u32;
+    let meta = build(offset);
+    Ok([ftyp, meta, bx(b"mdat", &[item, item_a].concat())].concat())
+}

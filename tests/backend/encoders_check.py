@@ -14,7 +14,13 @@ the owner's check on Windows. What has to match:
   Pillow's zlib-ng, so the bytes and size differ a little: the sizes are printed);
 - the options as the UI sends them (odd values too) give the same settings used, or both fail;
 - output names (_<w>x<h>, _1, _2 ... when taken), save_image's files;
-- the encoded compare's cancellation: a newer request kills a running SvtAv1EncApp / cjpegli.
+- the encoded compare's cancellation: a newer request kills a running SvtAv1EncApp / cjpegli;
+- rav1e (replaces Pillow's aom: alpha, the "aom" choice, no SvtAv1EncApp): a different encoder, so no
+  byte check: Pillow opens its files (alpha and ICC kept) and the quality is close to aom's at the same
+  settings (sizes and mean errors printed);
+- opening AVIF with rav1d + libyuv's conversion ported: the same pixels and ICC as Pillow, and the same
+  file-list thumbnails, for AVIFs from Pillow / aom (4:2:0, 4:2:2, 4:4:4, alpha, limited range, grey),
+  rav1e, SvtAv1EncApp and your own (--own).
 """
 from __future__ import annotations
 
@@ -279,6 +285,85 @@ def check_names_and_save(b, has_jpegli):
     check("out_path: no extension", fb.out_path(os.path.join(d, ".hidden"), 1, 2, ".webp") == os.path.join(d, ".hidden_1x2.webp"))
 
 
+def check_rav1e(cases, b):
+    """rav1e for the "aom" settings: Pillow opens the files, alpha and ICC kept; quality next to Pillow's aom."""
+    out = []
+    for name, img, icc in cases:
+        if img.width * img.height < 64:
+            continue
+        for q, sp in ((80, 6), (50, 8)):
+            o = {"avif": {"enc": "aom", "aom_q": q, "aom_speed": sp}}
+            data, enc, used = b.encode(img, "AVIF", o, icc)
+            with Image.open(io.BytesIO(data)) as im:
+                im.load()
+                back = im.convert(img.mode) if im.mode != img.mode else im.copy()
+                ok = im.mode == img.mode and im.info.get("icc_profile") == icc and enc == "rav1e" and used == A.avif_opts(o["avif"])
+            err = np.abs(np.asarray(back).astype(int) - np.asarray(img).astype(int)).mean()
+            note = f"{len(data)} bytes, mean error {err:.2f}"
+            if A.avif_available():
+                ref = output.encode_lossy_py(img, "AVIF", o, icc)[0]
+                with Image.open(io.BytesIO(ref)) as r:
+                    rerr = np.abs(np.asarray(r.convert(img.mode)).astype(int) - np.asarray(img).astype(int)).mean()
+                note += f" (aom: {len(ref)} bytes, {rerr:.2f})"
+                ok = ok and err < rerr * 2 + 1
+            check(f"{name}: AVIF rav1e q{q} s{sp}", ok, note)
+            out.append((f"{name} rav1e q{q}", data))
+        if A.svt_available() and img.mode == "RGB" and img.width * img.height >= 64:
+            out.append((f"{name} svt", b.encode(img, "AVIF", {"avif": {"enc": "svt", "crf": 30, "preset": 8}}, icc)[0]))
+    return out
+
+
+def check_avif_decode(b, encoded, own: bool):
+    """Opening AVIF in Rust (rav1d) against Pillow: pixels, ICC, thumbnails."""
+    from fastedit.engine import decode_pillow, make_thumb_pillow
+    d = tempfile.mkdtemp(prefix="fae_avif_")
+    files = []
+    for n, data in encoded:
+        files.append((n, os.path.join(d, f"{len(files)}.avif")))
+        with open(files[-1][1], "wb") as f:
+            f.write(data)
+    if A.avif_available():
+        with Image.open(os.path.join(INPUTS, "photo.jpg")) as im:
+            rgb = im.convert("RGB")
+        a = np.asarray(rgb)
+        alpha = (np.arange(a.shape[1])[None, :] * 255 // a.shape[1]).repeat(a.shape[0], 0).astype(np.uint8)
+        variants = [("4:2:0", rgb, {"quality": 70}), ("4:4:4", rgb, {"quality": 90, "subsampling": "4:4:4"}),
+                    ("4:2:2", rgb, {"quality": 80, "subsampling": "4:2:2"}),
+                    ("alpha", Image.fromarray(np.dstack([a, alpha])), {"quality": 75}),
+                    ("grey", rgb.convert("L"), {"quality": 80}), ("limited range", rgb, {"quality": 80, "range": "limited"}),
+                    ("odd size", rgb.crop((0, 0, 399, 265)), {"quality": 60}),
+                    ("rotated", rgb, {"quality": 60, "exif": _exif_orientation(6)})]
+        for n, img, kw in variants:
+            files.append((f"Pillow {n}", os.path.join(d, f"{len(files)}.avif")))
+            img.save(files[-1][1], "AVIF", **kw)
+    files.append(("rgb.avif", os.path.join(INPUTS, "rgb.avif")))
+    if own and os.path.isdir(OWN):
+        files += [(n, os.path.join(OWN, n)) for n in sorted(os.listdir(OWN)) if n.lower().endswith(".avif")]
+    for n, p in files:
+        r = b.decode(p)
+        if r is None:
+            print(f"  skip {n}: not opened in Rust (a grid or sequence: Pillow opens it)")
+            continue
+        try:
+            (px, w, h, ch), icc = decode_pillow(p)
+        except Exception as ex:
+            print(f"  skip {n}: Pillow can't open it ({ex})")
+            continue
+        same = (r[1], r[2], r[3]) == (w, h, ch) and r[0] == px and r[4] == icc
+        note = ""
+        if not same and (r[1], r[2], r[3]) == (w, h, ch):
+            diff = np.abs(np.frombuffer(r[0], np.uint8).astype(int) - np.frombuffer(px, np.uint8).astype(int))
+            note = f"max {diff.max()}, mean {diff.mean():.4f}, icc {'same' if r[4] == icc else 'differs'}"
+        check(f"AVIF open {n} ({w} x {h} x {ch}): same pixels + ICC as Pillow", same, note)
+        check(f"AVIF thumbnail {n}: same bytes", b.thumb(p, 224) == make_thumb_pillow(p))
+
+
+def _exif_orientation(o):
+    e = Image.Exif()
+    e[0x0112] = o
+    return e.tobytes()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--own", action="store_true", help="also own photos in tests/parity/images/")
@@ -302,6 +387,10 @@ def main() -> int:
     check_options()
     print("save / names")
     check_names_and_save(b, has_jpegli)
+    print("rav1e")
+    encoded = check_rav1e(cases, b)
+    print("opening AVIF")
+    check_avif_decode(b, encoded, a.own)
     print("stand-in encoders / cancellation")
     check_fake_svt()
     check_cancel(b, has_svt)

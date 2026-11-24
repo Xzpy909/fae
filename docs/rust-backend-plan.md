@@ -1,8 +1,8 @@
 # Rust back end: plan
 
 Status: **B0, B1, B2, B3 done** (on main; geometry.py, colour.py, the Python stage and OpenCV removed).
-**B4 in progress** (fae_backend 0.5.0): PNG, WebP, JPEG and the SvtAv1EncApp path in Rust; next rav1e /
-rav1d for the other AVIF cases. Moves the Python back
+**B4 in progress** (fae_backend 0.5.0): all encoders and AVIF decoding in Rust (rav1e / rav1d), waiting for
+the owner's check on Windows; the Python versions stay until then. Moves the Python back
 end (`fastedit/`) into Rust, wave by wave, so the app keeps working after every wave and a later switch from
 pywebview to **Tauri** is a small last step instead of a rewrite. Not a goal in itself: no visible change to
 the editor; the gains are a smaller, faster-starting app (no NumPy / OpenCV / Pillow at run time), one
@@ -46,7 +46,7 @@ language for the engine, and an easy Tauri switch later.
 
 | Part | Where it runs | Python it replaces / uses |
 |---|---|---|
-| Decode + prepare | **Rust (B1)**: decode.rs, heif.rs (EXIF rotation, RGB / RGBA, ICC kept for output); AVIF still Pillow until B4 | engine.py `decode`, geometry.py `prepare` (Pillow, pillow-heif, pillow-jxl-plugin) |
+| Decode + prepare | **Rust (B1)**: decode.rs, heif.rs (EXIF rotation, RGB / RGBA, ICC kept for output); AVIF: avifdec.rs (rav1d) since B4 | engine.py `decode`, geometry.py `prepare` (Pillow, pillow-heif, pillow-jxl-plugin) |
 | Thumbnails (file list) | **Rust (B2)**: thumb.rs; AVIF still Pillow | engine.py `make_thumb_pillow` |
 | Geometry | **Rust (B2)**: geometry.rs (quarter turns / flip, free angle as OpenCV's warpAffine Lanczos-4, crop, crop_free) | geometry.py `apply_geometry` (removed in B3) |
 | Resize | **Rust (B2)**: resample.rs, fit.rs (Pillow's Lanczos, Mpix / preset / custom sizes) | geometry.py `fit_image` and helpers (removed in B3) |
@@ -163,8 +163,19 @@ dependency removed.
   muxer byte for byte; PNG has Pillow's filter choice exactly but zlib-rs instead of Pillow's zlib-ng
   (same pixels and ICC, sizes within a few tenths of a percent, smaller on flat images); the options
   (odd values too), output names, cancellation.
-- Part 2: rav1e for the "aom" cases, rav1d to open AVIF (then `give_source`, engine.py's Pillow decode and
-  the AVIF thumbnails go), `encoder_info` in Rust.
+- Part 2 (same version): **rav1e** for the old "aom" cases (alpha, the UI's choice, no SvtAv1EncApp): ravif's
+  quality → quantizer and speed settings, colour as the SVT path's 10-bit 4:4:4 full-range BT.709, alpha as
+  a 10-bit monochrome auxiliary item (`auxl` + `auxC`); the UI calls it "rav1e" (settings keys stay
+  `aom_*`). **rav1d** opens AVIF (`avifdec.rs`: own HEIF box parser, irot / imir as Pillow maps them):
+  libavif's choice between libyuv and its own float conversion is ported, with libyuv's integer YUV
+  constants and chroma upsampling, so the pixels equal Pillow's in every case tried (8 / 10 / 12-bit,
+  4:2:0 / 4:2:2 / 4:4:4, alpha, limited range, grey, identity matrix, odd sizes) and the thumbnails are
+  byte-identical. Grids and premultiplied alpha answer "unknown:" and still go to Pillow. `encoder_info`
+  is a command. The `simd` feature (build_backend.bat with nasm) also builds rav1e's asm; rav1d's asm
+  is off (it doesn't link into the extension).
+- Kept until the owner's check, then removed (B4 clean-up): jpeg.py, avif.py, output.py's
+  `encode_lossy_py` / `save_image_py`, proc.py's encoder runner, engine.py's `decode_pillow` /
+  `make_thumb_pillow` and `give_source` (these three stay as the fallback for the AVIFs Rust doesn't open).
 
 ### B5 — Process and the encoded compare (1–2 sessions)
 - core.py's job in Rust: GPU core first (one device, lock, release after a batch), CPU core fallback, size

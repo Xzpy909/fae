@@ -16,6 +16,7 @@
 //!   progress through a callback the shell supplies (pywebview: evaluate_js, Tauri: an event).
 
 pub mod avif;
+pub mod avifdec;
 pub mod colour;
 pub mod decode;
 pub mod encode;
@@ -116,7 +117,7 @@ pub const COMMANDS: &[(&str, Wave, &str)] = &[
     ("load_stage", Wave::B3, "decode, geometry, resize, colour balance -> preview token"),
     ("load_source", Wave::B3, "the source for crop mode -> preview token"),
     ("sample", Wave::B3, "median colour around a point of the stage"),
-    ("encoder_info", Wave::B4, "which encoders are available"),
+    ("encoder_info", Wave::B4, "which encoders are available (cjpegli, SvtAv1EncApp; AVIF always: rav1e)"),
     ("lossy_preview", Wave::B5, "render, encode, decode back, size -> preview token"),
     ("lossy_cancel", Wave::B5, "cancel an encoded compare request"),
     ("process", Wave::B5, "render + encode + save a batch of images, with progress"),
@@ -126,7 +127,7 @@ pub const COMMANDS: &[(&str, Wave, &str)] = &[
 /// The waves done in this build. B1 (decoding) and B2 (geometry, resize, thumbnails) have no command of
 /// their own: load_stage (B3) runs them. The shell still asks for the stage image itself for Process and
 /// the encoded compare until B5 ([`Backend::stage_image`]), and for thumbnails until B6.
-const DONE: &[Wave] = &[Wave::B0, Wave::B1, Wave::B2, Wave::B3];
+const DONE: &[Wave] = &[Wave::B0, Wave::B1, Wave::B2, Wave::B3, Wave::B4];
 
 pub struct Backend {
     cfg: Config,
@@ -255,6 +256,11 @@ impl Backend {
             "load_stage" => self.stage.load_stage(args, &|p| self.source(p)),
             "load_source" => self.stage.load_source(args, &|p| self.source(p)),
             "sample" => Ok(self.stage.sample(args)),
+            "encoder_info" => {
+                let e = self.encoders();
+                // "avif": AVIF can be written and read back (rav1e / rav1d are built in since B4)
+                Ok(serde_json::json!({"jpegli": e.jpegli().is_some(), "avif": true, "svt": e.svt().is_some()}))
+            }
             _ if COMMANDS.iter().any(|(n, _, _)| *n == name) => {
                 Err(Error::new(ErrorKind::Unknown, format!("{name}: not in the Rust back end yet")))
             }
@@ -297,7 +303,8 @@ mod tests {
         assert_eq!(b.call("get_settings", &[]).unwrap(), json!({}));
         // errors
         assert_eq!(b.call("save_settings", &[]).unwrap_err().kind, ErrorKind::BadArgs);
-        assert_eq!(b.call("encoder_info", &[]).unwrap_err().kind, ErrorKind::Unknown);
+        assert_eq!(b.call("encoder_info", &[]).unwrap(), json!({"jpegli": false, "avif": true, "svt": false}));
+        assert_eq!(b.call("process", &[]).unwrap_err().kind, ErrorKind::Unknown);
         assert_eq!(b.call("sample", &[json!(0.5), json!(0.5)]).unwrap(), Value::Null);
         assert_eq!(b.call("load_stage", &[json!("no/such/file.png"), json!({}), json!(1)]).unwrap()["ok"], json!(false));
         assert_eq!(b.call("nope", &[]).unwrap_err().kind, ErrorKind::Unknown);
@@ -308,7 +315,7 @@ mod tests {
     fn table() {
         assert_eq!(
             Backend::commands(),
-            vec!["get_settings", "save_settings", "get_presets", "save_presets", "load_stage", "load_source", "sample"]
+            vec!["get_settings", "save_settings", "get_presets", "save_presets", "load_stage", "load_source", "sample", "encoder_info"]
         );
         let mut names: Vec<_> = COMMANDS.iter().map(|c| c.0).collect();
         names.sort();

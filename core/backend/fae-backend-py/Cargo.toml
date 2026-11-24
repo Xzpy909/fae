@@ -15,3 +15,5 @@ serde_json = "1"
 [features]
 # libjpeg-turbo's SIMD code (needs nasm to build); build_backend.bat turns it on when nasm is found
 jpeg-simd = ["backend/jpeg-simd"]
+# libjpeg-turbo's SIMD and rav1e's assembly (needs nasm); build_backend.bat turns it on when nasm is found
+simd = ["backend/simd"]

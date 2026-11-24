@@ -13,8 +13,6 @@ from .config import IMAGE_EXTS, PASTE_DIR, PREVIEW_MAX, StageParams
 from . import backend, core
 from .engine import collect, to_pil
 from .proc import Cancelled, _PREV, _TL, check_cancel, preview_begin
-from .jpeg import jpegli_available
-from .avif import avif_available, svt_available
 from .output import encode_lossy, norm_fmt, save_image
 
 
@@ -206,7 +204,7 @@ class Api:
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
 
     def encoder_info(self):
-        return {"jpegli": jpegli_available(), "avif": avif_available(), "svt": svt_available()}
+        return self._b.call("encoder_info")             # B4: Rust (cjpegli / SvtAv1EncApp found, AVIF built in)
 
     def lossy_cancel(self, req_id):
         """Stop the running lossy preview encode (the encoded compare was turned off)."""

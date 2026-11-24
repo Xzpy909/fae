@@ -691,8 +691,8 @@ pub struct Encoded {
     pub used: Value,
 }
 
-/// output.py `encode_lossy`: JPEG / AVIF / lossy WebP. AVIF without SvtAv1EncApp, with alpha or with
-/// the other encoder chosen: kind Unknown until that encoder is in Rust (the shell uses its own).
+/// output.py `encode_lossy`: JPEG / AVIF / lossy WebP. AVIF: SvtAv1EncApp when chosen and usable (exe
+/// there, no alpha), else rav1e with the "aom" settings (it replaces Pillow's aom, B4).
 pub fn encode_lossy(img: View, fmt: &str, opts: &Value, icc: Option<&[u8]>, enc: &Encoders, run: &Runner, req: Option<i64>) -> Result<Encoded, Error> {
     match norm_fmt(fmt) {
         "JPEG" => {
@@ -706,7 +706,12 @@ pub fn encode_lossy(img: View, fmt: &str, opts: &Value, icc: Option<&[u8]>, enc:
                 Some(exe) if o.svt && img.c == 3 => {
                     Ok(Encoded { data: encode_avif_svt(img, &o, icc, exe, run, req)?, encoder: "svt", used: o.to_json() })
                 }
-                _ => Err(Error::new(ErrorKind::Unknown, "AVIF: this encoder is not in the Rust back end yet")),
+                _ => {
+                    run.check(req)?;
+                    let data = avif::encode_rav1e(img.data, img.w, img.h, img.c, o.aom_q, o.aom_speed, icc)?;
+                    run.check(req)?;
+                    Ok(Encoded { data, encoder: "rav1e", used: o.to_json() })
+                }
             }
         }
         _ => {

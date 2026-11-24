@@ -261,12 +261,15 @@ fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-/// Optional parts this build has ("jpeg-simd": libjpeg-turbo's SIMD code).
+/// Optional parts this build has ("jpeg-simd": libjpeg-turbo's SIMD code, "rav1e-asm": rav1e's assembly).
 #[pyfunction]
 fn features() -> Vec<&'static str> {
     let mut v = vec![];
     if cfg!(feature = "jpeg-simd") {
         v.push("jpeg-simd");
+    }
+    if cfg!(feature = "simd") {
+        v.push("rav1e-asm");
     }
     v
 }

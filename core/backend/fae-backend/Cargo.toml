@@ -7,6 +7,9 @@ edition.workspace = true
 # libjpeg-turbo's SIMD code (needs nasm when building; same pixels, ~40 % faster on big JPEGs).
 # build_backend.bat turns it on when nasm is installed.
 jpeg-simd = ["mozjpeg/nasm_simd"]
+# libjpeg-turbo's SIMD + rav1e's assembly (needs nasm; AVIF through rav1e several times faster, same idea of
+# output). rav1d stays without its assembly: it doesn't link into the Python extension (not position-independent).
+simd = ["jpeg-simd", "rav1e/asm"]
 
 [dependencies]
 # preserve_order: settings / presets keep their key order when written back
@@ -29,3 +32,7 @@ libloading = "0.9"
 # zlib-rs for PNG (zlib-ng's algorithms, as Pillow's wheels; pure Rust)
 libwebp-sys = "0.14.4"
 libz-rs-sys = "0.6"
+# AVIF (B4): rav1e encodes what SvtAv1EncApp doesn't (alpha, the "aom" choice), rav1d (dav1d in Rust) decodes;
+# both pure Rust; rav1e's assembly with the simd feature
+rav1e = { version = "0.8", default-features = false, features = ["threading"] }
+rav1d = { version = "1.1", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }

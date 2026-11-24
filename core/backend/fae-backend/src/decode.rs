@@ -98,6 +98,12 @@ pub fn decode_draft(data: &[u8], ext: &str, heif: Option<&heif::Lib>, draft: Opt
             Some(h) => (h.decode(data)?, None),
             None => return Err(unsupported("HEIC: libheif not loaded")),
         },
+        // the rotation / mirroring boxes as an orientation, as Pillow's AVIF plugin reports them (B4)
+        "avif" => {
+            let (mut im, o) = crate::avifdec::decode(data)?;
+            orient(&mut im, o);
+            (im, None)
+        }
         _ => return Err(unsupported(format!("{format}: not in the Rust back end yet"))),
     };
     img.format = format;

@@ -88,7 +88,7 @@ const encOpts = () => ({
 });
 function encName(fmt, enc) {
   if (fmt === 'JPEG') return enc === 'pillow' ? 'JPEG (Pillow)' : 'jpegli';
-  if (fmt === 'AVIF') return enc === 'svt' ? 'AVIF SVT 4:4:4' : 'AVIF aom (fallback)';
+  if (fmt === 'AVIF') return enc === 'svt' ? 'AVIF SVT 4:4:4' : 'AVIF rav1e';
   return 'WEBP lossy';
 }
 function optsLabel(fmt, o, enc) {

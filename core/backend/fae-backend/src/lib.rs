@@ -15,11 +15,14 @@
 //! - long work (Process, encoded compare, B4 / B5): cancellation by a request id the UI already sends,
 //!   progress through a callback the shell supplies (pywebview: evaluate_js, Tauri: an event).
 
+pub mod decode;
+pub mod heif;
 pub mod store;
 
 use serde_json::Value;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// Where the back end keeps its files (the shell decides: next to the app, or a test folder).
 #[derive(Clone, Debug)]
@@ -28,6 +31,8 @@ pub struct Config {
     pub settings: PathBuf,
     /// fae_presets.json (the tool presets and edit presets)
     pub presets: PathBuf,
+    /// where libheif (+ libde265) are, for HEIC; None: HEIC can't be opened
+    pub heif_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +93,7 @@ pub const COMMANDS: &[(&str, Wave, &str)] = &[
     ("expand_paths", Wave::B6, "paths -> the images in them (folders expanded)"),
     ("pick_files", Wave::Shell, "file dialog -> images"),
     ("pick_folder", Wave::Shell, "folder dialog -> images"),
+    ("paste_clipboard", Wave::Shell, "Ctrl+V: images from the clipboard (copied files, or a copied image saved as PNG)"),
     ("reveal", Wave::Shell, "show a file in Explorer"),
     ("win_info", Wave::Shell, "frameless window state"),
     ("win_begin", Wave::Shell, "start a window drag / resize"),
@@ -104,11 +110,13 @@ pub const COMMANDS: &[(&str, Wave, &str)] = &[
     ("core_info", Wave::B5, "the cores' self-test (self-test page)"),
 ];
 
-/// The waves done in this build.
-const DONE: &[Wave] = &[Wave::B0];
+/// The waves done in this build (B1 has no command of its own: decoding is used by load_stage, B3).
+const DONE: &[Wave] = &[Wave::B0, Wave::B1];
 
 pub struct Backend {
     cfg: Config,
+    /// libheif, loaded on the first HEIC file (Err: why it can't be)
+    heif: OnceLock<Result<heif::Lib, String>>,
 }
 
 fn args_n<'a>(name: &str, args: &'a [Value], n: usize) -> Result<&'a [Value], Error> {
@@ -120,7 +128,25 @@ fn args_n<'a>(name: &str, args: &'a [Value], n: usize) -> Result<&'a [Value], Er
 
 impl Backend {
     pub fn new(cfg: Config) -> Backend {
-        Backend { cfg }
+        Backend { cfg, heif: OnceLock::new() }
+    }
+
+    /// libheif, loaded on first use.
+    pub fn heif(&self) -> Result<&heif::Lib, Error> {
+        let r = self.heif.get_or_init(|| match &self.cfg.heif_dir {
+            Some(d) => heif::Lib::load(d).map_err(|e| e.message),
+            None => Err("HEIC: no libheif folder given".into()),
+        });
+        r.as_ref().map_err(|m| Error::new(ErrorKind::Failed, m.clone()))
+    }
+
+    /// Open an image file: upright 8-bit RGB / RGBA + its ICC profile (decode.rs). Kind Unknown for a
+    /// format the back end doesn't open yet (the shell opens it itself).
+    pub fn decode_file(&self, path: &Path) -> Result<decode::Image, Error> {
+        let data = std::fs::read(path).map_err(|e| Error::new(ErrorKind::Io, format!("{}: {e}", path.display())))?;
+        let ext = path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
+        let heif = if decode::sniff(&data, &ext) == Some("heif") { Some(self.heif()?) } else { None };
+        decode::decode(&data, &ext, heif)
     }
 
     /// The commands this build runs (the rest still run in the shell's Python).
@@ -165,7 +191,7 @@ mod tests {
     #[test]
     fn settings_and_presets() {
         let d = tmp("sp");
-        let b = Backend::new(Config { settings: d.join("s.json"), presets: d.join("p.json") });
+        let b = Backend::new(Config { settings: d.join("s.json"), presets: d.join("p.json"), heif_dir: None });
         assert_eq!(b.call("get_settings", &[]).unwrap(), json!({}));
         let s = json!({"fmt": "PNG", "secs": ["adjust", "f_sc"], "jpeg_d": 1.25, "name": "Mirelle ✓"});
         assert_eq!(b.call("save_settings", &[s.clone()]).unwrap(), json!(true));

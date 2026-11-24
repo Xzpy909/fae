@@ -7,6 +7,7 @@ whichever implementation runs it.
     python tests/stage/stage_check.py --impl rust      # the Rust back end (parts not moved yet: skipped)
     python tests/stage/stage_check.py -k resize -v     # only cases whose name contains "resize", list each
     python tests/stage/stage_check.py --record         # store the Python results (tests/stage/results.zip)
+    python tests/stage/stage_check.py --record-missing # store only cases without a result (new inputs / cases)
     python tests/stage/stage_check.py --make-inputs    # (re)write tests/stage/inputs/ (once; committed)
     python tests/stage/stage_check.py --own            # also own photos in tests/parity/images/ (results in
                                                        #   tests/stage/.work/own_results.zip, not committed;
@@ -17,6 +18,8 @@ machine decodes the same bytes) and two synthetic images made in memory (a 401 x
 colour-cast one for the colour balance). Rules, per case:
 - exact: decoding, quarter turns / flips / crops, every resize (Pillow's Lanczos is ported exactly), the
   size maths;
+- known, deliberate differences (FIXED, META_DIFF below): the stored result is the fixed one; the
+  Python implementation skips those cases;
 - tolerance (the GPU core's chain rule: mean < 0.05 levels, at most 0.1 % of the pixels, at least 2,
   more than 2 levels off): free-angle rotation and the colour balance (OpenCV's maths re-implemented),
   thumbnails (JPEG), the whole stage when it uses those.
@@ -95,6 +98,9 @@ def make_inputs():
 
     def save(name, im, **kw):
         path = os.path.join(INPUTS, name)
+        if os.path.exists(path):                  # existing inputs stay byte for byte (the goldens are theirs)
+            out[name] = "kept"
+            return
         try:
             im.save(path, **kw)
             out[name] = True
@@ -143,8 +149,52 @@ def make_inputs():
     except ImportError:
         out["rgb.jxl"] = "not written: pillow-jxl-plugin missing"
     save("rgb.avif", small, quality=80)
+    # B1: what the Rust decoders do beyond the basics
+    rgb16 = np.asarray(small).astype(np.uint16) * 257 + np.arange(80)[:, None, None].astype(np.uint16)
+    save("rgb16.png", _png16(rgb16, "RGB"))
+    save("rgba16.png", _png16(np.concatenate([rgb16, (np.asarray(alpha).astype(np.uint16) * 257)[..., None]], -1), "RGBA"))
+    ex6 = Image.Exif()
+    ex6[0x0112] = 6
+    save("exif6.png", small, exif=ex6.tobytes())
+    save("exif6.webp", small, quality=90, exif=ex6.tobytes())
+    if icc:
+        save("icc.png", small, icc_profile=icc)
+        save("icc.webp", small, quality=90, icc_profile=icc)
+    big_icc = bytes(np.random.default_rng(5).integers(0, 256, 150_000, dtype=np.uint8))   # 3 APP2 chunks
+    save("icc_3chunks.jpg", small, quality=90, icc_profile=big_icc)
+    gt = small.convert("P", palette=Image.Palette.ADAPTIVE, colors=32)
+    save("transparent.gif", gt, transparency=3)
+    try:
+        from pillow_heif import register_heif_opener
+        register_heif_opener()
+        save("rgba.heic", rgba, quality=90)
+    except ImportError:
+        out["rgba.heic"] = "not written: pillow-heif missing"
     for k, v in out.items():
         print(f"  {k:28s} {'ok' if v is True else v}")
+
+
+def _png16(a, mode):
+    """A 16-bit PNG from a uint16 array (Pillow doesn't write 16-bit RGB): a minimal writer."""
+    import struct
+    import zlib
+    h, w, c = a.shape
+    raw = b"".join(b"\0" + a[y].astype(">u2").tobytes() for y in range(h))
+    chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
+    ct = 2 if mode == "RGB" else 6
+    png_bytes = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 16, ct, 0, 0, 0))
+                 + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+    return _Raw(png_bytes)
+
+
+class _Raw:
+    """Bytes that save() writes as they are."""
+    def __init__(self, data):
+        self.data = data
+
+    def save(self, path, **_kw):
+        with open(path, "wb") as f:
+            f.write(self.data)
 
 
 # ---- the cases ----------------------------------------------------------------------------------------
@@ -192,12 +242,34 @@ STAGE = {
 SIZES_WH = [(641, 427), (4000, 3000), (6000, 4000), (3024, 4032), (1920, 1080), (1000, 1000), (7952, 5304), (17, 1031)]
 
 
+# ---- deliberate differences from the Python implementation --------------------------------------------------
+def _grey16_fixed():
+    """16-bit grey PNG as the Rust back end opens it: the high byte (as Pillow does for 16-bit RGB)."""
+    a = np.asarray(Image.open(os.path.join(INPUTS, "grey16.png"))).astype(np.uint16)
+    g = (a >> 8).astype(np.uint8)
+    return np.repeat(g[..., None], 3, -1)
+
+
+# case -> (why, the stored result): the golden is the fixed result; the Python implementation skips the case
+FIXED = {
+    "decode/grey16.png": ("Pillow clipped 16-bit grey to 0..255, so such files opened almost white; the Rust "
+                          "back end takes the high byte", _grey16_fixed),
+}
+# case -> (metadata key the Rust implementation may differ in, why)
+META_DIFF = {
+    "decode/rgb.jxl": ("icc", "pillow-jxl synthesizes an ICC profile from the file's colour description; "
+                              "jxl-oxide keeps only an embedded one (none here: sRGB either way)"),
+}
+
+
 # ---- implementations ------------------------------------------------------------------------------------
 class NotMoved(Exception):
     """this part isn't in the implementation yet"""
 
 
 class PythonImpl:
+    """The Python code as it was: Pillow / OpenCV (decode: Pillow directly; the whole stage: the app's
+    path, which mixes in the parts already moved to Rust)."""
     name = "python"
 
     def __init__(self):
@@ -208,8 +280,12 @@ class PythonImpl:
         return self.config.StageParams(**kw)
 
     def decode(self, path):
-        e = self.engine.Entry(path)
-        return np.asarray(e.base), {"mode": e.base.mode, "icc": hashlib.sha1(e.icc).hexdigest()[:12] if e.icc else None}
+        # Pillow itself (engine.Entry opens with the Rust back end since B1): the reference
+        with self.engine.open_image(path) as im:
+            im.load()
+            icc = im.info.get("icc_profile")
+            base = self.geometry.prepare(im)
+        return np.asarray(base), {"mode": base.mode, "icc": hashlib.sha1(icc).hexdigest()[:12] if icc else None}
 
     def geometry_(self, a, kw):
         return np.asarray(self.geometry.apply_geometry(Image.fromarray(a), self.P(**kw)))
@@ -250,8 +326,10 @@ class RustImpl:
 
     def __init__(self):
         import fae_backend
+        from fastedit import backend
         self.fb = fae_backend
-        self.ops = getattr(fae_backend, "stage_ops", None)      # test entry points, from B1 on
+        self.b = backend.shared()
+        self.ops = getattr(fae_backend, "stage_ops", None)      # test entry points (B2 on)
 
     def _op(self, name, *args):
         if self.ops is None or not hasattr(self.ops, name):
@@ -259,7 +337,12 @@ class RustImpl:
         return getattr(self.ops, name)(*args)
 
     def decode(self, path):
-        return self._op("decode", path)
+        r = self.b.decode(path)
+        if r is None:
+            raise NotMoved(f"{os.path.basename(path)}: format not in Rust yet")
+        px, w, h, ch, icc, _fmt = r
+        a = np.frombuffer(px, np.uint8).reshape(h, w, ch)
+        return a, {"mode": "RGBA" if ch == 4 else "RGB", "icc": hashlib.sha1(icc).hexdigest()[:12] if icc else None}
 
     def geometry_(self, a, kw):
         return self._op("geometry", a, kw)
@@ -326,6 +409,16 @@ def cases(own: bool):
     for n, kw in GEOMETRY.items():
         out.append((f"geometry/{n}", "img", lambda im, kw=kw: im.geometry_(sc, kw), "angle" not in kw))
     out.append(("geometry/rgba_angle_5", "img", lambda im: im.geometry_(sc_rgba, dict(angle=5.0)), False))
+    # transparent images: a centred object, transparent around it; free crop past the edges
+    obj = sc_rgba.copy()
+    obj[..., 3] = 0
+    obj[40:170, 80:240, 3] = 255
+    obj[60:150, 100:220, 3] = np.uint8(128)
+    for n, kw in {"free_crop_past_edges": dict(crop_x=60.0, crop_y=-30.0, crop_w=420.0, crop_h=300.0, crop_free=True),
+                  "free_crop_bounded_off": dict(crop_x=60.0, crop_y=-30.0, crop_w=420.0, crop_h=300.0),
+                  "free_crop_q1": dict(rot_q=1, crop_x=0.0, crop_y=0.0, crop_w=400.0, crop_h=400.0, crop_free=True),
+                  "free_crop_angle_12": dict(angle=12.0, crop_x=-20.0, crop_y=10.0, crop_w=380.0, crop_h=280.0, crop_free=True)}.items():
+        out.append((f"geometry/rgba_{n}", "img", lambda im, kw=kw: im.geometry_(obj, kw), "angle" not in kw))
     for n, kw in RESIZE.items():
         out.append((f"resize/{n}", "img", lambda im, kw=kw: im.resize(sc, kw), True))
     out.append(("resize/rgba_preset_240", "img", lambda im: im.resize(sc_rgba, dict(mode="preset", preset_res=120)), True))
@@ -346,18 +439,49 @@ def cases(own: bool):
     return out
 
 
+def record_missing(args) -> int:
+    """Add the Python results of cases that have none to results.zip; every stored entry keeps its bytes."""
+    im = PythonImpl()
+    with zipfile.ZipFile(RESULTS) as z:
+        items = {n: z.read(n) for n in z.namelist()}
+    meta = json.loads(items.get("meta.json", b"{}"))
+    added = []
+    for name, kind, run, _exact in cases(False):
+        key = name + (".json" if kind == "json" else ".png")
+        if key in items or args.k not in name:
+            continue
+        if name in FIXED:
+            items[key] = png(FIXED[name][1]())
+        else:
+            r = run(im)
+            if isinstance(r, tuple):
+                r, info = r
+                meta[name] = info
+            items[key] = json.dumps(r, sort_keys=True).encode() if kind == "json" else png(np.ascontiguousarray(r))
+        added.append(name)
+    items["meta.json"] = json.dumps(meta, sort_keys=True, indent=1).encode()
+    with zipfile.ZipFile(RESULTS, "w", zipfile.ZIP_STORED) as z:
+        for k in sorted(items):
+            z.writestr(zipfile.ZipInfo(k, date_time=(2026, 1, 1, 0, 0, 0)), items[k])
+    print(f"added {len(added)}: {', '.join(added) or '-'}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--impl", default="python", choices=["python", "rust"])
     ap.add_argument("-k", default="")
     ap.add_argument("-v", action="store_true")
     ap.add_argument("--record", action="store_true", help="store the Python implementation's results")
+    ap.add_argument("--record-missing", action="store_true", help="store results only for cases that have none")
     ap.add_argument("--make-inputs", action="store_true")
     ap.add_argument("--own", action="store_true", help="also own photos in tests/parity/images/")
     args = ap.parse_args()
     if args.make_inputs:
         make_inputs()
         return 0
+    if args.record_missing:
+        return record_missing(args)
     if args.record and args.impl != "python":
         print("--record stores the Python implementation's results (the reference)")
         return 2
@@ -374,6 +498,13 @@ def main() -> int:
     meta = {}
     ok = bad = skipped = 0
     for name, kind, run, exact in sel:
+        if name in FIXED and im.name == "python":
+            if args.record:
+                new[name + ".png"] = png(FIXED[name][1]())
+            skipped += 1
+            if args.v:
+                print(f"  skip {name:44s} known difference: {FIXED[name][0]}")
+            continue
         try:
             r = run(im)
         except NotMoved as ex:
@@ -410,7 +541,13 @@ def main() -> int:
                 want = unpng(stored[key])
                 good, msg = compare(r, want, exact)
                 if info and name in meta_stored and info != meta_stored[name]:
-                    good, msg = False, f"{msg}; metadata {info} vs stored {meta_stored[name]}"
+                    ms = dict(meta_stored[name])
+                    if im.name == "rust" and name in META_DIFF:      # an allowed difference
+                        k, why = META_DIFF[name]
+                        ms[k] = info.get(k)
+                        msg += f" ({k} differs: {why.split(';')[0]})"
+                    if info != ms:
+                        good, msg = False, f"{msg}; metadata {info} vs stored {meta_stored[name]}"
                 if not good:
                     diff_image(name, r, want)
         ok += good

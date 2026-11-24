@@ -152,7 +152,9 @@ Own images can go into `tests/parity/images/` (not committed).
 The Python back end (`fastedit/`) moves to Rust wave by wave (`core/backend/`, Python extension
 `fae_backend`), behind one table of commands, so the app shell stays thin and could later be swapped
 (pywebview → Tauri) without touching the rest. `ui/js/bridge.js` is the only UI file that knows the
-shell. So far in Rust: settings and presets. Before a part moves, its Python results are stored as
+shell. So far in Rust: settings, presets and opening images (every format but AVIF, with the same
+pixels Pillow gave; HEIC through the libheif that comes with pillow-heif; with [nasm](https://nasm.us)
+installed, `build_backend.bat` builds libjpeg-turbo's faster SIMD code). Before a part moves, its Python results are stored as
 goldens; the Rust version must match them (exactly, or within the tolerance rule for the parts that
 re-implement OpenCV maths):
 
@@ -204,6 +206,7 @@ python fae.py --test-filters        # the kit's hidden test filters in the Filte
 | `Ctrl+O` | Add files |
 | `↑` / `↓`, `PgUp` / `PgDn` | Previous / next image |
 | `Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z` | Undo / redo |
+| `Ctrl+V` | Open the images on the clipboard: copied files, or a copied image (saved as PNG in `Pictures\Fae\Pasted` first) |
 | `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy / paste edits |
 | `B` / `G` / `W` | Black / gray / white eyedropper |
 | `Esc` | Drop the eyedropper |

@@ -10,6 +10,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from .config import IMAGE_EXTS, PLUGIN_HINT, StageParams, THUMB_SIZE
 from .geometry import apply_geometry, fit_image, prepare
 from .colour import gray_edge_enhance, white_patch_enhance
+from . import backend
 
 
 # ---------------------------------------------------------------------------
@@ -26,14 +27,24 @@ def open_image(path: str) -> Image.Image:
         raise
 
 
+def decode(path: str) -> tuple[Image.Image, bytes | None]:
+    """An image file -> (upright RGB / RGBA image, its ICC profile): the Rust back end's decoders
+    (B1, the same pixels Pillow gave), Pillow for the formats not moved yet (AVIF)."""
+    r = backend.shared().decode(path)
+    if r is not None:
+        px, w, h, ch, icc, _fmt = r
+        mode = "RGBA" if ch == 4 else "RGB"
+        return Image.frombuffer(mode, (w, h), px, "raw", mode, 0, 1), icc
+    with open_image(path) as im:
+        im.load()
+        return prepare(im), im.info.get("icc_profile")
+
+
 class Entry:
     def __init__(self, path: str):
         self.path = path
         self.mtime = os.path.getmtime(path)
-        with open_image(path) as im:
-            im.load()
-            self.icc = im.info.get("icc_profile")
-            self.base = prepare(im)
+        self.base, self.icc = decode(path)
         self.fits: dict = {}
         self.geo = (None, None)
 

@@ -61,6 +61,7 @@ function render() {
       S.hmx.set(r.hist.subarray(1536, 1792)); S.hmn.set(r.hist.subarray(1792, 2048));
       if (r.px && r.E === S.E && S.outData && r.px.length === S.outData.data.length) {
         S.outData.data.set(r.px);
+        if (I.alpha) withAlpha(S.outData.data, I.base);
         S.rendered = { I, E: r.E };
         present(n);
       } else if (S.gpuFrame) {
@@ -81,6 +82,7 @@ function render() {
   WP.render(I, E, r => {            // the CPU core in its worker (wasm-preview.js); shown when it's done
     if (S.img !== I || !S.outData || r.out.byteLength !== S.outData.data.length) return;   // image changed meanwhile
     S.outData.data.set(new Uint8Array(r.out));
+    if (I.alpha) withAlpha(S.outData.data, I.base);
     S.hin.set(r.hin); S.hout.set(r.hout); S.hmx.set(r.hmx); S.hmn.set(r.hmn);
     S.rendered = { I, E };
     present(n);

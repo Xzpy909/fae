@@ -147,7 +147,7 @@ const Presets = (() => {
     const t = smallOf(I, key === 'sharpen');
     g.putImageData(new ImageData(new Uint8ClampedArray(t.base), TW, TH), 0, 0);   // unedited until the render is in
     WP.thumb(t, computeEdit(effectiveEdit(editWith(key, values)))).then(r => {
-      if (r && r.w === TW && r.h === TH && cv.isConnected) g.putImageData(new ImageData(new Uint8ClampedArray(r.out), TW, TH), 0, 0);
+      if (r && r.w === TW && r.h === TH && cv.isConnected) g.putImageData(new ImageData(withAlpha(new Uint8ClampedArray(r.out), t.base), TW, TH), 0, 0);
     });
   }
 

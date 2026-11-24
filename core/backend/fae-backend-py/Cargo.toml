@@ -11,3 +11,7 @@ crate-type = ["cdylib"]
 backend = { package = "fae-backend", path = "../fae-backend" }
 pyo3 = { version = "0.30", features = ["extension-module"] }
 serde_json = "1"
+
+[features]
+# libjpeg-turbo's SIMD code (needs nasm to build); build_backend.bat turns it on when nasm is found
+jpeg-simd = ["backend/jpeg-simd"]

@@ -116,6 +116,8 @@ def fit_image(img: Image.Image, P: StageParams) -> Image.Image:
 # ---------------------------------------------------------------------------
 # Geometry: flip -> rotate (90° steps + fine angle) -> crop   (matches ui/js/crop.js)
 # Positive angles rotate clockwise on screen.
+# Transparent images (RGBA): what a fine angle uncovers is transparent (premultiplied resampling, so
+# no dark fringes), and with crop_free the crop may extend past the image (transparent there).
 # ---------------------------------------------------------------------------
 _QUARTER = {1: Image.Transpose.ROTATE_270, 2: Image.Transpose.ROTATE_180, 3: Image.Transpose.ROTATE_90}
 
@@ -137,6 +139,8 @@ def apply_geometry(img: Image.Image, P: StageParams) -> Image.Image:
         cx, cy, cw, ch = P.crop_x, P.crop_y, P.crop_w, P.crop_h
     ow, oh = max(1, int(round(cw))), max(1, int(round(ch)))
 
+    alpha = img.mode == "RGBA"
+    free = alpha and P.crop_free
     if P.angle == 0:
         # lossless path: quarter turn + integer crop
         if q:
@@ -144,6 +148,8 @@ def apply_geometry(img: Image.Image, P: StageParams) -> Image.Image:
         Wq, Hq = img.size
         left = int(round(Wq / 2 + cx - ow / 2))
         top = int(round(Hq / 2 + cy - oh / 2))
+        if free:                    # past the edges: Pillow fills the outside with 0 (transparent)
+            return img.crop((left, top, left + ow, top + oh))
         left = min(max(0, left), max(0, Wq - ow))
         top = min(max(0, top), max(0, Hq - oh))
         return img.crop((left, top, left + min(ow, Wq), top + min(oh, Hq)))
@@ -157,6 +163,16 @@ def apply_geometry(img: Image.Image, P: StageParams) -> Image.Image:
         [-s, c, -s * x0 + c * y0 + H / 2 - 0.5],
     ], dtype=np.float64)
     arr = np.asarray(img)
-    out = cv2.warpAffine(arr, M, (ow, oh), flags=cv2.INTER_LANCZOS4 | cv2.WARP_INVERSE_MAP,
-                         borderMode=cv2.BORDER_REPLICATE)
-    return Image.fromarray(out, img.mode)
+    if not alpha:
+        out = cv2.warpAffine(arr, M, (ow, oh), flags=cv2.INTER_LANCZOS4 | cv2.WARP_INVERSE_MAP,
+                             borderMode=cv2.BORDER_REPLICATE)
+        return Image.fromarray(out, img.mode)
+    # transparent images: premultiplied, transparent outside the source, back to straight alpha
+    a = arr[..., 3:4].astype(np.float32) / 255.0
+    pm = np.concatenate([arr[..., :3].astype(np.float32) * a, arr[..., 3:4].astype(np.float32)], -1)
+    w = cv2.warpAffine(pm, M, (ow, oh), flags=cv2.INTER_LANCZOS4 | cv2.WARP_INVERSE_MAP,
+                       borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+    oa = np.clip(w[..., 3:4], 0, 255)
+    rgb = np.where(oa > 0, w[..., :3] / np.maximum(oa / 255.0, 1e-6), 0)
+    out = np.concatenate([np.clip(np.round(rgb), 0, 255), np.round(oa)], -1).astype(np.uint8)
+    return Image.fromarray(out, "RGBA")

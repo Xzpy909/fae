@@ -80,6 +80,18 @@ function addPaths(paths) {
   else if (first >= 0) status(`${paths.length} image(s) added`);
 }
 
+/* Ctrl+V: images from the Windows clipboard (copied files, or a copied image the back end saves as PNG
+   first, api.py paste_clipboard); the first one is shown */
+async function pasteClipboard() {
+  let r;
+  try { r = await api().paste_clipboard(); } catch (e) { r = { ok: false, error: String(e) }; }
+  if (!r || !r.ok) { status((r && r.error) || 'Nothing to paste'); return; }
+  addPaths(r.paths);
+  const i = S.files.findIndex(f => f.path.toLowerCase() === r.paths[0].toLowerCase());
+  if (i >= 0 && i !== S.cur) switchTo(i);
+  if (r.saved) toast(`Pasted image saved as <b>${basename(r.saved)}</b>`, false, r.saved);
+}
+
 function renderList() {
   const ul = $('#fileList');
   ul.innerHTML = S.files.map((f, i) => {

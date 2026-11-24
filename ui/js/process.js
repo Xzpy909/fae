@@ -120,6 +120,7 @@ window.addEventListener('keydown', e => {
   if (inInput) return;
   if (ctrl && e.shiftKey && k === 'c') { e.preventDefault(); copyEdits(); return; }
   if (ctrl && e.shiftKey && k === 'v') { e.preventDefault(); pasteEdits(); return; }
+  if (ctrl && k === 'v') { e.preventDefault(); pasteClipboard(); return; }
   if (ctrl && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
   if (ctrl && k === 'z') { e.preventDefault(); undo(); return; }
   if (ctrl) return;

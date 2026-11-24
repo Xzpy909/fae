@@ -163,7 +163,7 @@ function geomParams(g) {
   if (g.off) g = defaultGeom();         // Crop island switched off: full image (the crop itself is kept)
   return { rot_q: g.q || 0, angle: g.angle || 0, flip: !!g.flip,
     crop_x: g.crop ? g.crop.x : 0, crop_y: g.crop ? g.crop.y : 0,
-    crop_w: g.crop ? g.crop.w : 0, crop_h: g.crop ? g.crop.h : 0 };
+    crop_w: g.crop ? g.crop.w : 0, crop_h: g.crop ? g.crop.h : 0, crop_free: !!g.free };
 }
 function stageParams(stage, geom) {
   const p = Object.assign(clone(stage), geomParams(geom));
@@ -235,6 +235,14 @@ const S = {
   reqId: 0, newFile: false, busy: false, clipboard: null,
   hover: null,
 };
+
+/* Transparent images: the cores compute RGB only (the alpha decides what shows, never the edit), so the
+   stage's alpha (`base`, RGBA) is put back onto their pixels before they are shown. Same size only. */
+function withAlpha(dst, base) {
+  if (!base || dst.length !== base.length) return dst;
+  for (let i = 3; i < dst.length; i += 4) dst[i] = base[i];
+  return dst;
+}
 
 const canvas = $('#view'), ctx = canvas.getContext('2d');
 const vp = $('#viewport'), stageEl = $('#stage');

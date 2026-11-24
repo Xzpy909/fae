@@ -2,6 +2,8 @@
 // image rows the screen needs. Lanczos-3, widened by 1/s when shrinking (s = screen px per image
 // px), so every image pixel contributes; nearest neighbour when zoomed in to s >= 2 (pixel view).
 // Columns left of `split` (image x) come from the unedited stage: the original | edited split view.
+// Transparent images: the alpha comes from the stage (`orig`; the steps compute RGB only); filtered
+// premultiplied (no dark fringes), `mid` holds premultiplied RGBA.
 struct V {
     iw: i32, ih: i32,        // image size
     x0: i32, r0: i32,        // first screen column / first image row held in `mid`
@@ -27,10 +29,12 @@ fn lanczos3(x: f32) -> f32 {
     return 3.0 * sin(p) * sin(p / 3.0) / (p * p);
 }
 
-fn px(x: i32, y: i32, from_orig: bool) -> vec3<f32> {
+fn px(x: i32, y: i32, from_orig: bool) -> vec4<f32> {
     let c = vec2<i32>(clamp(x, 0, v.iw - 1), y);
-    if (from_orig) { return textureLoad(orig, c, 0).rgb; }
-    return textureLoad(res, c, 0).rgb;
+    let o = textureLoad(orig, c, 0);
+    var rgb = o.rgb;
+    if (!from_orig) { rgb = textureLoad(res, c, 0).rgb; }
+    return vec4<f32>(rgb * o.a, o.a);
 }
 
 @compute @workgroup_size(16, 16)
@@ -40,13 +44,13 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>) {
     let u = (X - v.ox) / v.s - 0.5;                    // in image px (pixel centres at integers)
     let y = clamp(v.r0 + i32(g.y), 0, v.ih - 1);
     let from_orig = (X - v.ox) / v.s < v.split;
-    var c: vec3<f32>;
+    var c: vec4<f32>;
     if (v.nearest != 0u) {
         c = px(i32(floor(u + 0.5)), y, from_orig);
     } else {
         let lo = i32(floor(u - v.reach)) + 1;
         let hi = i32(floor(u + v.reach));
-        var acc = vec3<f32>(0.0);
+        var acc = vec4<f32>(0.0);
         var ws = 0.0;
         for (var x = lo; x <= hi; x++) {
             let w = lanczos3((f32(x) - u) * v.ks);
@@ -55,5 +59,5 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>) {
         }
         c = acc / ws;
     }
-    textureStore(mid, vec2<i32>(g.xy), vec4<f32>(c, 1.0));
+    textureStore(mid, vec2<i32>(g.xy), c);
 }

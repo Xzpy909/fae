@@ -4,7 +4,10 @@
    rotation. The crop rectangle is axis-aligned in frame space ({x, y} = centre, w, h).
    A frame point p maps back to the source with R(-theta): that is what keeps the crop
    "bound aware" (every corner must land inside the source), and it is exactly what
-   apply_geometry() in fae.py does with cv2.warpAffine. */
+   apply_geometry() in fae.py does with cv2.warpAffine.
+   Transparent images have a "past the edges" switch (F, #cropFree; per image, geom.free, off by
+   default): the box may then extend up to one image size beyond the edges, the added area is
+   transparent (geometry.py crop_free). The default box and the aspect presets still fit inside. */
 
 const Crop = (() => {
   const layer = $('#cropLayer'), cc = $('#cropCanvas'), g = cc.getContext('2d');
@@ -31,7 +34,17 @@ const Crop = (() => {
     if (C.aspect === 'original') { const [w, h] = frameWH(); return w / h; }
     return AMAP[C.aspect] || null;
   }
+  /* may the crop box be `r`: inside the image, or (past-the-edges mode) within one image size of it */
   function contains(r) {
+    if (!C.free) return inside(r);
+    const lim = (C.W + C.H) / 2 + Math.max(C.W, C.H);
+    for (const [dx, dy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      if (Math.abs(r.x + dx * r.w / 2) > lim || Math.abs(r.y + dy * r.h / 2) > lim) return false;
+    }
+    return true;
+  }
+  /* every corner of `r` lands inside the source */
+  function inside(r) {
     const t = theta(), c = Math.cos(t), s = Math.sin(t);
     const hw = C.W / 2 + 0.02, hh = C.H / 2 + 0.02;
     for (const [dx, dy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
@@ -46,7 +59,7 @@ const Crop = (() => {
     let lo = 0, hi = C.W + C.H;
     for (let i = 0; i < 48; i++) {
       const m = (lo + hi) / 2;
-      if (contains({ x: cx, y: cy, w: m * r, h: m })) lo = m; else hi = m;
+      if (inside({ x: cx, y: cy, w: m * r, h: m })) lo = m; else hi = m;     // defaults always fit inside
     }
     return { x: cx, y: cy, w: lo * r, h: lo };
   }
@@ -99,7 +112,7 @@ const Crop = (() => {
       if (!r.ok) { spinner(false); toast(r.error, true); return; }
       const buf = await (await fetch(Bridge.previewUrl(r.token))).arrayBuffer();
       spinner(false);
-      f.src = { W: r.W, H: r.H, pw: r.pw, ph: r.ph, base: new Uint8ClampedArray(buf) };
+      f.src = { W: r.W, H: r.H, pw: r.pw, ph: r.ph, alpha: !!r.alpha, base: new Uint8ClampedArray(buf) };
     }
     S.files.forEach(x => { if (x !== f) delete x.src; });   // keep memory in check
     if (S.files[S.cur] !== f) return;
@@ -110,7 +123,10 @@ const Crop = (() => {
       q: G.q || 0, angle: G.angle || 0, flip: !!G.flip,
       aspect: G.aspect || (() => { const ra = resizeCropAspect(); return ra && ra.key && AMAP[ra.key] ? ra.key : 'original'; })(),
       img: document.createElement('canvas'),
+      free: !!(G.free && f.src.alpha),
     };
+    $('#cropFree').hidden = !f.src.alpha;               // only transparent images can crop past their edges
+    $('#cropFree').classList.toggle('on', C.free);
     C.img.width = f.src.pw; C.img.height = f.src.ph;
     refreshImage();
     C.crop = G.crop ? shrink({ ...G.crop }) : defaultCrop();
@@ -138,7 +154,8 @@ const Crop = (() => {
         q: C.q, angle, flip: C.flip, aspect: C.aspect,
         crop: full ? null : { x: r2(c.x), y: r2(c.y), w: r2(c.w), h: r2(c.h) },
       };
-      const key = o => JSON.stringify([o.q || 0, o.angle || 0, !!o.flip, o.crop || null]);
+      if (C.free) ng.free = true;
+      const key = o => JSON.stringify([o.q || 0, o.angle || 0, !!o.flip, o.crop || null, !!o.free]);
       const changed = key(ng) !== key(S.geom || defaultGeom());
       S.geom = ng;
       if (changed) {
@@ -163,7 +180,9 @@ const Crop = (() => {
     }
     WP.render(s, S.E, r => {
       if (C !== cur || r.out.byteLength !== s.pw * s.ph * 4) return;
-      C.img.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(r.out), s.pw, s.ph), 0, 0);
+      const px = new Uint8ClampedArray(r.out);
+      if (s.alpha) withAlpha(px, s.base);
+      C.img.getContext('2d').putImageData(new ImageData(px, s.pw, s.ph), 0, 0);
       draw();
     });
   }
@@ -206,6 +225,18 @@ const Crop = (() => {
     }
     C.desired = { ...C.crop };
     buildAspects(); updateHint(); draw(); follow();
+  }
+  /* past-the-edges mode on / off (transparent images); off brings the box back inside */
+  function setFree(on) {
+    if (!C || !C.info.alpha) return;
+    C.free = on;
+    $('#cropFree').classList.toggle('on', on);
+    if (!on) {                         // the box back inside: where it is, or the largest of its shape
+      const here = shrink(C.crop), most = maxRect(C.crop.w / C.crop.h, 0, 0);
+      C.crop = here.w * here.h >= most.w * most.h * 0.98 ? here : most;
+      C.desired = { ...C.crop };
+    }
+    draw(); follow();
   }
   function rotate90(dir) {
     C.q = (C.q + (dir > 0 ? 1 : 3)) % 4;
@@ -266,8 +297,12 @@ const Crop = (() => {
   function camTarget() {
     const A = cam.A, c = C.crop, [fw, fh] = frameWH();
     let z = A.z0;
-    if (c) z = Math.max(A.z0, Math.min(Math.min(A.aw / c.w, A.ah / c.h) * CAM_FILL, Math.max(A.z0, CAM_MAX_Z)));
-    const hx = Math.max(0, fw / 2 - A.aw / (2 * z)), hy = Math.max(0, fh / 2 - A.ah / (2 * z));
+    // past the edges: the box may be bigger than the image, then the view zooms out to show it all
+    const zmin = c && C.free ? Math.min(A.z0, Math.min(A.aw / c.w, A.ah / c.h) * 0.95) : A.z0;
+    if (c) z = Math.max(zmin, Math.min(Math.min(A.aw / c.w, A.ah / c.h) * CAM_FILL, Math.max(A.z0, CAM_MAX_Z)));
+    const ex = c && C.free ? Math.max(fw / 2, Math.abs(c.x) + c.w / 2) : fw / 2;   // how far the view may pan
+    const ey = c && C.free ? Math.max(fh / 2, Math.abs(c.y) + c.h / 2) : fh / 2;
+    const hx = Math.max(0, ex - A.aw / (2 * z)), hy = Math.max(0, ey - A.ah / (2 * z));
     cam.tz = z;
     cam.tcx = c ? clamp(c.x, -hx, hx) : 0;
     cam.tcy = c ? clamp(c.y, -hy, hy) : 0;
@@ -565,6 +600,7 @@ const Crop = (() => {
   $('#rotR').addEventListener('click', () => C && rotate90(1));
   $('#flipH').addEventListener('click', () => C && flip());
   $('#straighten').addEventListener('click', () => C && setStraight(!straightOn));
+  $('#cropFree').addEventListener('click', () => C && setFree(!C.free));
   $('#cropReset').addEventListener('click', () => C && reset());
   $('#cropDone').addEventListener('click', () => exit(false));
   $('#cropCancel').addEventListener('click', () => exit(true));
@@ -592,6 +628,7 @@ const Crop = (() => {
       case '[': rotate90(-1); break;
       case ']': rotate90(1); break;
       case 'h': flip(); break;
+      case 'f': setFree(!C.free); break;
       case 'r': reset(); break;
       case 'arrowleft': nudge(-step, 0); break;
       case 'arrowright': nudge(step, 0); break;

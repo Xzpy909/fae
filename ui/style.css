@@ -212,6 +212,7 @@ button.primary:hover { background: var(--grad); filter: brightness(1.08) saturat
 #stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
 #view { display: none; box-shadow: 0 10px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.05); }
 #view.pixel { image-rendering: pixelated; }
+#view.alpha { box-shadow: none; }      /* transparent images: no frame, their transparent parts blend into the background */
 #gpu { position: absolute; display: none; pointer-events: none; }   /* GPU preview (gpu-view.js) */
 #gpu.show { display: block; }
 #markers { position: absolute; inset: 0; pointer-events: none; }

@@ -38,6 +38,11 @@ if not os.path.exists(SETTINGS_PATH) and os.path.exists(_OLD_SETTINGS):
     except OSError:
         pass
 ENCODERS_DIR = os.path.join(APP_DIR, "encoders")
+# Ctrl+V: an image copied to the clipboard (no file of its own) is saved here as PNG, then opened
+# (Process writes next to it). Pictures\Fae\Pasted; FAE_PASTE_DIR overrides.
+_PICTURES = os.path.join(os.path.expanduser("~"), "Pictures")
+PASTE_DIR = os.environ.get("FAE_PASTE_DIR") or os.path.join(_PICTURES if os.path.isdir(_PICTURES) else APP_DIR,
+                                                           "Fae", "Pasted")
 _EXE = ".exe" if sys.platform.startswith("win") else ""
 CJPEGLI = os.path.join(ENCODERS_DIR, "cjpegli" + _EXE)
 SVTAV1 = os.path.join(ENCODERS_DIR, "SvtAv1EncApp" + _EXE)
@@ -96,6 +101,7 @@ class StageParams:
     crop_y: float = 0.0
     crop_w: float = 0.0
     crop_h: float = 0.0
+    crop_free: bool = False       # transparent images: the crop may extend past the edges (transparent there)
 
     @classmethod
     def from_dict(cls, d: dict | None) -> "StageParams":
@@ -118,7 +124,7 @@ class StageParams:
 
     def geom_key(self):
         return (self.rot_q % 4, round(self.angle, 4), self.flip,
-                round(self.crop_x, 3), round(self.crop_y, 3), round(self.crop_w, 3), round(self.crop_h, 3))
+                round(self.crop_x, 3), round(self.crop_y, 3), round(self.crop_w, 3), round(self.crop_h, 3), self.crop_free)
 
     def has_geom(self):
         return self.rot_q % 4 != 0 or self.angle != 0 or self.flip or self.crop_w > 0

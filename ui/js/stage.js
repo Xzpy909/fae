@@ -43,6 +43,7 @@ async function loadStage() {
   }
   S.baseData = new ImageData(S.img.base, r.pw, r.ph);
   canvas.style.display = 'block';
+  canvas.classList.toggle('alpha', !!r.alpha);         // no frame around transparent images (style.css)
   if (resSwap) { S.view.z *= old.pw / r.pw; applyView(); }
   else if (sizeChanged || S.newFile) fitView();
   const wasNew = S.newFile;

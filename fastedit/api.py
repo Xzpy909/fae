@@ -6,9 +6,10 @@ import json
 import os
 import subprocess
 import sys
+import time
 import numpy as np
 from PIL import Image
-from .config import IMAGE_EXTS, PRESETS_PATH, PREVIEW_MAX, SETTINGS_PATH, StageParams
+from .config import IMAGE_EXTS, PASTE_DIR, PRESETS_PATH, PREVIEW_MAX, SETTINGS_PATH, StageParams
 from .geometry import fit_scale
 from . import backend, core
 from .engine import ENGINE, Entry, collect
@@ -29,6 +30,23 @@ def _pv_size(w, h, full=0):
     else:
         s = min(1.0, PREVIEW_MAX / max(w, h))
     return (max(1, round(w * s)), max(1, round(h * s))) if s < 1 else (w, h)
+
+
+def _preview_rgba(img: Image.Image, size, resample) -> bytes:
+    """The preview's pixels: RGB at `size`, alpha the image's own (255 without one). RGB is resized as it
+    always was (the cores edit RGB; transparency only decides what shows through), alpha on its own."""
+    rgb = img.convert("RGB")
+    if rgb.size != tuple(size):
+        rgb = rgb.resize(size, resample)
+    pw, ph = rgb.size
+    rgba = np.empty((ph, pw, 4), dtype=np.uint8)
+    rgba[..., :3] = np.asarray(rgb)
+    if img.mode == "RGBA":
+        a = img.getchannel("A")
+        rgba[..., 3] = np.asarray(a if a.size == (pw, ph) else a.resize((pw, ph), resample))
+    else:
+        rgba[..., 3] = 255
+    return rgba.tobytes()
 
 
 _LOSSY = {"key": None}      # last lossy round trip, so a preview-size change doesn't re-encode
@@ -103,6 +121,38 @@ class Api:
     def expand_paths(self, paths):
         return collect(paths)
 
+    def paste_clipboard(self):
+        """Ctrl+V: the images on the clipboard. Files copied in Explorer -> those images (folders expanded);
+        a copied image (screenshot, from a browser...) has no file: saved as PNG in PASTE_DIR (alpha kept
+        when the clipboard has it), then opened. {"ok", "paths", "saved"} or {"ok": False, "error"}."""
+        try:
+            from PIL import ImageGrab
+            clip = ImageGrab.grabclipboard()
+        except Exception as ex:
+            return {"ok": False, "error": f"Clipboard: {type(ex).__name__}: {ex}"}
+        if isinstance(clip, list):
+            paths = collect(clip)
+            if not paths:
+                return {"ok": False, "error": "No images among the copied files"}
+            return {"ok": True, "paths": paths, "saved": None}
+        if isinstance(clip, Image.Image):
+            try:
+                clip.load()
+                img = clip if clip.mode in ("RGB", "RGBA") else clip.convert(
+                    "RGBA" if "A" in clip.getbands() or "transparency" in clip.info else "RGB")
+                os.makedirs(PASTE_DIR, exist_ok=True)
+                stamp = time.strftime("%Y-%m-%d %H-%M-%S")
+                path = os.path.join(PASTE_DIR, f"Pasted {stamp}.png")
+                n = 2
+                while os.path.exists(path):
+                    path = os.path.join(PASTE_DIR, f"Pasted {stamp} ({n}).png")
+                    n += 1
+                img.save(path, "PNG")
+                return {"ok": True, "paths": [path], "saved": path}
+            except Exception as ex:
+                return {"ok": False, "error": f"Saving the pasted image: {type(ex).__name__}: {ex}"}
+        return {"ok": False, "error": "No image on the clipboard"}
+
     def reveal(self, path):
         try:
             if sys.platform.startswith("win"):
@@ -122,14 +172,9 @@ class Api:
             e, img = ENGINE.stage(path, P)
             rgb = np.ascontiguousarray(np.asarray(img.convert("RGB")))
             w, h = img.size
-            pv = img.convert("RGB")
-            if _pv_size(w, h, full) != (w, h):
-                pv = pv.resize(_pv_size(w, h, full), Image.Resampling.LANCZOS)
-            pw, ph = pv.size
-            rgba = np.empty((ph, pw, 4), dtype=np.uint8)
-            rgba[..., :3] = np.asarray(pv)
-            rgba[..., 3] = 255
-            token = ENGINE.put_preview(rgba.tobytes(), pw, ph)   # the preview core does Mid/Detail itself
+            pw, ph = _pv_size(w, h, full)
+            # RGBA: the alpha (transparent images) only shows; the cores edit RGB
+            token = ENGINE.put_preview(_preview_rgba(img, (pw, ph), Image.Resampling.LANCZOS), pw, ph)
             with ENGINE.lock:
                 if req_id >= ENGINE.latest_req:
                     ENGINE.latest_req = req_id
@@ -149,17 +194,14 @@ class Api:
         """Oriented, un-cropped source for crop mode (downscaled for display)."""
         try:
             e = ENGINE.entry(path)
-            img = e.base.convert("RGB")
+            img = e.base
             W, H = img.size
+            pw, ph = W, H
             if max(W, H) > PREVIEW_MAX:
                 s = PREVIEW_MAX / max(W, H)
-                img = img.resize((max(1, round(W * s)), max(1, round(H * s))), Image.Resampling.BILINEAR)
-            pw, ph = img.size
-            rgba = np.empty((ph, pw, 4), dtype=np.uint8)
-            rgba[..., :3] = np.asarray(img)
-            rgba[..., 3] = 255
-            token = ENGINE.put_preview(rgba.tobytes(), pw, ph)
-            return {"ok": True, "token": token, "W": W, "H": H, "pw": pw, "ph": ph}
+                pw, ph = max(1, round(W * s)), max(1, round(H * s))
+            token = ENGINE.put_preview(_preview_rgba(img, (pw, ph), Image.Resampling.BILINEAR), pw, ph)
+            return {"ok": True, "token": token, "W": W, "H": H, "pw": pw, "ph": ph, "alpha": img.mode == "RGBA"}
         except Exception as ex:
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
 
@@ -223,17 +265,13 @@ class Api:
                 data, enc, used = encode_lossy(out, fmt, opts, e.icc)
                 check_cancel()
                 with Image.open(io.BytesIO(data)) as jim:
-                    jim.load()
-                    dec = jim.convert("RGB")
+                    jim.load()      # the encoded file's own alpha (JPEG: none, the white it was written on)
+                    dec = jim.convert("RGBA" if "A" in jim.getbands() or "transparency" in jim.info else "RGB")
                 nbytes = len(data)
                 _LOSSY.update(key=key, val=(dec, nbytes, enc, used))
             w, h = dec.size
-            pv = dec if _pv_size(w, h, full) == (w, h) else dec.resize(_pv_size(w, h, full), Image.Resampling.LANCZOS)
-            pw, ph = pv.size
-            rgba = np.empty((ph, pw, 4), dtype=np.uint8)
-            rgba[..., :3] = np.asarray(pv)
-            rgba[..., 3] = 255
-            token = ENGINE.put_preview(rgba.tobytes(), pw, ph)
+            pw, ph = _pv_size(w, h, full)
+            token = ENGINE.put_preview(_preview_rgba(dec, (pw, ph), Image.Resampling.LANCZOS), pw, ph)
             return {"ok": True, "req_id": req_id, "token": token, "pw": pw, "ph": ph,
                     "bytes": nbytes, "encoder": enc, "fmt": fmt, "opts": used}
         except Cancelled:

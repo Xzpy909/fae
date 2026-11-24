@@ -222,25 +222,27 @@ class Api:
             fmt = norm_fmt(fmt)
             key = json.dumps([job, fmt, opts], sort_keys=True, default=str)
             if _LOSSY["key"] == key:
-                dec, nbytes, enc, used = _LOSSY["val"]
+                dec, nbytes, enc, used, ms = _LOSSY["val"]
             else:
                 try:
                     icc, out = self._render_full(job)
                 finally:
                     core.gpu_release()          # the GPU memory of a full-size image isn't kept
                 check_cancel()
+                t0 = time.perf_counter()
                 data, enc, used = encode_lossy(out, fmt, opts, icc)
+                ms = (time.perf_counter() - t0) * 1000    # the encode alone, shown next to the size
                 check_cancel()
                 with Image.open(io.BytesIO(data)) as jim:
                     jim.load()      # the encoded file's own alpha (JPEG: none, the white it was written on)
                     dec = jim.convert("RGBA" if "A" in jim.getbands() or "transparency" in jim.info else "RGB")
                 nbytes = len(data)
-                _LOSSY.update(key=key, val=(dec, nbytes, enc, used))
+                _LOSSY.update(key=key, val=(dec, nbytes, enc, used, ms))
             w, h = dec.size
             pw, ph = _pv_size(w, h, full)
             token = self._b.put_preview(_preview_rgba(dec, (pw, ph), Image.Resampling.LANCZOS))
             return {"ok": True, "req_id": req_id, "token": token, "pw": pw, "ph": ph,
-                    "bytes": nbytes, "encoder": enc, "fmt": fmt, "opts": used}
+                    "bytes": nbytes, "ms": round(ms, 1), "encoder": enc, "fmt": fmt, "opts": used}
         except Cancelled:
             return {"ok": False, "req_id": req_id, "cancelled": True}
         except Exception as ex:

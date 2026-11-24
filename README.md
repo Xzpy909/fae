@@ -169,6 +169,8 @@ python tests/backend/commands_check.py   # the commands moved so far vs their Py
 python tests/stage/stage_bench.py        # timing: the moved stage steps, Python vs Rust
 ```
 
+Plan, status and how to work on a wave (build, tests, rules, where B3 starts): `docs/rust-backend-plan.md`.
+
 ### GPU core (in progress)
 
 The edit math is moving to the GPU (wgpu + WGSL shaders, `core/gpu/`), in waves. The GPU core runs

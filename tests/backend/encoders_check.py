@@ -38,7 +38,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, ROOT)
 
 import numpy as np  # noqa: E402
-from PIL import Image  # noqa: E402
+from PIL import Image, ImageCms  # noqa: E402
 
 import fae_backend as fb  # noqa: E402
 from fastedit import avif as A, backend, output  # noqa: E402
@@ -123,7 +123,9 @@ def check_image(name, img, icc, b, has_jpegli, has_svt):
         same_icc = g.info.get("icc_profile") == icc
     check(f"{name}: PNG pixels + ICC", same_px and same_icc,
           f"{'same bytes' if got == want else 'size %d vs Pillow %d (%+.2f %%)' % (len(got), len(want), 100 * (len(got) / len(want) - 1))}")
-    # WebP
+    # WebP (lossless method 6 takes a minute or more per encode on a big photo)
+    if w * h > 4_000_000:
+        print(f"  ... {name}: WebP lossless, {w}x{h}, slow (Pillow, then Rust)", flush=True)
     want = pillow(img, "WEBP", icc, lossless=True, quality=100, method=6, exact=True)
     check(f"{name}: WebP lossless bytes", fb.encode_webp(px, w, h, ch, True, 100, 6, True, icc) == want)
     for q in (0, 75, 90):
@@ -271,10 +273,11 @@ def check_names_and_save(b, has_jpegli):
     d = tempfile.mkdtemp(prefix="fae_out_")
     src = os.path.join(d, "Moonforge.v2.png")
     img = Image.new("RGBA", (40, 30), (10, 20, 30, 128))
+    icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()  # cjpegli refuses a made-up one
     for fmt, opts in (("PNG", None), ("WEBP", None), ("WEBP", {"webp": {"lossless": False, "q": 70}}),
                       ("JPEG", {"jpeg": {"q": 80}}), ("BMP", None)):
-        p_py = output.save_image_py(img, src, fmt, b"icc", opts)
-        p_rs = b.save(img, src, fmt, b"icc", opts)
+        p_py = output.save_image_py(img, src, fmt, icc, opts)
+        p_rs = b.save(img, src, fmt, icc, opts)
         with open(p_py, "rb") as f1, open(p_rs, "rb") as f2:
             a, c = f1.read(), f2.read()
         same = a == c if fmt != "PNG" else np.array_equal(np.asarray(Image.open(io.BytesIO(a))), np.asarray(Image.open(io.BytesIO(c))))

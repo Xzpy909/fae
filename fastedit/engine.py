@@ -41,6 +41,11 @@ def decode(path: str) -> tuple[tuple, bytes | None]:
     if r is not None:
         px, w, h, ch, icc, _fmt = r
         return (px, w, h, ch), icc
+    return decode_pillow(path)
+
+
+def decode_pillow(path: str) -> tuple[tuple, bytes | None]:
+    """Pillow's decode, for the formats the Rust back end doesn't open yet (AVIF until B4)."""
     with open_image(path) as im:
         im.load()
         img = prepare(im)
@@ -48,7 +53,8 @@ def decode(path: str) -> tuple[tuple, bytes | None]:
 
 
 class Entry:
-    """One opened image: its pixels as decoded (raw: pixels, w, h, channels), the geometry result for
+    """The Python stage, kept as the stage tests' reference until B3 is checked on Windows (the app's
+    stage runs in the Rust back end since B3: fae-backend stage.rs). One opened image: its pixels as decoded (raw: pixels, w, h, channels), the geometry result for
     the last geometry settings, the resized results for the last few resize settings. Geometry and
     resizing run in the Rust back end (B2); Pillow images only where the Python stage still needs them."""
 

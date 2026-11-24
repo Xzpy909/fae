@@ -1,5 +1,5 @@
 @echo off
-rem Builds the Rust back end (claude/rust-backend-plan.md): Python extension fae_backend -> installed into
+rem Builds the Rust back end (docs/rust-backend-plan.md): Python extension fae_backend -> installed into
 rem the current Python (pip). Required by the app (fastedit\backend.py). Checks:
 rem   python tests\stage\stage_check.py --impl rust   the stage (decode, ...) in Rust vs the goldens
 rem   python tests\backend\commands_check.py   the commands moved so far, against their Python behaviour

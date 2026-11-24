@@ -1,5 +1,5 @@
 'use strict';
-/* The bridge to the app shell (claude/rust-backend-plan.md): the only file that knows what runs the page.
+/* The bridge to the app shell (docs/rust-backend-plan.md): the only file that knows what runs the page.
    Today the shell is pywebview: its js_api (fastedit/api.py, forwarding to the Rust back end) and the
    local HTTP server (fastedit/app.py: /preview/<token>, /thumb). A Tauri shell would replace this file
    only: invoke() for the commands, its custom protocol for the URLs, its events for the shell's calls.

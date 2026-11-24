@@ -7,6 +7,11 @@
 //!   geometry(px, w, h, ch, params_json) / fit(...) -> (px, w, h, ch)   the stage's geometry and resize
 //!     steps on raw pixels (B2; params = StageParams as JSON); fit_scale(w, h, params_json);
 //!     mpix_size(w, h, mpix, prio), preset_size(ar, res)   the size maths
+//!   b.stage(path, params_json) -> (px, w, h, ch, icc)   the stage image at full resolution (B3; for
+//!     Process / the encoded compare until B5); b.give_source(path, px, w, h, ch, icc)   pixels the shell
+//!     decoded itself (AVIF until B4); b.preview(token) -> RGBA bytes | None; b.put_preview(rgba) -> token
+//!   white_patch(px, w, h, ch, pct, strength) / gray_edge(px, w, h, ch, p, sigma, strength) -> (px, w, h, ch)
+//!     the colour balance (B3)
 //!   commands() -> [names this build runs]; table() -> [(name, wave, what)]; features(); version()
 //! Errors: RuntimeError("<kind>: <message>"); kind "unknown" = not in this build (the shell runs its own).
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -57,6 +62,32 @@ impl PyBackend {
         Ok((l.path.display().to_string(), l.version()))
     }
 
+    /// The stage image of `path` at full resolution (B3): (pixels, w, h, channels, icc | None).
+    /// RuntimeError "unknown: ..." for a format not in Rust yet (hand it over with give_source).
+    fn stage<'py>(&self, py: Python<'py>, path: &str, params_json: &str) -> PyResult<(Bound<'py, PyBytes>, usize, usize, usize, Option<Bound<'py, PyBytes>>)> {
+        let p = params(params_json)?;
+        let r = py.detach(|| self.b.stage_image(std::path::Path::new(path), &p));
+        let (img, icc) = r.map_err(perr)?;
+        Ok((PyBytes::new(py, &img.data), img.w, img.h, img.c, icc.as_deref().map(|b| PyBytes::new(py, b))))
+    }
+
+    /// Pixels the shell decoded itself for `path` (a format not in Rust yet): upright RGB / RGBA.
+    #[pyo3(signature = (path, px, w, h, ch, icc=None))]
+    fn give_source(&self, path: &str, px: &[u8], w: usize, h: usize, ch: usize, icc: Option<&[u8]>) -> PyResult<()> {
+        let img = px_in(px, w, h, ch)?.to_px();
+        self.b.give_source(std::path::Path::new(path), img, icc.map(<[u8]>::to_vec)).map_err(perr)
+    }
+
+    /// The preview pixels (RGBA) under `token`, None when gone (the shell serves /preview/<token>).
+    fn preview<'py>(&self, py: Python<'py>, token: &str) -> Option<Bound<'py, PyBytes>> {
+        self.b.preview(token).map(|d| PyBytes::new(py, &d))
+    }
+
+    /// Store preview pixels (RGBA) the shell made itself; their token.
+    fn put_preview(&self, rgba: &[u8]) -> String {
+        self.b.put_preview(rgba.to_vec())
+    }
+
     /// Run one command: `args_json` = the UI's positional arguments as a JSON array. Without the GIL.
     fn call(&self, py: Python<'_>, name: &str, args_json: &str) -> PyResult<String> {
         let args: Vec<serde_json::Value> =
@@ -101,6 +132,24 @@ fn fit<'py>(py: Python<'py>, px: &[u8], w: usize, h: usize, ch: usize, params_js
 }
 
 /// geometry.py fit_scale: the largest per-axis factor the resize applies to a w × h image.
+/// colour.py white_patch_enhance (B3).
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn white_patch<'py>(py: Python<'py>, px: &[u8], w: usize, h: usize, ch: usize, pct: f64, strength: f64) -> PyResult<Raw<'py>> {
+    let img = px_in(px, w, h, ch)?;
+    let out = py.detach(|| backend::colour::white_patch(img, pct, strength));
+    Ok(px_out(py, out))
+}
+
+/// colour.py gray_edge_enhance (B3).
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn gray_edge<'py>(py: Python<'py>, px: &[u8], w: usize, h: usize, ch: usize, p: i64, sigma: f64, strength: f64) -> PyResult<Raw<'py>> {
+    let img = px_in(px, w, h, ch)?;
+    let out = py.detach(|| backend::colour::gray_edge(img, p, sigma, strength));
+    Ok(px_out(py, out))
+}
+
 #[pyfunction]
 fn fit_scale(w: usize, h: usize, params_json: &str) -> PyResult<f64> {
     Ok(backend::fit::fit_scale(w.max(1), h.max(1), &params(params_json)?))
@@ -153,6 +202,8 @@ fn fae_backend(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(geometry, m)?)?;
     m.add_function(wrap_pyfunction!(fit, m)?)?;
     m.add_function(wrap_pyfunction!(fit_scale, m)?)?;
+    m.add_function(wrap_pyfunction!(white_patch, m)?)?;
+    m.add_function(wrap_pyfunction!(gray_edge, m)?)?;
     m.add_function(wrap_pyfunction!(mpix_size, m)?)?;
     m.add_function(wrap_pyfunction!(preset_size, m)?)?;
     Ok(())

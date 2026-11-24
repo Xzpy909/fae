@@ -1,4 +1,4 @@
-//! fae-backend: the app's back end in Rust (claude/rust-backend-plan.md). Wave by wave it takes over the
+//! fae-backend: the app's back end in Rust (docs/rust-backend-plan.md). Wave by wave it takes over the
 //! work of `fastedit/` (Python); the shell around it (pywebview now, maybe Tauri later) only forwards.
 //!
 //! ## The command table
@@ -15,12 +15,14 @@
 //! - long work (Process, encoded compare, B4 / B5): cancellation by a request id the UI already sends,
 //!   progress through a callback the shell supplies (pywebview: evaluate_js, Tauri: an event).
 
+pub mod colour;
 pub mod decode;
 pub mod fit;
 pub mod geometry;
 pub mod heif;
 pub mod px;
 pub mod resample;
+pub mod stage;
 pub mod store;
 pub mod thumb;
 
@@ -117,14 +119,16 @@ pub const COMMANDS: &[(&str, Wave, &str)] = &[
 ];
 
 /// The waves done in this build. B1 (decoding) and B2 (geometry, resize, thumbnails) have no command of
-/// their own: load_stage (B3) uses them; until then the shell calls them directly ([`Backend::decode_file`],
-/// [`Backend::thumb_file`], [`geometry::apply`], [`fit::fit_image`]).
-const DONE: &[Wave] = &[Wave::B0, Wave::B1, Wave::B2];
+/// their own: load_stage (B3) runs them. The shell still asks for the stage image itself for Process and
+/// the encoded compare until B5 ([`Backend::stage_image`]), and for thumbnails until B6.
+const DONE: &[Wave] = &[Wave::B0, Wave::B1, Wave::B2, Wave::B3];
 
 pub struct Backend {
     cfg: Config,
     /// libheif, loaded on the first HEIC file (Err: why it can't be)
     heif: OnceLock<Result<heif::Lib, String>>,
+    /// the stage: opened images, previews, the current stage image (B3)
+    stage: stage::Stage,
 }
 
 fn args_n<'a>(name: &str, args: &'a [Value], n: usize) -> Result<&'a [Value], Error> {
@@ -136,7 +140,7 @@ fn args_n<'a>(name: &str, args: &'a [Value], n: usize) -> Result<&'a [Value], Er
 
 impl Backend {
     pub fn new(cfg: Config) -> Backend {
-        Backend { cfg, heif: OnceLock::new() }
+        Backend { cfg, heif: OnceLock::new(), stage: stage::Stage::default() }
     }
 
     /// libheif, loaded on first use.
@@ -168,6 +172,37 @@ impl Backend {
         thumb::encode_jpeg(&t, 82)
     }
 
+    fn source(&self, path: &Path) -> Result<stage::Source, Error> {
+        let im = self.decode_file(path)?;
+        let icc = im.icc.clone().map(std::sync::Arc::new);
+        Ok(stage::Source { img: std::sync::Arc::new(im.into()), icc })
+    }
+
+    /// The stage image of `path` at full resolution (decode, geometry, resize, colour balance; cached as
+    /// for `load_stage`) + the source's ICC profile: what Process and the encoded compare edit (the shell
+    /// does those until B5). Kind Unknown for a format the back end doesn't open (see [`Backend::give_source`]).
+    pub fn stage_image(&self, path: &Path, p: &fit::StageParams) -> Result<(px::Px, Option<Vec<u8>>), Error> {
+        let (img, src, _) = self.stage.stage(path, p, &|p| self.source(p))?;
+        Ok((img, src.icc.map(|i| (*i).clone())))
+    }
+
+    /// The shell opened `path` itself (a format the back end doesn't decode yet: AVIF until B4); the
+    /// stage uses these pixels for it while the file is unchanged.
+    pub fn give_source(&self, path: &Path, img: px::Px, icc: Option<Vec<u8>>) -> Result<(), Error> {
+        self.stage.give_source(path, img, icc)
+    }
+
+    /// The preview pixels (RGBA) stored under `token` by load_stage / load_source / [`Backend::put_preview`]:
+    /// what the shell serves at `/preview/<token>`. None when gone (only the last 8 are kept).
+    pub fn preview(&self, token: &str) -> Option<std::sync::Arc<Vec<u8>>> {
+        self.stage.preview(token)
+    }
+
+    /// Store preview pixels the shell made itself (the encoded compare until B5); their token.
+    pub fn put_preview(&self, rgba: Vec<u8>) -> String {
+        self.stage.put_preview(rgba)
+    }
+
     /// The commands this build runs (the rest still run in the shell's Python).
     pub fn commands() -> Vec<&'static str> {
         COMMANDS.iter().filter(|(_, w, _)| DONE.contains(w)).map(|(n, _, _)| *n).collect()
@@ -188,6 +223,9 @@ impl Backend {
                 let a = args_n(name, args, 1)?;
                 Ok(Value::Bool(store::write_json(&self.cfg.presets, &a[0]).is_ok()))
             }
+            "load_stage" => self.stage.load_stage(args, &|p| self.source(p)),
+            "load_source" => self.stage.load_source(args, &|p| self.source(p)),
+            "sample" => Ok(self.stage.sample(args)),
             _ if COMMANDS.iter().any(|(n, _, _)| *n == name) => {
                 Err(Error::new(ErrorKind::Unknown, format!("{name}: not in the Rust back end yet")))
             }
@@ -230,14 +268,19 @@ mod tests {
         assert_eq!(b.call("get_settings", &[]).unwrap(), json!({}));
         // errors
         assert_eq!(b.call("save_settings", &[]).unwrap_err().kind, ErrorKind::BadArgs);
-        assert_eq!(b.call("load_stage", &[]).unwrap_err().kind, ErrorKind::Unknown);
+        assert_eq!(b.call("encoder_info", &[]).unwrap_err().kind, ErrorKind::Unknown);
+        assert_eq!(b.call("sample", &[json!(0.5), json!(0.5)]).unwrap(), Value::Null);
+        assert_eq!(b.call("load_stage", &[json!("no/such/file.png"), json!({}), json!(1)]).unwrap()["ok"], json!(false));
         assert_eq!(b.call("nope", &[]).unwrap_err().kind, ErrorKind::Unknown);
         let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
     fn table() {
-        assert_eq!(Backend::commands(), vec!["get_settings", "save_settings", "get_presets", "save_presets"]);
+        assert_eq!(
+            Backend::commands(),
+            vec!["get_settings", "save_settings", "get_presets", "save_presets", "load_stage", "load_source", "sample"]
+        );
         let mut names: Vec<_> = COMMANDS.iter().map(|c| c.0).collect();
         names.sort();
         names.dedup();

@@ -1,4 +1,4 @@
-"""Stage tests for the Rust back end (claude/rust-backend-plan.md): what fastedit/ does to an image before
+"""Stage tests for the Rust back end (docs/rust-backend-plan.md): what fastedit/ does to an image before
 the edit (decode, geometry, resize, colour balance, the whole stage, file-list thumbnails, the size
 maths), recorded from the Python implementation **before** each part moves to Rust, then checked against
 whichever implementation runs it.
@@ -28,6 +28,7 @@ A failing case writes stored | got | difference x16 to tests/stage/.work/<case>.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import glob
 import hashlib
 import io
@@ -364,10 +365,20 @@ class RustImpl:
         return self._raw("fit", a, dict(resize_on=True, **kw))
 
     def colour_(self, a, spec):
-        raise NotMoved("colour balance (B3)")
+        h, w, c = a.shape
+        px = np.ascontiguousarray(a).tobytes()
+        if spec[0] == "wp":
+            r = self.fb.white_patch(px, w, h, c, float(spec[1]), float(spec[2]))
+        else:
+            r = self.fb.gray_edge(px, w, h, c, int(spec[1]), float(spec[2]), float(spec[3]))
+        px, ow, oh, oc = r
+        return np.frombuffer(px, np.uint8).reshape(oh, ow, oc)
 
     def stage(self, path, kw):
-        raise NotMoved("the whole stage (B3)")
+        from fastedit import config
+        P = config.StageParams(**kw)
+        px, w, h, ch, _icc = self.b._b.stage(path, json.dumps(dataclasses.asdict(P)))
+        return np.frombuffer(px, np.uint8).reshape(h, w, ch)
 
     def thumb(self, path):
         from fastedit.config import THUMB_SIZE

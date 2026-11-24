@@ -9,9 +9,9 @@ import sys
 import time
 import numpy as np
 from PIL import Image
-from .config import IMAGE_EXTS, PASTE_DIR, PRESETS_PATH, PREVIEW_MAX, SETTINGS_PATH, StageParams
+from .config import IMAGE_EXTS, PASTE_DIR, PREVIEW_MAX, StageParams
 from . import backend, core
-from .engine import ENGINE, Entry, collect
+from .engine import collect, to_pil
 from .proc import Cancelled, _PREV, _TL, check_cancel, preview_begin
 from .jpeg import jpegli_available
 from .avif import avif_available, svt_available
@@ -56,7 +56,7 @@ class Api:
         self._window = None
         self._chrome = None          # winchrome.Chrome when the window is frameless (Windows); private: not exposed to JS
         self._initial = collect(initial_paths or [])
-        self._b = backend.Backend(SETTINGS_PATH, PRESETS_PATH)      # the Rust back end (private: not exposed to JS)
+        self._b = backend.shared()      # the Rust back end (private: not exposed to JS; app.py serves its previews)
 
     def set_window(self, w):
         self._window = w
@@ -164,71 +164,39 @@ class Api:
             pass
         return True
 
-    # ---- stage / preview --------------------------------------------------
+    # ---- stage / preview (Rust back end, fae-backend stage.rs, B3) -------
     def load_stage(self, path, params, req_id, full=0):
         try:
-            P = StageParams.from_dict(params)
-            e, img = ENGINE.stage(path, P)
-            rgb = np.ascontiguousarray(np.asarray(img.convert("RGB")))
-            w, h = img.size
-            pw, ph = _pv_size(w, h, full)
-            # RGBA: the alpha (transparent images) only shows; the cores edit RGB
-            token = ENGINE.put_preview(_preview_rgba(img, (pw, ph), Image.Resampling.LANCZOS), pw, ph)
-            with ENGINE.lock:
-                if req_id >= ENGINE.latest_req:
-                    ENGINE.latest_req = req_id
-                    ENGINE.current = {"path": path, "rgb": rgb, "req": req_id}
-            return {
-                "ok": True, "req_id": req_id, "token": token,
-                "w": w, "h": h, "pw": pw, "ph": ph, "full": float(full or 0),
-                "src_w": e.size[0], "src_h": e.size[1],
-                "alpha": img.mode == "RGBA",
-                "scale": round(backend.shared().fit_scale(e.geo_size(P), P), 4),
-                "geo_w": e.geo_size(P)[0], "geo_h": e.geo_size(P)[1],
-            }
+            return self._b.stage_call("load_stage", path, params, req_id, full or 0)
         except Exception as ex:
             return {"ok": False, "req_id": req_id, "error": f"{type(ex).__name__}: {ex}"}
 
     def load_source(self, path):
         """Oriented, un-cropped source for crop mode (downscaled for display)."""
         try:
-            e = ENGINE.entry(path)
-            img = e.base
-            W, H = img.size
-            pw, ph = W, H
-            if max(W, H) > PREVIEW_MAX:
-                s = PREVIEW_MAX / max(W, H)
-                pw, ph = max(1, round(W * s)), max(1, round(H * s))
-            token = ENGINE.put_preview(_preview_rgba(img, (pw, ph), Image.Resampling.BILINEAR), pw, ph)
-            return {"ok": True, "token": token, "W": W, "H": H, "pw": pw, "ph": ph, "alpha": img.mode == "RGBA"}
+            return self._b.stage_call("load_source", path)
         except Exception as ex:
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
 
     def sample(self, nx, ny):
         """3x3 median of the full-resolution stage image (input to point correction)."""
-        cur = ENGINE.current
-        if not cur:
-            return None
-        a = cur["rgb"]
-        h, w = a.shape[:2]
-        x = int(min(w - 1, max(0, nx * w)))
-        y = int(min(h - 1, max(0, ny * h)))
-        patch = a[max(0, y - 1):min(h, y + 2), max(0, x - 1):min(w, x + 2)]
-        return [int(v) for v in np.median(patch.reshape(-1, 3), axis=0)]
+        return self._b.call("sample", nx, ny)
 
     # ---- processing -------------------------------------------------------
     @staticmethod
-    def _render_full(job, skipped: list | None = None) -> tuple[Entry, Image.Image]:
-        """The stage + the whole edit at full resolution (what Process writes): the GPU core when it
-        can, else the CPU core (core.render; it adds the filter kit's filters it left out to `skipped`)."""
+    def _render_full(job, skipped: list | None = None) -> tuple[bytes | None, Image.Image]:
+        """The stage + the whole edit at full resolution (what Process writes): (the source's ICC profile,
+        the image). The stage comes from the Rust back end; the edit: the GPU core when it can, else the
+        CPU core (core.render; it adds the filter kit's filters it left out to `skipped`)."""
         P = StageParams.from_dict(job.get("stage"))
-        e, img = ENGINE.stage(job.get("path"), P)
+        raw, icc = backend.shared().stage(job.get("path"), P)
+        img = to_pil(raw)
         alpha = img.getchannel("A") if img.mode == "RGBA" else None
         rgb = np.ascontiguousarray(np.asarray(img.convert("RGB")))
         out = Image.fromarray(core.render(rgb, job.get("edit"), skipped=skipped))
         if alpha is not None:
             out.putalpha(alpha)
-        return e, out
+        return icc, out
 
     def core_info(self):
         """Rust core status + a quick NumPy comparison (self-test page)."""
@@ -257,11 +225,11 @@ class Api:
                 dec, nbytes, enc, used = _LOSSY["val"]
             else:
                 try:
-                    e, out = self._render_full(job)
+                    icc, out = self._render_full(job)
                 finally:
                     core.gpu_release()          # the GPU memory of a full-size image isn't kept
                 check_cancel()
-                data, enc, used = encode_lossy(out, fmt, opts, e.icc)
+                data, enc, used = encode_lossy(out, fmt, opts, icc)
                 check_cancel()
                 with Image.open(io.BytesIO(data)) as jim:
                     jim.load()      # the encoded file's own alpha (JPEG: none, the white it was written on)
@@ -270,7 +238,7 @@ class Api:
                 _LOSSY.update(key=key, val=(dec, nbytes, enc, used))
             w, h = dec.size
             pw, ph = _pv_size(w, h, full)
-            token = ENGINE.put_preview(_preview_rgba(dec, (pw, ph), Image.Resampling.LANCZOS), pw, ph)
+            token = self._b.put_preview(_preview_rgba(dec, (pw, ph), Image.Resampling.LANCZOS))
             return {"ok": True, "req_id": req_id, "token": token, "pw": pw, "ph": ph,
                     "bytes": nbytes, "encoder": enc, "fmt": fmt, "opts": used}
         except Cancelled:
@@ -290,8 +258,8 @@ class Api:
             path = job.get("path")
             try:
                 skipped = []
-                e, out = self._render_full(job, skipped)
-                out_path = save_image(out, path, fmt, e.icc, opts)
+                icc, out = self._render_full(job, skipped)
+                out_path = save_image(out, path, fmt, icc, opts)
                 r = {"path": path, "ok": True, "out": out_path}
                 if skipped:                      # no GPU: the filter kit's filters were left out
                     r["skipped"] = skipped

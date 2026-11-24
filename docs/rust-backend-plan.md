@@ -1,6 +1,7 @@
 # Rust back end: plan
 
-Status: **B0, B1, B2 done** (on main; fae_backend 0.3.0, B2 in e5f520a). **Next: B3.** Moves the Python back
+Status: **B0, B1, B2 done** (on main; B2 in e5f520a). **B3 in Rust** (fae_backend 0.4.0, branch
+`rust-backend-b3`): waiting for the Windows build and the owner's check; then the Python stage goes. Moves the Python back
 end (`fastedit/`) into Rust, wave by wave, so the app keeps working after every wave and a later switch from
 pywebview to **Tauri** is a small last step instead of a rewrite. Not a goal in itself: no visible change to
 the editor; the gains are a smaller, faster-starting app (no NumPy / OpenCV / Pillow at run time), one
@@ -14,7 +15,9 @@ language for the engine, and an easy Tauri switch later.
 - **Layout:** `core/backend/fae-backend/src/` — `lib.rs` (command table `COMMANDS`, `Backend`, the wave each
   command moves in), `store.rs` (settings / presets, B0), `decode.rs` + `heif.rs` (B1), `px.rs` (`Px` owned /
   `View` borrowed pixels), `resample.rs` (Pillow's resize / reduce), `geometry.rs` (flip, quarter turns,
-  crops, OpenCV's Lanczos-4 warp), `fit.rs` (StageParams, size maths, the resize step), `thumb.rs` (B2).
+  crops, OpenCV's Lanczos-4 warp), `fit.rs` (StageParams, size maths, the resize step), `thumb.rs` (B2),
+  `colour.rs` (White-Patch, Gray-Edge), `stage.rs` (entry cache, load_stage / load_source / sample,
+  preview tokens) (B3).
   Python binding: `core/backend/fae-backend-py/src/lib.rs`; Python side: `fastedit/backend.py`
   (`REQUIRED` = the minimum fae_backend version; bump it with the crate version).
 - **Tests** (run before and after every change):
@@ -123,11 +126,23 @@ dependency removed.
 - Result: every stage case identical to Python; engine.py's `Entry` keeps raw pixels and calls
   `backend.geometry` / `backend.fit`. geometry.py stays as the test reference until B3.
 
-### B3 — Color balance → `load_stage` in Rust (1 session) — NEXT
+### B3 — Color balance → `load_stage` in Rust (1 session) — IN RUST, waiting for the Windows check
 - White-Patch (percentile, strength), Gray-Edge (Minkowski p, sigma, strength) in linear sRGB.
 - `load_stage` / `load_source` / `sample` move to fae-backend (with the entry cache: decoded pixels, the
   geometry result, the last few resize results); preview tokens served from Rust.
 - Then: geometry.py, colour.py, most of engine.py, **OpenCV** removed.
+- Result (colour.rs, stage.rs): every colour and stage case **identical** to Python (the tolerance rule
+  wasn't needed). Both colour balances end in a per-channel gain, so the output is three 256-entry
+  tables; the percentiles come from level histograms with NumPy's interpolation, Gray-Edge's gains from
+  OpenCV's Gaussian kernel and 3 × 3 Sobel (float32, reflect-101). 12 MP: White-Patch 1.9 s → 27 ms,
+  Gray-Edge 2.0 s → 0.28 s. The app keeps one back end (`backend.shared()`): api.py forwards the three
+  commands, app.py serves `/preview/<token>` from it. Until B4 / B5: AVIF is opened by Pillow and handed
+  over (`give_source`); Process and the encoded compare take the stage image from Rust (`Backend.stage`)
+  and store their preview with `put_preview`. `tests/backend/commands_check.py` compares the three
+  commands with api.py's old code (answers, preview pixels, samples, AVIF).
+- Left for after the owner's check: delete geometry.py / colour.py / engine.py's `Engine` / `Entry` (the
+  stage tests' Python reference then reads only the goldens), drop opencv-python from requirements.txt
+  (`prepare` moves next to engine.py's Pillow decode for AVIF).
 
 ### B4 — Encoders and output (2–3 sessions)
 - PNG, WebP lossless / lossy (libwebp), JPEG through cjpegli.exe (quality / distance), AVIF through

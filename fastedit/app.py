@@ -8,7 +8,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 from .config import UI_DIR
-from .engine import ENGINE, collect, make_thumb
+from .engine import collect, make_thumb
 from .api import Api
 from . import backend, core
 
@@ -47,10 +47,10 @@ class Handler(BaseHTTPRequestHandler):
         p = unquote(u.path)
         try:
             if p.startswith("/preview/"):
-                item = ENGINE.previews.get(p[len("/preview/"):])
-                if item is None:
+                data = backend.shared().preview(p[len("/preview/"):])
+                if data is None:
                     return self._send(404, b"gone", "text/plain")
-                return self._send(200, item[0], "application/octet-stream")
+                return self._send(200, data, "application/octet-stream")
             if p == "/thumb":
                 path = parse_qs(u.query).get("p", [""])[0]
                 return self._send(200, make_thumb(path), "image/jpeg", cache=True)

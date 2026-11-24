@@ -1,4 +1,4 @@
-# The Rust back end (claude/rust-backend-plan.md): the work of fastedit/ (Python) moves here wave by wave,
+# The Rust back end (docs/rust-backend-plan.md): the work of fastedit/ (Python) moves here wave by wave,
 # behind one command table, so the app shell (pywebview now, maybe Tauri later) stays thin.
 # Its own workspace, like the GPU core's: the CPU core's Cargo.lock and pinned WASM build stay untouched.
 #   fae-backend     : the library (every command; no Python in it)
@@ -8,7 +8,7 @@ resolver = "2"
 members = ["fae-backend", "fae-backend-py"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 
 [profile.release]

@@ -1,11 +1,15 @@
 """The commands moved to the Rust back end so far, against the Python behaviour they replace
-(claude/rust-backend-plan.md). Each wave adds its commands here.
+(docs/rust-backend-plan.md). Each wave adds its commands here.
 
     python tests/backend/commands_check.py
 
 B0: get_settings / save_settings / get_presets / save_presets. The reference is api.py's code before B0
 (kept below): the same files must come back the same, edge cases included (missing, broken, not an
 object, non-ASCII text, key order, a file written by the old code read by the new and back).
+
+B3: load_stage / load_source / sample. The reference is api.py's code before B3 (kept below, on the
+Python stage in engine.py): the same answers (sizes, scale, alpha, ...), the same preview pixels, the
+same samples; AVIF (opened by Pillow until B4) goes through give_source.
 """
 from __future__ import annotations
 
@@ -42,6 +46,104 @@ def py_get_presets(path):
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
+
+
+# ---- the Python behaviour before B3 (api.py, on engine.py's Python stage) -------------------------------
+def py_load_stage(path, params, req_id, full=0):
+    import numpy as np
+    from PIL import Image
+    from fastedit.api import _preview_rgba, _pv_size
+    from fastedit.config import StageParams
+    from fastedit.engine import ENGINE
+    P = StageParams.from_dict(params)
+    e, img = ENGINE.stage(path, P)
+    w, h = img.size
+    pw, ph = _pv_size(w, h, full)
+    rgba = _preview_rgba(img, (pw, ph), Image.Resampling.LANCZOS)
+    ENGINE.current = {"rgb": np.ascontiguousarray(np.asarray(img.convert("RGB")))}
+    return {
+        "ok": True, "req_id": req_id,
+        "w": w, "h": h, "pw": pw, "ph": ph, "full": float(full or 0),
+        "src_w": e.size[0], "src_h": e.size[1],
+        "alpha": img.mode == "RGBA",
+        "scale": round(backend.shared().fit_scale(e.geo_size(P), P), 4),
+        "geo_w": e.geo_size(P)[0], "geo_h": e.geo_size(P)[1],
+    }, rgba
+
+
+def py_load_source(path):
+    from PIL import Image
+    from fastedit.api import _preview_rgba
+    from fastedit.config import PREVIEW_MAX
+    from fastedit.engine import ENGINE
+    img = ENGINE.entry(path).base
+    W, H = img.size
+    pw, ph = W, H
+    if max(W, H) > PREVIEW_MAX:
+        s = PREVIEW_MAX / max(W, H)
+        pw, ph = max(1, round(W * s)), max(1, round(H * s))
+    return {"ok": True, "W": W, "H": H, "pw": pw, "ph": ph, "alpha": img.mode == "RGBA"}, \
+        _preview_rgba(img, (pw, ph), Image.Resampling.BILINEAR)
+
+
+def py_sample(nx, ny):
+    import numpy as np
+    from fastedit.engine import ENGINE
+    a = ENGINE.current["rgb"]
+    h, w = a.shape[:2]
+    x = int(min(w - 1, max(0, nx * w)))
+    y = int(min(h - 1, max(0, ny * h)))
+    patch = a[max(0, y - 1):min(h, y + 2), max(0, x - 1):min(w, x + 2)]
+    return [int(v) for v in np.median(patch.reshape(-1, 3), axis=0)]
+
+
+INPUTS = os.path.join(ROOT, "tests", "stage", "inputs")
+STAGES = [
+    ("photo.jpg", {}, 0),
+    ("photo.jpg", {"resize_on": True, "mode": "preset", "preset_res": 240}, 0),
+    ("photo.jpg", {"angle": 3.5, "wp_on": True, "ge_on": True, "ge_sigma": 1.5}, 50000),
+    ("photo.jpg", {"rot_q": 1, "crop_x": 10.0, "crop_y": -5.0, "crop_w": 200.0, "crop_h": 150.0, "resize_on": True,
+                   "mode": "Mpix", "mpix": 0.05}, 0),
+    ("orient_6.jpg", {"flip": True, "wp_on": True, "wp_pct": 97.5, "wp_strength": 0.6}, 0),
+    ("rgba.png", {"ge_on": True, "ge_p": 2, "ge_sigma": 0.0}, 3000),
+    ("rgba.png", {"crop_x": 0.0, "crop_y": 0.0, "crop_w": 300.0, "crop_h": 300.0, "crop_free": True}, 0),
+    ("rgb.avif", {"resize_on": True, "mode": "preset", "preset_res": 120}, 0),
+]
+
+
+def check_stage(check, b, d):
+    from PIL import Image
+    import numpy as np
+    big = os.path.join(d, "big.png")
+    rng = np.random.default_rng(3)
+    a = rng.integers(0, 256, (30, 40, 4), dtype=np.uint8)
+    Image.fromarray(a).resize((3000, 2250), Image.Resampling.BICUBIC).save(big)
+    for i, (name, params, full) in enumerate(STAGES + [(big, {"wp_on": True}, 0)]):
+        path = name if os.path.isabs(name) else os.path.join(INPUTS, name)
+        label = f"load_stage {os.path.basename(path)} {i}"
+        want, want_px = py_load_stage(path, params, i, full)
+        got = b.stage_call("load_stage", path, params, i, full)
+        token = got.pop("token", None)
+        check(f"{label}: same answer", got == want or print("   ", got, "\n   ", want))
+        check(f"{label}: same preview pixels", token is not None and b.preview(token) == want_px)
+        for nx, ny in ((0.5, 0.5), (0.0, 0.0), (0.999, 0.999), (0.31, 0.77), (1.5, -1.0)):
+            check(f"{label}: sample({nx}, {ny})", b.call("sample", nx, ny) == py_sample(nx, ny))
+    for name in ("photo.jpg", "orient_6.jpg", "rgba.png", "rgb.avif", big):
+        path = name if os.path.isabs(name) else os.path.join(INPUTS, name)
+        want, want_px = py_load_source(path)
+        got = b.stage_call("load_source", path)
+        token = got.pop("token", None)
+        check(f"load_source {os.path.basename(path)}: same answer", got == want or print("   ", got, "\n   ", want))
+        check(f"load_source {os.path.basename(path)}: same preview pixels", b.preview(token) == want_px)
+    r = b.stage_call("load_stage", os.path.join(d, "missing.jpg"), {}, 99, 0)
+    check(f"load_stage of a missing file: ok false ({r.get('error')})", r.get("ok") is False and r.get("req_id") == 99)
+    check("an old preview token is gone", b.preview("0" * 32) is None)
+    from fastedit.config import StageParams
+    from fastedit.engine import Entry
+    path = os.path.join(INPUTS, "icc.png")
+    raw, icc = b.stage(path, StageParams())
+    check("stage image (Process): the source's ICC profile", icc is not None and icc == Entry(path).icc)
+    check("stage image (Process): the pixels as decoded", raw == Entry(path).raw)
 
 
 SAMPLES = [
@@ -90,8 +192,10 @@ def main() -> int:
     b2 = backend.Backend(os.path.join(d, "no", "such", "dir", "s.json"), os.path.join(d, "no", "such", "dir", "p.json"))
     check("save_settings into a missing folder -> true", b2.call("save_settings", {"a": 1}) is True)
     check("save_presets into a missing folder -> false", b2.call("save_presets", {"a": 1}) is False)
+    check("sample before any stage -> None", b.call("sample", 0.5, 0.5) is None)
+    check_stage(check, b, d)
     try:
-        b.call("load_stage")
+        b.call("encoder_info")
         check("a command not moved yet raises", False)
     except RuntimeError as ex:
         check(f"a command not moved yet raises ({ex})", str(ex).startswith("unknown:"))

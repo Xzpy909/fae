@@ -4,7 +4,7 @@
    - press on an empty part of the bar = Windows' own move loop (snap, drag down to restore),
      a quick second press there = maximize / restore;
    - press on an edge strip = Windows' own resize loop;
-   - the three window buttons; the maximize button swaps its icon (window.app.winState). */
+   - the three window buttons; the maximize button swaps its icon (the shell's winState, bridge.js). */
 const WinChrome = (() => {
   let on = false, lastDown = 0, lastX = 0, lastY = 0;
   const setMax = m => {

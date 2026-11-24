@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .config import UI_DIR
 from .engine import ENGINE, collect, make_thumb
 from .api import Api
-from . import core
+from . import backend, core
 
 
 # ---------------------------------------------------------------------------
@@ -96,8 +96,9 @@ def main():
         if "--test-filters" in sys.argv:           # the filter kit's hidden test filters in the Filters list
             q.append("fxtest=1")
         page = "?" + "&".join(q) if q else ""
-    if not core.available() and not selftest:      # no NumPy fallback any more: say how to build it
-        msg = (core.error() or "").replace("&", "&amp;").replace("<", "&lt;")
+    missing = core.error() if not core.available() else backend.error()
+    if missing and not selftest:                   # no NumPy fallback any more: say how to build it
+        msg = missing.replace("&", "&amp;").replace("<", "&lt;")
         webview.create_window("Fae", html=(
             "<body style='background:#0e0f11;color:#ddd;font:15px system-ui;margin:40px'>"
             "<h2 style='font-weight:600'>The Rust core is missing</h2>"

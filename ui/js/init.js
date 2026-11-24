@@ -4,7 +4,8 @@
 /* ======================================================================
    Init
    ====================================================================== */
-window.app = { addPaths, winState: m => WinChrome.setMax(m) };   // winState: Python reports maximize / restore
+Bridge.on('addPaths', addPaths);                       // files dropped on the window
+Bridge.on('winState', m => WinChrome.setMax(m));       // the shell reports maximize / restore
 
 async function init() {
   try { await initSteps(); } finally { Boot.init(); }               // the loading screen waits for this
@@ -47,5 +48,4 @@ async function initSteps() {
 }
 S.E = computeEdit(effectiveEdit(S.edit));
 syncPanel(); updateInfo();
-if (window.pywebview && window.pywebview.api) init();
-else window.addEventListener('pywebviewready', init);
+Bridge.ready(init);

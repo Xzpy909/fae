@@ -80,10 +80,10 @@ async function processAll() {
   toast(`Processed ${ok} image(s)` + (bad ? `, <span style="color:var(--red)">${bad} failed</span>` : '') + skippedNote(res), bad > 0,
     ok ? res.find(r => r.ok).out : null);
 }
-window.onProcessProgress = (i, n) => {
+Bridge.on('processProgress', (i, n) => {
   $('#progress').firstElementChild.style.width = (i / n * 100) + '%';
   $('#processBtn').firstChild.textContent = `Processing ${i} / ${n}`;
-};
+});
 $('#processBtn').addEventListener('click', processCurrent);
 $('#processAllBtn').addEventListener('click', processAll);
 

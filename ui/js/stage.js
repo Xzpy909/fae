@@ -26,7 +26,7 @@ async function loadStage() {
   if (id !== S.reqId) return;
   if (!r || !r.ok) { spinner(false); toast(r ? r.error : 'Load failed', true); return; }
   let buf;
-  try { buf = await (await fetch('/preview/' + r.token)).arrayBuffer(); }
+  try { buf = await (await fetch(Bridge.previewUrl(r.token))).arrayBuffer(); }
   catch (e) { spinner(false); toast('Preview transfer failed: ' + e, true); return; }
   if (id !== S.reqId) return;
   spinner(false);
@@ -61,7 +61,7 @@ function updateInfo() {
   $('#fileName').textContent = f ? f.name : 'No image';
   const I = S.img;
   // the side panels' frosted islands sit on a heavily blurred copy of the current image
-  $('#app').style.setProperty('--amb', f ? `url("/thumb?p=${encodeURIComponent(f.path)}")` : 'none');
+  $('#app').style.setProperty('--amb', f ? `url("${Bridge.thumbUrl(f.path)}")` : 'none');
   $('#fileDims').textContent = I && f ? `${I.src_w}×${I.src_h}  →  ${I.w}×${I.h}` : '';
   $('#outInfo').textContent = I && f
     ? `Output ${I.w}×${I.h} · ${(I.w * I.h / 1e6).toFixed(2)} MP${I.alpha ? (isJpeg() ? ' · alpha → white' : ' · alpha') : ''}`

@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 from .config import IMAGE_EXTS, PRESETS_PATH, PREVIEW_MAX, SETTINGS_PATH, StageParams
 from .geometry import fit_scale
-from . import core
+from . import backend, core
 from .engine import ENGINE, Entry, collect
 from .proc import Cancelled, _PREV, _TL, check_cancel, preview_begin
 from .jpeg import jpegli_available
@@ -39,6 +39,7 @@ class Api:
         self._window = None
         self._chrome = None          # winchrome.Chrome when the window is frameless (Windows); private: not exposed to JS
         self._initial = collect(initial_paths or [])
+        self._b = backend.Backend(SETTINGS_PATH, PRESETS_PATH)      # the Rust back end (private: not exposed to JS)
 
     def set_window(self, w):
         self._window = w
@@ -63,40 +64,19 @@ class Api:
         if self._chrome:
             self._chrome.close()
 
-    # ---- settings ---------------------------------------------------------
+    # ---- settings (Rust back end, fae-backend store.rs) -------------------
     def get_settings(self):
-        try:
-            with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
+        return self._b.call("get_settings")
 
     def save_settings(self, data):
-        try:
-            with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-        except Exception:
-            pass
-        return True
+        return self._b.call("save_settings", data)
 
     def get_presets(self):
-        """The user's tool presets: {tool: [{name, values}]}."""
-        try:
-            with open(PRESETS_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return data if isinstance(data, dict) else {}
-        except Exception:
-            return {}
+        """The user's tool presets: {tool: [{name, values}]} and the edit presets."""
+        return self._b.call("get_presets")
 
     def save_presets(self, data):
-        try:
-            tmp = PRESETS_PATH + ".tmp"           # write whole, then swap: a crash can't leave half a file
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-            os.replace(tmp, PRESETS_PATH)
-            return True
-        except Exception:
-            return False
+        return self._b.call("save_presets", data)
 
     def initial_files(self):
         return self._initial

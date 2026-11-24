@@ -1,0 +1,13 @@
+[package]
+name = "fae-backend-py"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "fae_backend"
+crate-type = ["cdylib"]
+
+[dependencies]
+backend = { package = "fae-backend", path = "../fae-backend" }
+pyo3 = { version = "0.30", features = ["extension-module"] }
+serde_json = "1"

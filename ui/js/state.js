@@ -10,7 +10,7 @@ const $ = s => document.querySelector(s);
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const clone = o => JSON.parse(JSON.stringify(o));
 const basename = p => String(p).split(/[\\/]/).pop();
-const api = () => window.pywebview.api;
+const api = () => Bridge.api();        // the back end's commands (bridge.js)
 const dpr = () => window.devicePixelRatio || 1;
 
 const DEFAULT_STAGE = {

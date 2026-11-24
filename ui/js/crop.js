@@ -97,7 +97,7 @@ const Crop = (() => {
       let r;
       try { r = await api().load_source(f.path); } catch (e) { r = { ok: false, error: String(e) }; }
       if (!r.ok) { spinner(false); toast(r.error, true); return; }
-      const buf = await (await fetch('/preview/' + r.token)).arrayBuffer();
+      const buf = await (await fetch(Bridge.previewUrl(r.token))).arrayBuffer();
       spinner(false);
       f.src = { W: r.W, H: r.H, pw: r.pw, ph: r.ph, base: new Uint8ClampedArray(buf) };
     }

@@ -35,8 +35,10 @@ ui/wasm/
 # parity tests: generated cases, golden PNGs, own test images
 tests/parity/.work/
 tests/gpu/.work/
+tests/stage/.work/
 tests/parity/images/
 
 # GPU core build output (core\gpu\build_gpu.bat)
 core/gpu/target/
+core/backend/target/
 ui/gpu/

@@ -1,0 +1,8 @@
+[package]
+name = "fae-backend"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# preserve_order: settings / presets keep their key order when written back
+serde_json = { version = "1", features = ["preserve_order"] }

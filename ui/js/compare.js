@@ -127,7 +127,7 @@ async function loadJpeg() {
   if (id !== S.cmp.req || (r && r.cancelled)) return;
   if (!r || !r.ok) { S.cmp.busy = false; updateCmp(); toast('JPEG preview failed: ' + (r ? r.error : 'unknown'), true); return; }
   let buf;
-  try { buf = await (await fetch('/preview/' + r.token)).arrayBuffer(); }
+  try { buf = await (await fetch(Bridge.previewUrl(r.token))).arrayBuffer(); }
   catch (e) { S.cmp.busy = false; updateCmp(); return; }
   if (id !== S.cmp.req) return;
   S.cmp.busy = false;

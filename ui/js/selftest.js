@@ -204,16 +204,13 @@ async function main() {
   await check('Python core', () => new Promise((resolve) => {
     const run = async () => {
       try {
-        const r = coreInfo = await window.pywebview.api.core_info();
+        const r = coreInfo = await Bridge.api().core_info();
         if (r && r.ok) resolve(['ok', `fastedit_core ${r.version}, ${r.threads} threads, loads and runs`]);
         else resolve(['bad', (r && r.error) || 'not available: run core\\build_core.bat']);
       } catch (e) { resolve(['bad', String(e)]); }
     };
-    if (window.pywebview && window.pywebview.api) run();
-    else {
-      window.addEventListener('pywebviewready', run, { once: true });
-      setTimeout(() => resolve(['warn', 'no pywebview API (page opened outside the app?)']), 5000);
-    }
+    Bridge.ready(run);
+    if (!Bridge.available()) setTimeout(() => resolve(['warn', 'no back end (page opened outside the app?)']), 5000);
   }));
 
   // Process on the GPU core (gpu-core plan G5): which device, and the same edit as the CPU core

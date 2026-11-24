@@ -75,7 +75,8 @@ pip install -r requirements.txt
 ```
 
 (`pywebview>=5.0`, `pillow>=11.2`, `numpy`, `opencv-python`, `pillow-heif`, `pillow-jxl-plugin`). Pillow 11.2 or newer is needed for AVIF decoding in the preview and for the aom fallback.
-The Rust core is required as well: build it once with `core\build_core.bat` (see [Rust core](#rust-core)).
+The Rust core and the Rust back end are required as well: build them once with `core\build_core.bat` and
+`core\backend\build_backend.bat` (see [Rust core](#rust-core)).
 
 `pillow-heif` (HEIC/HEIF) and `pillow-jxl-plugin` (JPEG XL) are optional and only needed to **open** those formats. Without them, the app still runs, and opening such a file shows which package to install.
 
@@ -145,6 +146,22 @@ Cases are random slider values run through the UI's own `computeEdit` / `jobFor`
 `tests/parity/cases.json.gz` by `record` so every machine checks the same inputs (`parity.py tables`
 shows whether this machine's JS computes the tables differently). The test images are synthetic.
 Own images can go into `tests/parity/images/` (not committed).
+
+### Rust back end (in progress)
+
+The Python back end (`fastedit/`) moves to Rust wave by wave (`core/backend/`, Python extension
+`fae_backend`), behind one table of commands, so the app shell stays thin and could later be swapped
+(pywebview → Tauri) without touching the rest. `ui/js/bridge.js` is the only UI file that knows the
+shell. So far in Rust: settings and presets. Before a part moves, its Python results are stored as
+goldens; the Rust version must match them (exactly, or within the tolerance rule for the parts that
+re-implement OpenCV maths):
+
+```
+core\backend\build_backend.bat           # Python extension fae_backend (build.bat runs it too)
+python tests/stage/stage_check.py        # decode, geometry, resize, colour balance vs the goldens
+                                         #   (--impl rust: the Rust version; --own: own photos too)
+python tests/backend/commands_check.py   # the commands moved so far vs their Python behaviour
+```
 
 ### GPU core (in progress)
 

@@ -175,6 +175,19 @@ for (const [key, label, def, min, max, step, dec] of ADJUST)   // Saturation / C
 $('#resetAdjust').addEventListener('click', () => { Object.assign(S.edit, defaultAdjust()); syncPanel(); editChanged(); commit(); });
 const FILTER_UI = { f_bw: { fields: '#bwFields', reset: '#resetBW' }, f_film: { fields: '#filmFields', reset: '#resetFilm' },
   f_sc: { fields: '#scFields', reset: '#resetSC' }, sharpen: { fields: '#shpFields', reset: '#resetShp' } };
+/* the filter kit's filters: their islands are made here from the descriptor (the built-in tools' are in
+   index.html); orderPanel puts them in chain order */
+for (const d of FX_LIST) {
+  const RESET = '<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
+  const c = document.createElement('section');
+  c.className = 'card sec'; c.dataset.sec = d.sec;
+  c.innerHTML = `<div class="card-head"><span></span><button class="rst all" id="reset_${d.sec}">${RESET}</button></div>`
+    + `<div id="fields_${d.sec}"></div>`;
+  c.querySelector('.card-head span').textContent = d.name;
+  c.querySelector('.rst').title = 'Reset ' + d.name;
+  $('#panel .scroll').appendChild(c);
+  FILTER_UI[d.sec] = { fields: '#fields_' + d.sec, reset: '#reset_' + d.sec };
+}
 function makeSelectField(parent, a, target) {
   const row = document.createElement('div');
   row.className = 'field fsel';

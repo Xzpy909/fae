@@ -80,6 +80,9 @@ const GV = (() => {
           if (SC) out.push({ t: 'sc', args: [SC.cast, SC.cc, SC.dyn, SC.op, SC.dyn > 0 ? f64(SC.dk) : undefined, f64(SC.shl)] });
           break;
         }
+        case 'fx':                        // a filter of the filter kit
+          if (s.fx) out.push({ t: 'fx', args: [s.fx.id, Float64Array.from(s.fx.p), s.fx.op] });
+          break;
         default: out = null; blocker = x.t;
       }
       if (!out) break;
@@ -247,6 +250,8 @@ const GV = (() => {
       else if (I && info && I.pw * I.ph > info.max_pixels) { text = 'CPU preview'; why2 = 'image too big for this GPU'; }
       else { gpu = true; text = 'GPU preview'; }
       const ver = info ? `fae-gpu ${info.version} · ${info.name || 'WebGPU'} (${info.backend})` : '';
+      const skip = gpu ? [] : fxUsed(E);         // kit filters need the GPU: the CPU core leaves them out
+      if (skip.length) why2 += ` · ${skip.join(', ')} skipped (needs the GPU)`;
       el.textContent = gpu ? text : `${text} · ${why2}`;
       el.title = [gpu ? 'The GPU core draws the preview (ui/gpu/)' : 'The CPU core draws the preview: ' + why2, ver]
         .filter(Boolean).join('\n');

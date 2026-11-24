@@ -78,18 +78,41 @@ function computeEdit(e) {
     tones: tones.length ? tones : null,
     boost: boostGains(e.adj_boost), sat: satv === 50 ? null : satv / 50,
     md: (Number(e.adj_middetail) || 0) / 100, bw: bwParams(e), film: filmParams(e), sc: scParams(e),
-    sharp: sharpParams(e) };
+    fx: Object.fromEntries(FX_LIST.map(d => [d.sec, fxParams(d, e)])), sharp: sharpParams(e) };
   // the chain order: E.steps only when it differs from the default (the core's DEFAULT_ORDER, which is the
   // same order) or a tool is in it more than once; one step per instance with t = the core's step kind and
-  // that tool's tables (an extra instance's from its own values, see instEdit)
+  // that tool's tables (an extra instance's from its own values, see instEdit). The core's default
+  // order has no kit filters: an active one needs E.steps too ({t: 'fx', fx: its fxParams})
   const chain = chainOf(e);
-  if (!isDefaultChain(chain)) E.steps = chain.map(c => Object.assign({ t: STEP_KIND[c.t] }, isExtra(c) ? computeEdit(instEdit(e, c)) : E));
+  if (!isDefaultChain(chain) || Object.values(E.fx).some(Boolean)) E.steps = chain.map(c => {
+    const I = isExtra(c) ? computeEdit(instEdit(e, c)) : E;
+    return FX_BY_SEC[c.t] ? { t: 'fx', fx: I.fx[c.t] } : Object.assign({ t: STEP_KIND[c.t] }, I);
+  });
   return E;
 }
+/* A filter of the filter kit (FX_LIST): its step's values, or null when it does nothing (every field
+   at its default, the filters' rule: defaults = no change; or Opacity 0). p = the descriptor's
+   parameters in order (d.params: the fields without Opacity), a select by its option's index;
+   GPU only (fae-gpu fx.rs). */
+function fxParams(d, e) {
+  const fields = filterFields(d), val = a => { const [k, def] = fieldKD(a); return e[k] !== undefined ? e[k] : def; };
+  const opf = fields.find(a => fieldKD(a)[0] === d.opacity);
+  const op = opf ? Number(val(opf)) / 100 : 1;
+  if (!(op > 0) || !fields.some(a => a !== opf && val(a) !== fieldKD(a)[1])) return null;
+  const p = d.params.map(k => {
+    const a = fields.find(x => fieldKD(x)[0] === k);
+    return Array.isArray(a) ? Number(val(a)) : Math.max(0, a.options.findIndex(o => o[0] === val(a)));
+  });
+  return { id: d.id, p, op };
+}
+/* the kit filters an edit uses (names): they are skipped where the GPU doesn't run the edit */
+const fxUsed = E => (E && E.steps ? E.steps.filter(s => s.t === 'fx' && s.fx) : [])
+  .map(s => (FX_LIST.find(d => d.id === s.fx.id) || { name: s.fx.id }).name)
+  .filter((n, i, a) => a.indexOf(n) === i);
 /* chain tool -> the core's step kind (wasm-params.js, fastedit/core.py) and the E fields it reads */
 const STEP_KIND = { point: 'point', adjust: 'adjust', curves: 'curves', f_bw: 'bw', f_film: 'film', f_sc: 'sc' };
 const STEP_FIELDS = { point: ['point', 'k', 'o', 'gains'], adjust: ['md', 'wb', 'con', 'tones', 'boost', 'sat'],
-  curves: ['luts'], bw: ['bw'], film: ['film'], sc: ['sc'] };
+  curves: ['luts'], bw: ['bw'], film: ['film'], sc: ['sc'], fx: ['fx'] };
 /* Filter Film Effect - Brightness and Contrast, measured from reference renders (Brightness exact,
    Contrast within 1 level on 97-99% of pixels). Both are one tone curve for all three channels:
    per input level the output at 0 / 50 / 100 % is known (FILM_* tables, film-tables.js) and

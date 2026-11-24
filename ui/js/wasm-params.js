@@ -49,6 +49,8 @@ function pushStep(p, s, filmTable) {
       if (SC) p.push_sc(SC.cast, SC.cc, SC.dyn, SC.op, f64(SC.dk || []), SC.shl ? f64(SC.shl) : undefined);
       return;
     }
+    case 'fx':          // the filter kit's filters run on the GPU only: the CPU core skips them
+      return;
     default:
       throw new Error('unknown step ' + s.t);
   }

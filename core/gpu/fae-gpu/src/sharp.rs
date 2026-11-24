@@ -73,7 +73,7 @@ pub fn small_radius(r: u32, k: u32) -> u32 {
 }
 
 /// Normalised Gaussian taps (as sharp.rs gauss_kernel: f64 exp to f32, f32 sum, f32 division).
-fn gauss_kernel(sigma: f64) -> Vec<f32> {
+pub(crate) fn gauss_kernel(sigma: f64) -> Vec<f32> {
     let rad = ((3.0 * sigma).ceil() as usize).max(1);
     let mut ker: Vec<f32> = (0..=2 * rad)
         .map(|i| {
@@ -87,7 +87,7 @@ fn gauss_kernel(sigma: f64) -> Vec<f32> {
 }
 
 /// sigma on the copy shrunk by k (the block mean already blurred by sqrt((k^2-1)/12))
-fn small_sigma(sigma: f64, k: usize) -> f64 {
+pub(crate) fn small_sigma(sigma: f64, k: usize) -> f64 {
     ((sigma * sigma - ((k * k - 1) as f64) / 12.0).max(1e-6)).sqrt() / k as f64
 }
 
@@ -164,13 +164,13 @@ impl Step {
 }
 
 /// sharp.rs blur_map's shrink factor
-fn blur_k(sigma: f64) -> usize {
+pub(crate) fn blur_k(sigma: f64) -> usize {
     if sigma >= 3.0 { ((sigma / 1.5).round() as usize).max(1) } else { 1 }
 }
 
 impl Gpu {
     /// The stage's two RGB float planes for the blur steps (3 f32 per pixel), made on first use.
-    fn sharp_planes(&mut self) -> [wgpu::Buffer; 2] {
+    pub(crate) fn sharp_planes(&mut self) -> [wgpu::Buffer; 2] {
         let d = self.device.clone();
         let s = self.stage.as_mut().unwrap();
         if s.splanes.is_none() {
@@ -192,13 +192,13 @@ impl Gpu {
         let pr = || params.as_entire_binding();
         let gg = (w2.div_ceil(16), h2.div_ceil(16), 1);
         vec![
-            Pass { pipe: Pipe::SbMeans, groups: gg,
+            Pass { pipe: Pipe::SbMeans as usize, groups: gg,
                    bg: bind_group_at(d, px(Pipe::SbMeans), &[(0, tv(inp)), (2, pr()), (3, pa.as_entire_binding())]) },
-            Pass { pipe: Pipe::SbAcross, groups: gg,
+            Pass { pipe: Pipe::SbAcross as usize, groups: gg,
                    bg: bind_group_at(d, px(Pipe::SbAcross), &[(2, pr()), (3, pa.as_entire_binding()), (4, pb.as_entire_binding())]) },
-            Pass { pipe: Pipe::SbDown, groups: gg,
+            Pass { pipe: Pipe::SbDown as usize, groups: gg,
                    bg: bind_group_at(d, px(Pipe::SbDown), &[(2, pr()), (3, pa.as_entire_binding()), (4, pb.as_entire_binding())]) },
-            Pass { pipe: Pipe::SbApply, groups: (s.w.div_ceil(16), s.h.div_ceil(16), 1),
+            Pass { pipe: Pipe::SbApply as usize, groups: (s.w.div_ceil(16), s.h.div_ceil(16), 1),
                    bg: bind_group_at(d, px(Pipe::SbApply), &[(0, tv(inp)), (1, tv(out)), (2, pr()), (3, pa.as_entire_binding())]) },
         ]
     }
@@ -235,11 +235,11 @@ impl Gpu {
             let grow = (w2.div_ceil(64).div_ceil(64), h2, 1);
             let gcol = (w2.div_ceil(64), h2.div_ceil(64), 1);
             let bb = |a: &wgpu::Buffer, b2: &wgpu::Buffer, p: &wgpu::Buffer, pipe: Pipe| Pass {
-                pipe,
+                pipe: pipe as usize,
                 bg: bind_group(d, px(pipe), &[a.as_entire_binding(), b2.as_entire_binding(), p.as_entire_binding()]),
                 groups: if pipe == Pipe::BoxH { grow } else { gcol },
             };
-            passes.push(Pass { pipe: Pipe::StPrep, groups: (w2.div_ceil(16), h2.div_ceil(16), 1),
+            passes.push(Pass { pipe: Pipe::StPrep as usize, groups: (w2.div_ceil(16), h2.div_ceil(16), 1),
                 bg: bind_group_at(d, px(Pipe::StPrep), &[(0, wgpu::BindingResource::TextureView(&s.views[inp])), (3, b0.as_entire_binding()), (4, pp.as_entire_binding())]) });
             passes.push(bb(&b0, &b1, &ph, Pipe::BoxH));
             passes.push(bb(&b1, &b0, &pv0, Pipe::BoxV));
@@ -251,9 +251,9 @@ impl Gpu {
         let d = &self.device;
         let px = |p: Pipe| self.pipe(p);
         let tv = |i: usize| wgpu::BindingResource::TextureView(&s.views[i]);
-        passes.push(Pass { pipe: Pipe::StFine, groups: gfull,
+        passes.push(Pass { pipe: Pipe::StFine as usize, groups: gfull,
             bg: bind_group_at(d, px(Pipe::StFine), &[(0, tv(inp)), (5, f0.as_entire_binding()), (6, f1.as_entire_binding())]) });
-        passes.push(Pass { pipe: Pipe::StApply, groups: gfull,
+        passes.push(Pass { pipe: Pipe::StApply as usize, groups: gfull,
             bg: bind_group_at(d, px(Pipe::StApply), &[(0, tv(inp)), (1, tv(out)), (2, params.as_entire_binding()),
                 (5, f0.as_entire_binding()), (6, f1.as_entire_binding()), (7, results[0].as_entire_binding()), (8, results[1].as_entire_binding())]) });
         keep.extend(results);

@@ -1,0 +1,14 @@
+{
+  "name": "Test Pixel",
+  "kind": "pixel",
+  "hidden": true,
+  "icon": "<rect x=\"4\" y=\"4\" width=\"16\" height=\"16\" rx=\"3\"/>",
+  "fields": [
+    ["lift", "Lift", 0, 0, 100, 1, 0, "%"],
+    ["ramp", "Ramp", 0, -100, 100, 1, 0, "%"],
+    ["tint", "Tint", 0, -100, 100, 1, 0, "%"],
+    "---",
+    ["opacity", "Opacity", 100, 0, 100, 1, 0, "%"]
+  ],
+  "opacity": "opacity"
+}

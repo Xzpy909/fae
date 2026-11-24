@@ -162,6 +162,11 @@ the CPU core renders it, with the same result within the tolerance rule. The GPU
 values match exactly, the rest are 1 level off with rare outliers (`tests/gpu/tolerance.py` explains
 the rule).
 
+New filters are made with the filter kit (`docs/filter-kit.md`): a descriptor and a shader in
+`core/gpu/fae-gpu/filters/`; the island, the Filters tile, the chain, presets, the preview and Process
+follow from them. Kit filters run on the GPU only: without one they are skipped, and the status bar
+and Process say so.
+
 ```
 core\gpu\build_gpu.bat             # Python extension fae_gpu + WebAssembly in ui/gpu/
 python tests/gpu/tolerance.py       # GPU vs CPU core on the parity cases + Sharpen cases (--trace: where outliers
@@ -170,6 +175,8 @@ python tests/gpu/bench_native.py    # speed, DirectX 12 and Vulkan (--warp: soft
 python tests/gpu/process_check.py   # Process on the GPU vs the CPU core, own photos at full size
 python fae.py --gpu-spike           # WebGPU in the app window: limits, speed of the WebAssembly build
 python fae.py --no-gpu              # live preview and Process on the CPU core only
+python tests/gpu/fx_check.py        # the filter kit's filters against their stored results (--record ID)
+python fae.py --test-filters        # the kit's hidden test filters in the Filters list
 ```
 
 ## Keyboard shortcuts

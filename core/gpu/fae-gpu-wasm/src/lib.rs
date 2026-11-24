@@ -4,6 +4,7 @@
 //!   const g = await create(canvas);  g.info() -> JSON
 //!   g.upload(px, w, h, bpp)                         the stage, RGBA (bpp 4) or RGB (3)
 //!   g.steps_begin(); g.step_curves(luts768); g.step_point(...); ...; g.step_sharp(...); g.steps_end()   the chain
+//!     (g.step_fx(id, params, op): a filter of the filter kit)
 //!   g.draw(cw, ch, ox, oy, s, split, nearestFrom)   runs the chain if it changed, draws the canvas
 //!   await g.stats()           the UI's histograms (Uint32Array, 2048: hin, hout, hmx, hmn)
 //!   await g.readback_rgba()   the result as RGBA (S.outData)
@@ -147,6 +148,13 @@ impl GpuPreview {
     /// undefined), opacity, the Shadows / Highlights table (256) or undefined.
     pub fn step_sc(&mut self, cast: f64, cc: f64, dyn_: f64, op: f64, dk: Option<Vec<f64>>, shl: Option<Vec<f64>>) -> Result<(), JsValue> {
         self.building.push(Step::sc(cast, cc, dyn_, op, dk.as_deref(), shl.as_deref()).map_err(js)?);
+        Ok(())
+    }
+
+    /// A filter of the filter kit (fae-gpu fx.rs): its id, its parameters (the descriptor's fields in
+    /// order without Opacity; a select: its option's index), opacity 0..1.
+    pub fn step_fx(&mut self, id: &str, p: Vec<f64>, op: f64) -> Result<(), JsValue> {
+        self.building.push(Step::fx(id, &p, op).map_err(js)?);
         Ok(())
     }
 

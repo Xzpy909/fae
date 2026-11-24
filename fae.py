@@ -22,7 +22,8 @@ Requirements:
     optional input formats: pip install pillow-heif (HEIC/HEIF)  pillow-jxl-plugin (JPEG XL)
 
 Run:
-    python fae.py [images or folders...]   (--debug opens dev tools)
+    python fae.py [images or folders...]   (--debug opens dev tools; --no-gpu; --test-filters shows the
+                                            filter kit's test filters, docs/filter-kit.md)
 """
 
 from fastedit.app import main

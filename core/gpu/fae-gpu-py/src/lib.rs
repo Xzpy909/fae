@@ -6,6 +6,7 @@
 //!                                           ValueError for a step the GPU can't run yet
 //!   g.upload(rgb); g.set_steps(steps); g.run(times=1); g.readback()   (benchmarks)
 //!   g.release()                             frees the last image's GPU memory (Process, after a batch)
+//!   ("fx", id, [params], opacity)           a step of a filter of the filter kit; filters() lists them
 //! Every call waits for the GPU (so Python can time it); the waits run without the GIL.
 use numpy::{PyArray3, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3, PyUntypedArrayMethods};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -103,6 +104,12 @@ fn to_steps(steps: &Bound<'_, PyList>) -> PyResult<Vec<gpu::Step>> {
                 let v: Vec<f64> = (1..7).map(|i| t.get_item(i)?.extract()).collect::<PyResult<_>>()?;
                 out.extend(gpu::Step::sharp(v[0], v[1], v[2], v[3], v[4], v[5]));
                 continue;
+            }
+            // ("fx", id, [params], opacity): a filter of the filter kit (fx.rs)
+            "fx" => {
+                let id: String = t.get_item(1)?.extract()?;
+                let p: Vec<f64> = t.get_item(2)?.extract()?;
+                gpu::Step::fx(&id, &p, t.get_item(3)?.extract()?).map_err(ve)?
             }
             other => return Err(PyValueError::new_err(format!("not on the GPU yet: {other}"))),
         });
@@ -236,10 +243,25 @@ fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+/// The filter kit's filters: [{"id", "name", "kind", "params", "hidden"}] (fx.rs FILTERS).
+#[pyfunction]
+fn filters<'py>(py: Python<'py>) -> PyResult<Vec<Bound<'py, PyDict>>> {
+    gpu::fx::FILTERS.iter().map(|f| {
+        let d = PyDict::new(py);
+        d.set_item("id", f.id)?;
+        d.set_item("name", f.name)?;
+        d.set_item("kind", format!("{:?}", f.kind).to_lowercase())?;
+        d.set_item("params", f.nparams)?;
+        d.set_item("hidden", f.hidden)?;
+        Ok(d)
+    }).collect()
+}
+
 #[pymodule]
 fn fae_gpu(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyGpu>()?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add("PORTED", gpu::PORTED.to_vec())?;
+    m.add_function(wrap_pyfunction!(filters, m)?)?;
     Ok(())
 }

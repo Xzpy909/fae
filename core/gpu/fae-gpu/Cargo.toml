@@ -20,5 +20,9 @@ pollster = "0.4"
 # browser: WebGPU only (no WebGL fallback, no wgpu-core in the .wasm)
 wgpu = { version = "30", default-features = false, features = ["std", "wgsl", "webgpu"] }
 
+[build-dependencies]
+# build.rs reads the filter kit's descriptors (filters/*.json)
+serde_json = "1"
+
 [dev-dependencies]
 pollster = "0.4"

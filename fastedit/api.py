@@ -197,14 +197,14 @@ class Api:
 
     # ---- processing -------------------------------------------------------
     @staticmethod
-    def _render_full(job) -> tuple[Entry, Image.Image]:
+    def _render_full(job, skipped: list | None = None) -> tuple[Entry, Image.Image]:
         """The stage + the whole edit at full resolution (what Process writes): the GPU core when it
-        can, else the CPU core (core.render)."""
+        can, else the CPU core (core.render; it adds the filter kit's filters it left out to `skipped`)."""
         P = StageParams.from_dict(job.get("stage"))
         e, img = ENGINE.stage(job.get("path"), P)
         alpha = img.getchannel("A") if img.mode == "RGBA" else None
         rgb = np.ascontiguousarray(np.asarray(img.convert("RGB")))
-        out = Image.fromarray(core.render(rgb, job.get("edit")))
+        out = Image.fromarray(core.render(rgb, job.get("edit"), skipped=skipped))
         if alpha is not None:
             out.putalpha(alpha)
         return e, out
@@ -272,9 +272,12 @@ class Api:
         for i, job in enumerate(jobs or []):
             path = job.get("path")
             try:
-                e, out = self._render_full(job)
+                skipped = []
+                e, out = self._render_full(job, skipped)
                 out_path = save_image(out, path, fmt, e.icc, opts)
                 r = {"path": path, "ok": True, "out": out_path}
+                if skipped:                      # no GPU: the filter kit's filters were left out
+                    r["skipped"] = skipped
             except Exception as ex:
                 r = {"path": path, "ok": False, "error": f"{type(ex).__name__}: {ex}"}
             results.append(r)

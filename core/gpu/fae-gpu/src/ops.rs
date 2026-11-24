@@ -43,7 +43,7 @@ fn b(x: &wgpu::Buffer) -> wgpu::BindingResource<'_> {
 }
 
 impl Gpu {
-    fn storage(&self, label: &str, bytes: u64) -> wgpu::Buffer {
+    pub(crate) fn storage(&self, label: &str, bytes: u64) -> wgpu::Buffer {
         self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(label),
             size: bytes.max(16),
@@ -72,15 +72,15 @@ impl Gpu {
         let g16 = (w.div_ceil(16), h.div_ceil(16), 1);
         let gc = ((cells as u32).div_ceil(64), 1, 1);
         let passes = vec![
-            Pass { pipe: Pipe::PsMeasure, groups: g16,
+            Pass { pipe: Pipe::PsMeasure as usize, groups: g16,
                    bg: bind_group_at(d, px(Pipe::PsMeasure), &[(0, tv(inp)), (2, params.as_entire_binding()), (3, sums.as_entire_binding())]) },
-            Pass { pipe: Pipe::PsMean, groups: gc,
+            Pass { pipe: Pipe::PsMean as usize, groups: gc,
                    bg: bind_group_at(d, px(Pipe::PsMean), &[(2, params.as_entire_binding()), (3, sums.as_entire_binding()), (4, grid.as_entire_binding())]) },
-            Pass { pipe: Pipe::PsBlur, groups: gc,
+            Pass { pipe: Pipe::PsBlur as usize, groups: gc,
                    bg: bind_group_at(d, px(Pipe::PsBlur), &[(2, params.as_entire_binding()), (4, grid.as_entire_binding()), (5, grid2.as_entire_binding()), (6, ax0.as_entire_binding())]) },
-            Pass { pipe: Pipe::PsBlur, groups: gc,
+            Pass { pipe: Pipe::PsBlur as usize, groups: gc,
                    bg: bind_group_at(d, px(Pipe::PsBlur), &[(2, params.as_entire_binding()), (4, grid2.as_entire_binding()), (5, grid.as_entire_binding()), (6, ax1.as_entire_binding())]) },
-            Pass { pipe: Pipe::PsApply, groups: g16,
+            Pass { pipe: Pipe::PsApply as usize, groups: g16,
                    bg: bind_group_at(d, px(Pipe::PsApply), &[(0, tv(inp)), (1, tv(out)), (2, params.as_entire_binding()), (4, grid.as_entire_binding())]) },
         ];
         (passes, vec![grid, grid2, ax0, ax1], vec![sums])
@@ -108,28 +108,28 @@ impl Gpu {
         let n64 = |n: u64| ((n as u32).div_ceil(64), 1, 1);
         let pr = || b(params);
         let mut passes = vec![
-            Pass { pipe: Pipe::ScHist, groups: (s.hist_groups, 1, 1),
+            Pass { pipe: Pipe::ScHist as usize, groups: (s.hist_groups, 1, 1),
                    bg: bind_group_at(d, px(Pipe::ScHist), &[(0, tv(inp)), (2, pr()), (3, b(&hist))]) },
-            Pass { pipe: Pipe::ScReduce, groups: (1, 1, 1),
+            Pass { pipe: Pipe::ScReduce as usize, groups: (1, 1, 1),
                    bg: bind_group_at(d, px(Pipe::ScReduce), &[(2, pr()), (3, b(&hist)), (4, b(&st))]) },
         ];
         if dyn_on {
             passes.extend([
-                Pass { pipe: Pipe::ScCellHist, groups: g16,
+                Pass { pipe: Pipe::ScCellHist as usize, groups: g16,
                        bg: bind_group_at(d, px(Pipe::ScCellHist), &[(0, tv(inp)), (2, pr()), (4, b(&st)), (5, b(&ch))]) },
-                Pass { pipe: Pipe::ScNorm, groups: n64(cells * 64),
+                Pass { pipe: Pipe::ScNorm as usize, groups: n64(cells * 64),
                        bg: bind_group_at(d, px(Pipe::ScNorm), &[(2, pr()), (5, b(&ch)), (6, b(&ma))]) },
-                Pass { pipe: Pipe::ScBlur, groups: n64(cells * 64),
+                Pass { pipe: Pipe::ScBlur as usize, groups: n64(cells * 64),
                        bg: bind_group_at(d, px(Pipe::ScBlur), &[(2, pr()), (6, b(&ma)), (7, b(&mb)), (9, b(&ax0))]) },
-                Pass { pipe: Pipe::ScBlur, groups: n64(cells * 64),
+                Pass { pipe: Pipe::ScBlur as usize, groups: n64(cells * 64),
                        bg: bind_group_at(d, px(Pipe::ScBlur), &[(2, pr()), (6, b(&mb)), (7, b(&ma)), (9, b(&ax1))]) },
-                Pass { pipe: Pipe::ScClip, groups: n64(cells),
+                Pass { pipe: Pipe::ScClip as usize, groups: n64(cells),
                        bg: bind_group_at(d, px(Pipe::ScClip), &[(2, pr()), (6, b(&ma)), (7, b(&mb))]) },
-                Pass { pipe: Pipe::ScCurve, groups: n64(cells * 766),
+                Pass { pipe: Pipe::ScCurve as usize, groups: n64(cells * 766),
                        bg: bind_group_at(d, px(Pipe::ScCurve), &[(2, pr()), (7, b(&mb)), (8, b(&ct))]) },
             ]);
         }
-        passes.push(Pass { pipe: Pipe::ScApply, groups: g16,
+        passes.push(Pass { pipe: Pipe::ScApply as usize, groups: g16,
                            bg: bind_group_at(d, px(Pipe::ScApply), &[(0, tv(inp)), (1, tv(out)), (2, pr()), (4, b(&st)), (8, b(&ct))]) });
         (passes, vec![st, ma, mb, ct, ax0, ax1], vec![hist, ch])
     }
@@ -185,11 +185,11 @@ impl Gpu {
         let grow = (w.div_ceil(64).div_ceil(64), h, 1);
         let gcol = (w.div_ceil(64), h.div_ceil(64), 1);
         let passes = vec![
-            Pass { pipe: Pipe::MdPrep, bg: bind_group(d, px(Pipe::MdPrep), &[wgpu::BindingResource::TextureView(&s.views[inp]), b0.as_entire_binding()]), groups: g16 },
-            Pass { pipe: Pipe::BoxH, bg: bind_group(d, px(Pipe::BoxH), &[b0.as_entire_binding(), b1.as_entire_binding(), ph.as_entire_binding()]), groups: grow },
-            Pass { pipe: Pipe::BoxV, bg: bind_group(d, px(Pipe::BoxV), &[b1.as_entire_binding(), b0.as_entire_binding(), pv0.as_entire_binding()]), groups: gcol },
-            Pass { pipe: Pipe::BoxH, bg: bind_group(d, px(Pipe::BoxH), &[b0.as_entire_binding(), b1.as_entire_binding(), ph.as_entire_binding()]), groups: grow },
-            Pass { pipe: Pipe::BoxV, bg: bind_group(d, px(Pipe::BoxV), &[b1.as_entire_binding(), b0.as_entire_binding(), pv1.as_entire_binding()]), groups: gcol },
+            Pass { pipe: Pipe::MdPrep as usize, bg: bind_group(d, px(Pipe::MdPrep), &[wgpu::BindingResource::TextureView(&s.views[inp]), b0.as_entire_binding()]), groups: g16 },
+            Pass { pipe: Pipe::BoxH as usize, bg: bind_group(d, px(Pipe::BoxH), &[b0.as_entire_binding(), b1.as_entire_binding(), ph.as_entire_binding()]), groups: grow },
+            Pass { pipe: Pipe::BoxV as usize, bg: bind_group(d, px(Pipe::BoxV), &[b1.as_entire_binding(), b0.as_entire_binding(), pv0.as_entire_binding()]), groups: gcol },
+            Pass { pipe: Pipe::BoxH as usize, bg: bind_group(d, px(Pipe::BoxH), &[b0.as_entire_binding(), b1.as_entire_binding(), ph.as_entire_binding()]), groups: grow },
+            Pass { pipe: Pipe::BoxV as usize, bg: bind_group(d, px(Pipe::BoxV), &[b1.as_entire_binding(), b0.as_entire_binding(), pv1.as_entire_binding()]), groups: gcol },
         ];
         (passes, vec![ph, pv0, pv1], b0)
     }

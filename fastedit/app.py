@@ -89,8 +89,13 @@ def main():
     page = "selftest.html" if selftest else ""     # Rust core / WASM / isolation checks
     if "--gpu-spike" in sys.argv:                  # GPU core feasibility page (gpu-core-plan, G0)
         selftest, page = True, "gpu-spike.html"
-    elif "--no-gpu" in sys.argv and not selftest:  # CPU core only: preview (gpu-view.js) and Process (core.py)
-        page = "?gpu=0"
+    elif not selftest:
+        q = []
+        if "--no-gpu" in sys.argv:                 # CPU core only: preview (gpu-view.js) and Process (core.py)
+            q.append("gpu=0")
+        if "--test-filters" in sys.argv:           # the filter kit's hidden test filters in the Filters list
+            q.append("fxtest=1")
+        page = "?" + "&".join(q) if q else ""
     if not core.available() and not selftest:      # no NumPy fallback any more: say how to build it
         msg = (core.error() or "").replace("&", "&amp;").replace("<", "&lt;")
         webview.create_window("Fae", html=(

@@ -1,0 +1,15 @@
+{
+  "name": "Test Blur",
+  "kind": "neighbourhood",
+  "hidden": true,
+  "icon": "<circle cx=\"12\" cy=\"12\" r=\"8\"/><circle cx=\"12\" cy=\"12\" r=\"4\"/>",
+  "fields": [
+    ["radius", "Radius", 20, 1, 100, 1, 0, ""],
+    ["amount", "Amount", 0, -100, 100, 1, 0, "%"],
+    "---",
+    ["opacity", "Opacity", 100, 0, 100, 1, 0, "%"]
+  ],
+  "opacity": "opacity",
+  "blur": "radius",
+  "blur_scale": 0.5
+}

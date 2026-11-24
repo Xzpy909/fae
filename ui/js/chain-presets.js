@@ -9,7 +9,7 @@
    Stored with the tool presets in fae_presets.json, under "_chain": [{ name, chain, values, off, stage }]
    (stage = { resize: {...}, color: {...} }; presets saved before it existed leave Resize / Color balance alone). */
 const ChainPresets = (() => {
-  const SECS_C = ['adjust', 'curves', 'f_bw', 'f_film', 'f_sc', 'sharpen'];   // what an edit preset holds
+  const SECS_C = ['adjust', 'curves', 'f_bw', 'f_film', 'f_sc', ...FX_LIST.map(d => d.sec), 'sharpen'];   // what an edit preset holds
   // + the stage settings of Resize and Color balance (S.stage keys)
   const STAGE = {
     resize: ['resize_on', 'mode', 'mpix', 'prio', 'preset_ar', 'preset_res', 'cw', 'ch', 'cmode'],

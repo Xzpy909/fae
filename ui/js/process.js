@@ -12,6 +12,7 @@ function jobFor(f, isCur) {
   // a non-default chain (order, or a tool more than once): the steps in order, each with its own
   // instance's tables, that tool's fields only (fastedit/core.py _steps)
   if (E.steps) edit.steps = E.steps.map(s => {
+    if (s.t === 'fx') return { t: 'fx', fx: s.fx };          // plain values already (fxParams)
     const o = { t: s.t }, je = s === E ? edit : jobEdit(s);
     for (const k of STEP_FIELDS[s.t]) o[k] = je[k];
     return o;
@@ -26,6 +27,14 @@ function jobEdit(E) {
     con: E.con ? Array.from(E.con) : null, md: E.md || 0, bw: E.bw,
     film: E.film ? { n: E.film.n, d: E.film.d ? Array.from(E.film.d) : null, t1: E.film.t1 ? Array.from(E.film.t1) : null, op: E.film.op } : null,
     sc: E.sc ? Object.assign({}, E.sc, { shl: E.sc.shl ? Array.from(E.sc.shl) : null }) : null };
+}
+
+/* Process ran on the CPU core (no GPU): the filter kit's filters it left out (r.skipped = ids) */
+function skippedNote(res) {
+  const ids = [...new Set(res.flatMap(r => (r && r.skipped) || []))];
+  if (!ids.length) return '';
+  const names = ids.map(id => ((typeof FX_DEFS !== 'undefined' && FX_DEFS.find(d => d.id === id)) || { name: id }).name);
+  return `<br><span style="color:var(--red)">${names.join(', ')} skipped: needs the GPU</span>`;
 }
 
 function setBusy(on, label) {
@@ -48,7 +57,7 @@ async function processCurrent() {
   if (r && r.ok) {
     f.done = true; f.out = r.out;
     renderList();
-    toast(`Saved <b>${basename(r.out)}</b>`, false, r.out);
+    toast(`Saved <b>${basename(r.out)}</b>` + skippedNote([r]), false, r.out);
     if (S.prefs.advance && idx === S.cur && idx < S.files.length - 1) switchTo(idx + 1);
   } else toast('Process failed: ' + (r ? r.error : 'unknown'), true);
 }
@@ -68,7 +77,7 @@ async function processAll() {
   const ok = res.filter(r => r.ok).length, bad = res.length - ok;
   res.forEach(r => { const f = S.files.find(x => x.path === r.path); if (f && r.ok) { f.done = true; f.out = r.out; } });
   renderList();
-  toast(`Processed ${ok} image(s)` + (bad ? `, <span style="color:var(--red)">${bad} failed</span>` : ''), bad > 0,
+  toast(`Processed ${ok} image(s)` + (bad ? `, <span style="color:var(--red)">${bad} failed</span>` : '') + skippedNote(res), bad > 0,
     ok ? res.find(r => r.ok).out : null);
 }
 window.onProcessProgress = (i, n) => {

@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 pub use wgpu;
 
+pub mod fx;
 pub mod ops;
 pub mod sharp;
 pub mod view;
@@ -145,6 +146,8 @@ pub enum Kind {
     Sc = 5,
     /// one part of Sharpen (sharp.rs)
     Sharp = 6,
+    /// a filter of the filter kit (fx.rs)
+    Fx = 7,
 }
 
 /// One step of the chain, as the GPU runs it: its kind and its parameter buffer (the layouts are
@@ -171,6 +174,8 @@ pub(crate) enum Aux {
     SharpBlur { k: u32, taps: u32, mode: u32 },
     /// Sharpen's Structure (sharp_st.wgsl)
     SharpSt,
+    /// a filter of the filter kit: its index in fx::FILTERS (the passes follow from its kind)
+    Fx { f: u16 },
 }
 
 fn f32_bytes(v: &[f32]) -> Vec<u8> {
@@ -396,7 +401,7 @@ impl Step {
 }
 
 /// entries of an opacity table: 256 levels before x 256 levels after the filter
-const MIX_N: usize = 65536;
+pub(crate) const MIX_N: usize = 65536;
 
 /// The filter's Warmth, per channel and level: min(floor(f * gain), 255) in f64 (768 entries; the
 /// identity without Warmth). In f32 a gain like 1.05 is just below 1.05, and 20 * gain truncated
@@ -428,7 +433,7 @@ const SAT_N: usize = 1021 * 256;
 /// the CPU core's result exactly. On the GPU the same expression in f32 goes wrong at the structured
 /// boundaries a slider value makes (op = 0.66, v - f = 25 -> 16.5: whether it rounds up depends
 /// on how the product is rounded, and GPUs fuse it into one fma), so whole levels look it up.
-fn mix_table(op: f64, v: impl Fn(usize) -> f64) -> Vec<f32> {
+pub(crate) fn mix_table(op: f64, v: impl Fn(usize) -> f64) -> Vec<f32> {
     let mut t = Vec::with_capacity(MIX_N);
     for f in 0..256 {
         let fv = f as f64;
@@ -440,7 +445,8 @@ fn mix_table(op: f64, v: impl Fn(usize) -> f64) -> Vec<f32> {
 }
 
 /// The tool kinds the GPU can run (names as in fastedit/core.py's steps; "sharp" = the Sharpen tool).
-pub const PORTED: &[&str] = &["point", "adjust", "curves", "bw", "film", "sc", "sharp"];
+/// "fx" = a filter of the filter kit (fx.rs), GPU only.
+pub const PORTED: &[&str] = &["point", "adjust", "curves", "bw", "film", "sc", "sharp", "fx"];
 
 /// Uniforms shared by decode / encode (16 bytes).
 fn dims(w: u32, h: u32, third: u32) -> [u8; 16] {
@@ -485,7 +491,8 @@ struct Stage {
 
 /// One dispatch.
 pub(crate) struct Pass {
-    pub pipe: Pipe,
+    /// index of the pipeline (`Pipe as usize`, or a kit filter's: Gpu::fx_pipe)
+    pub pipe: usize,
     pub bg: wgpu::BindGroup,
     pub groups: (u32, u32, u32),
 }
@@ -495,6 +502,8 @@ struct Op {
     kind: Kind,
     aux: Aux,
     len: usize,
+    /// what else decides the passes (kit filters: Gpu::fx_shape)
+    shape: u64,
     params: wgpu::Buffer,
     passes: Vec<Pass>,
     /// buffers zeroed before the run (atomic counters)
@@ -541,11 +550,12 @@ pub(crate) enum Pipe {
     EncodeRgba,
     HistIn,
     HistOut,
+    KitHist,
 }
 
 /// Shader modules: one per WGSL file (with what it's built from), shared by its entry points.
 #[derive(Clone, Copy, Debug)]
-enum Module { Curves, Point, Adjust, Bw, Film, MdPrep, BoxH, BoxV, Ps, Sc, SharpBlur, SharpSt, Decode, Encode, EncodeRgba, Hist }
+enum Module { Curves, Point, Adjust, Bw, Film, MdPrep, BoxH, BoxV, Ps, Sc, SharpBlur, SharpSt, Decode, Encode, EncodeRgba, Hist, KitHist }
 
 impl Module {
     fn source(self) -> String {
@@ -568,18 +578,19 @@ impl Module {
             Module::Encode => ENCODE_WGSL.into(),
             Module::EncodeRgba => ENCODE_RGBA_WGSL.into(),
             Module::Hist => HIST_WGSL.into(),
+            Module::KitHist => fx::KIT_HIST_WGSL.into(),
         }
     }
 }
 
 impl Pipe {
-    const COUNT: usize = Pipe::HistOut as usize + 1;
+    pub(crate) const COUNT: usize = Pipe::KitHist as usize + 1;
     const ALL: [Pipe; Pipe::COUNT] = [
         Pipe::Curves, Pipe::Point, Pipe::Adjust, Pipe::Bw, Pipe::Film, Pipe::MdPrep, Pipe::BoxH, Pipe::BoxV,
         Pipe::PsMeasure, Pipe::PsMean, Pipe::PsBlur, Pipe::PsApply, Pipe::ScHist, Pipe::ScReduce, Pipe::ScCellHist,
         Pipe::ScNorm, Pipe::ScBlur, Pipe::ScClip, Pipe::ScCurve, Pipe::ScApply, Pipe::SbMeans, Pipe::SbAcross,
         Pipe::SbDown, Pipe::SbApply, Pipe::StPrep, Pipe::StFine, Pipe::StApply, Pipe::Decode, Pipe::Encode,
-        Pipe::EncodeRgba, Pipe::HistIn, Pipe::HistOut,
+        Pipe::EncodeRgba, Pipe::HistIn, Pipe::HistOut, Pipe::KitHist,
     ];
 
     /// the module and entry point of each pipeline
@@ -618,6 +629,7 @@ impl Pipe {
             Pipe::EncodeRgba => (M::EncodeRgba, "main"),
             Pipe::HistIn => (M::Hist, "count_in"),
             Pipe::HistOut => (M::Hist, "count_out"),
+            Pipe::KitHist => (M::KitHist, "count"),
         }
     }
 }
@@ -630,7 +642,8 @@ pub struct Gpu {
     /// by Pipe, each made the first time a pass needs it (pipe()): compiling every shader up front
     /// kept the browser's GPU process (and with it the whole window) busy for seconds at start-up
     pipes: Vec<OnceLock<wgpu::ComputePipeline>>,
-    modules: Mutex<HashMap<u8, wgpu::ShaderModule>>,
+    /// by Module, kit filters after them (1000 + index)
+    modules: Mutex<HashMap<u16, wgpu::ShaderModule>>,
     /// bound where a pass has nothing to bind (Adjustments without Mid/Detail)
     dummy: wgpu::Buffer,
     /// the histograms (HIST_BINS u32) and their read-back copy
@@ -657,10 +670,21 @@ pub struct Gpu {
 impl Gpu {
     /// The pipeline, compiled on first use (its module too, once for all its entry points).
     pub(crate) fn pipe(&self, p: Pipe) -> &wgpu::ComputePipeline {
-        self.pipes[p as usize].get_or_init(|| {
-            let (m, entry) = p.spec();
+        self.pipe_at(p as usize)
+    }
+
+    /// Pipeline `i`: a built-in one (`Pipe as usize`) or a kit filter's entry point (fx_pipe).
+    pub(crate) fn pipe_at(&self, i: usize) -> &wgpu::ComputePipeline {
+        self.pipes[i].get_or_init(|| {
+            let (key, entry, src): (u16, &str, Box<dyn Fn() -> String>) = if i < Pipe::COUNT {
+                let (m, entry) = Pipe::ALL[i].spec();
+                (m as u16, entry, Box::new(move || m.source()))
+            } else {
+                let (f, e) = ((i - Pipe::COUNT) / fx::ENTRIES.len(), (i - Pipe::COUNT) % fx::ENTRIES.len());
+                (1000 + f as u16, fx::ENTRIES[e], Box::new(move || fx::FILTERS[f].module_source()))
+            };
             let mut mods = self.modules.lock().unwrap();
-            let module = mods.entry(m as u8).or_insert_with(|| shader_module(&self.device, &m.source(), entry));
+            let module = mods.entry(key).or_insert_with(|| shader_module(&self.device, &src(), entry));
             self.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry),
                 layout: None,
@@ -672,25 +696,42 @@ impl Gpu {
         })
     }
 
+    /// The pipelines warm() compiles, in order: the built-in ones, then the entry points of the kit
+    /// filters in the Filters list (hidden test filters compile on first use).
+    fn warm_list() -> Vec<usize> {
+        let mut v: Vec<usize> = (0..Pipe::COUNT).collect();
+        for (f, d) in fx::FILTERS.iter().enumerate().filter(|(_, d)| !d.hidden) {
+            v.extend(d.entries().iter().map(|&e| Self::fx_pipe(f, e)));
+        }
+        v
+    }
+
     /// How many pipelines warm() can compile.
     pub fn pipeline_count() -> usize {
-        Pipe::COUNT
+        Self::warm_list().len()
     }
 
     /// Compile pipeline `i` now (0 .. pipeline_count()) instead of on first use: the preview does it
     /// one at a time behind its loading screen, so nothing compiles while the app is in use.
     pub fn warm(&self, i: usize) {
-        if let Some(&p) = Pipe::ALL.get(i) {
-            self.pipe(p);
+        if let Some(&p) = Self::warm_list().get(i) {
+            self.pipe_at(p);
         }
     }
 
-    /// Pipeline i's name for logs: "module:entry", e.g. "Sc:hist_main".
+    /// Pipeline i's name for logs: "module:entry", e.g. "Sc:hist_main", "Fx test_pixel:apply".
     pub fn pipeline_name(i: usize) -> String {
-        Pipe::ALL.get(i).map_or(String::new(), |p| {
-            let (m, e) = p.spec();
-            format!("{m:?}:{e}")
-        })
+        match Self::warm_list().get(i) {
+            None => String::new(),
+            Some(&p) if p < Pipe::COUNT => {
+                let (m, e) = Pipe::ALL[p].spec();
+                format!("{m:?}:{e}")
+            }
+            Some(&p) => {
+                let n = fx::ENTRIES.len();
+                format!("Fx {}:{}", fx::FILTERS[(p - Pipe::COUNT) / n].id, fx::ENTRIES[(p - Pipe::COUNT) % n])
+            }
+        }
     }
 
     pub fn instance(opts: &Options) -> wgpu::Instance {
@@ -749,7 +790,7 @@ impl Gpu {
             max_buffer: dl.max_buffer_size,
             max_storage_binding: dl.max_storage_buffer_binding_size as u64,
         };
-        let pipes = (0..Pipe::COUNT).map(|_| OnceLock::new()).collect();
+        let pipes = (0..Pipe::COUNT + fx::FILTERS.len() * fx::ENTRIES.len()).map(|_| OnceLock::new()).collect();
         let dummy = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("dummy"),
             size: 16,
@@ -996,7 +1037,8 @@ impl Gpu {
         }
         // same kinds and table sizes: only new values (a slider moved)
         let same = self.ops.len() == steps.len()
-            && self.ops.iter().zip(steps).all(|(o, st)| o.kind == st.kind && o.aux == st.aux && o.len == st.data.len());
+            && self.ops.iter().zip(steps)
+                .all(|(o, st)| o.kind == st.kind && o.aux == st.aux && o.len == st.data.len() && o.shape == self.fx_shape(st));
         if same {
             for (o, st) in self.ops.iter().zip(steps) {
                 let data = self.params_of(st);
@@ -1019,6 +1061,9 @@ impl Gpu {
 
     /// The step's parameter bytes with what depends on the stage filled in.
     fn params_of(&self, st: &Step) -> Vec<u8> {
+        if st.kind == Kind::Fx {
+            return f32_bytes(&self.fx_params(st));
+        }
         let mut d = st.data.clone();
         let (w, h) = self.stage.as_ref().map_or((1, 1), |s| (s.w, s.h));
         let mut put = |i: usize, v: f32| d[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
@@ -1094,11 +1139,19 @@ impl Gpu {
                 keep.extend(k);
                 None
             }
+            Aux::Fx { .. } => {
+                let (p, k, c) = self.fx_passes(st, inp, out, &params);
+                passes.extend(p);
+                keep.extend(k);
+                clears.extend(c);
+                None
+            }
             Aux::None => None,
         };
-        if matches!(st.aux, Aux::Ps | Aux::Sc { .. } | Aux::SharpBlur { .. } | Aux::SharpSt) {
-            // ps_passes made the whole step, its apply pass included
-            return Op { kind: st.kind, aux: st.aux.clone(), len: st.data.len(), params, passes, clears, keep, inp, out };
+        let shape = self.fx_shape(st);
+        if matches!(st.aux, Aux::Ps | Aux::Sc { .. } | Aux::SharpBlur { .. } | Aux::SharpSt | Aux::Fx { .. }) {
+            // these made the whole step, its apply pass included
+            return Op { kind: st.kind, aux: st.aux.clone(), len: st.data.len(), shape, params, passes, clears, keep, inp, out };
         }
         let s = self.stage.as_ref().unwrap();
         let pipe = match st.kind {
@@ -1107,7 +1160,7 @@ impl Gpu {
             Kind::Adjust => Pipe::Adjust,
             Kind::Bw => Pipe::Bw,
             Kind::Film => Pipe::Film,
-            Kind::Sc | Kind::Sharp => unreachable!("their passes make the whole step"),
+            Kind::Sc | Kind::Sharp | Kind::Fx => unreachable!("their passes make the whole step"),
         };
         let mut res = vec![
             wgpu::BindingResource::TextureView(&s.views[inp]),
@@ -1118,8 +1171,8 @@ impl Gpu {
             res.push(extra.as_ref().unwrap_or(&self.dummy).as_entire_binding());
         }
         let bg = bind_group(&self.device, self.pipe(pipe), &res);
-        passes.push(Pass { pipe, bg, groups: (s.w.div_ceil(16), s.h.div_ceil(16), 1) });
-        Op { kind: st.kind, aux: st.aux.clone(), len: st.data.len(), params, passes, clears, keep, inp, out }
+        passes.push(Pass { pipe: pipe as usize, bg, groups: (s.w.div_ceil(16), s.h.div_ceil(16), 1) });
+        Op { kind: st.kind, aux: st.aux.clone(), len: st.data.len(), shape, params, passes, clears, keep, inp, out }
     }
 
     /// Count the UI's histograms in every run from now on (the preview).
@@ -1171,7 +1224,7 @@ impl Gpu {
                         pass.dispatch_workgroups(s.hist_groups, 1, 1);
                     }
                     for p in &o.passes {
-                        pass.set_pipeline(self.pipe(p.pipe));
+                        pass.set_pipeline(self.pipe_at(p.pipe));
                         pass.set_bind_group(0, &p.bg, &[]);
                         pass.dispatch_workgroups(p.groups.0, p.groups.1, p.groups.2);
                     }

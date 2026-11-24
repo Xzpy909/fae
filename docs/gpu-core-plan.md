@@ -108,8 +108,13 @@ by you. Effort is a rough guess in working sessions like today's.
 - Crop view, preset / edit-preset thumbnails and the film list through the GPU.
 - Update the README and the redesign rules ("what you see is what you get" stays; the means change).
 
-### G7 — Filter kit (1 session, then with every new filter)
+### G7 — Filter kit — DONE (2026-11-24): see docs/filter-kit.md
 The reason to do this now: adding a filter should be small and uniform.
+Built: a filter = `core/gpu/fae-gpu/filters/<id>.json` (descriptor + UI spec) + `<id>.wgsl`; three
+templates (pixel, neighbourhood with the shared blur, statistics with the shared histograms);
+`tests/gpu/fx_check.py` makes the cases from the descriptor. Kit filters run on the GPU only (skipped
+without one). Box / guided-filter / pyramid blocks and grid statistics come when a filter needs them.
+Originally planned:
 - A filter = a WGSL file + a short descriptor (parameters, passes, which building blocks it uses) + its UI
   spec (sliders as today). Templates for the three kinds: **per-pixel**, **neighbourhood** (uses shared
   blur / box / guided-filter / pyramid blocks), **statistics** (uses shared histogram / grid reductions).

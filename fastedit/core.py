@@ -30,7 +30,7 @@ except ImportError as ex:          # not built / not installed / too old
 
 
 # ---- the GPU core (optional) -------------------------------------------------------------------
-GPU_REQUIRED = (0, 6)       # fae_gpu version this file needs (release())
+GPU_REQUIRED = (0, 7)       # fae_gpu version this file needs (the filter kit: "fx" steps)
 GPU_BUILD_HINT = r"run core\gpu\build_gpu.bat"
 
 try:
@@ -83,8 +83,9 @@ def gpu_release():
 
 
 def _gpu_steps(edit: dict) -> list:
-    """The edit as the GPU core's steps: the chain, then Sharpen (Process: scale 1)."""
-    st = _steps(edit)
+    """The edit as the GPU core's steps: the chain (with the filter kit's filters), then Sharpen
+    (Process: scale 1)."""
+    st = _steps(edit, gpu=True)
     sp = edit.get("sharp") or {}
     vals = [float(sp.get(k) or 0) for k in ("as", "bs", "st", "lc", "fo")]
     if vals[0] > 0 or any(vals[2:]):
@@ -108,6 +109,9 @@ def _gpu_render(rgb: np.ndarray, edit: dict):
             return None                     # too big for this GPU: the CPU core (no tiling yet)
         try:
             return dev.render(rgb, _gpu_steps(edit))
+        except ValueError as ex:            # a step this build can't make (e.g. a filter it doesn't have):
+            print(f"GPU core can't run this edit, Process uses the CPU core: {ex}", file=sys.stderr)
+            return None                     # not a device problem, the GPU stays on
         except Exception as ex:
             _gpu["dev"], _gpu["why"] = None, f"failed: {type(ex).__name__}: {ex}"
             print(f"GPU core off for this session, Process uses the CPU core: {_gpu['why']}", file=sys.stderr)
@@ -185,6 +189,11 @@ def _step(e: dict):
             return None
         d, t1 = film.get("d"), film.get("t1")
         return ("film", int(film["n"]), _f64(d) if d else None, _f64(t1) if t1 else None, float(film.get("op", 1)))
+    if t == "fx":                   # a filter of the filter kit: {"id", "p": [params], "op"} (GPU core only)
+        fx = e.get("fx")
+        if not fx:
+            return None
+        return ("fx", str(fx["id"]), [float(v) for v in fx.get("p") or []], float(fx.get("op", 1)))
     if t == "sc":
         sc = e.get("sc")
         if not sc:
@@ -196,20 +205,29 @@ def _step(e: dict):
     raise ValueError(f"unknown step {t!r}")
 
 
-def _steps(edit: dict) -> list:
+def _steps(edit: dict, gpu: bool = False) -> list:
     """The edit as the ordered list apply_chain takes. edit["steps"] lists the steps in panel order
-    (each a dict with "t" and that tool's entries); without it the flat edit runs in DEFAULT_ORDER."""
+    (each a dict with "t" and that tool's entries); without it the flat edit runs in DEFAULT_ORDER.
+    The filter kit's filters ("fx") only with gpu=True: the CPU core has none of them."""
     specs = edit.get("steps")
     if specs is None:
         specs = [dict(edit, t=k) for k in DEFAULT_ORDER]
-    return [s for s in (_step(sp) for sp in specs) if s is not None]
+    return [s for s in (_step(sp) for sp in specs if gpu or sp.get("t") != "fx") if s is not None]
 
 
-def render(rgb: np.ndarray, edit: dict | None, hist: bool = False, engine: str = "auto"):
+def fx_used(edit: dict | None) -> list:
+    """The ids of the filter kit's filters the edit uses (they run on the GPU core only)."""
+    ids = [s["fx"]["id"] for s in (edit or {}).get("steps") or [] if s.get("t") == "fx" and s.get("fx")]
+    return list(dict.fromkeys(ids))
+
+
+def render(rgb: np.ndarray, edit: dict | None, hist: bool = False, engine: str = "auto",
+           skipped: list | None = None):
     """The full edit as Process writes it (the chain of steps, then Sharpen). engine: "auto" = the
     GPU core when it can (see _gpu_render), else the CPU core; "cpu" / "gpu" = only that one ("gpu"
     raises when the GPU core can't). With hist=True also the UI's histograms, from the CPU core:
-    (image, hin, hout, hmx, hmn)."""
+    (image, hin, hout, hmx, hmn). The CPU core leaves the filter kit's filters out: their ids are
+    added to `skipped` (a list) when given."""
     rgb = np.ascontiguousarray(rgb)
     if not hist and engine != "cpu":
         out = _gpu_render(rgb, edit or {})
@@ -217,6 +235,8 @@ def render(rgb: np.ndarray, edit: dict | None, hist: bool = False, engine: str =
             return out
         if engine == "gpu":
             raise RuntimeError(f"GPU core can't render this: {_gpu['why'] or 'image too big for this GPU'}")
+    if skipped is not None:
+        skipped.extend(fx_used(edit))
     fc = _need()
     sharp = (edit or {}).get("sharp") or {}
     return fc.apply_chain(rgb, _steps(edit or {}), hist, adaptive=float(sharp.get("as") or 0),

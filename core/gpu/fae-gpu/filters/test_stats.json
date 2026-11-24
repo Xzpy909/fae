@@ -1,0 +1,14 @@
+{
+  "name": "Test Statistics",
+  "kind": "statistics",
+  "hidden": true,
+  "icon": "<path d=\"M4 20V10\"/><path d=\"M10 20V4\"/><path d=\"M16 20v-7\"/><path d=\"M22 20H2\"/>",
+  "fields": [
+    ["strength", "Strength", 0, 0, 100, 1, 0, "%"],
+    ["clip", "Clip", 1, 0, 10, 0.1, 1, "%"],
+    { "type": "select", "key": "channels", "label": "Channels", "def": "luma", "options": [["luma", "Luma"], ["rgb", "Per channel"]] },
+    "---",
+    ["opacity", "Opacity", 100, 0, 100, 1, 0, "%"]
+  ],
+  "opacity": "opacity"
+}

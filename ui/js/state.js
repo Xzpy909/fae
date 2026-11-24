@@ -68,6 +68,14 @@ const FILTERS = [
     ['flt_sc_opacity', 'Opacity', 100, 0, 100, 1, 0, '%'],
   ] },
 ];
+/* The filter kit's filters (docs/filter-kit.md): fx-filters.js is generated from
+   core/gpu/fae-gpu/filters/<id>.json by the GPU core's build; each becomes a FILTERS entry with its
+   island made from its fields (controls.js), runs on the GPU only (edit-math.js fxParams, the step
+   'fx') and is skipped without it. Hidden test filters only with ?fxtest=1 (fae.py --test-filters). */
+const FX_TEST = new URLSearchParams(location.search).get('fxtest') === '1';
+const FX_LIST = (typeof FX_DEFS !== 'undefined' ? FX_DEFS : []).filter(d => !d.hidden || FX_TEST);
+const FX_BY_SEC = Object.fromEntries(FX_LIST.map(d => [d.sec, d]));
+FILTERS.push(...FX_LIST.map(d => ({ sec: d.sec, name: d.name, icon: d.icon, fields: d.fields, fx: d })));
 /* Sharpen: a main tool of its own (pill after Resize, not inside the Filters group), same field format as FILTERS
    plus { head } sub-headings. All sliders are live (sharpParams in edit-math.js); Structure is an
    approximation (≈); Balance Sharpening shifts Adaptive Sharpening between areas and edges. */
@@ -109,13 +117,13 @@ const filterActive = (f, e) => filterFields(f).map(fieldKD).some(([k, def]) => e
    colour balance always run first, Sharpen always last). One entry per instance { id, t }; t = the tool's
    section id. The first instance of a tool keeps its values in the edit's flat keys (adj_*, curves,
    flt_*...). Default = the tool pill order. */
-const CHAIN_TOOLS = ['point', 'adjust', 'curves', 'f_bw', 'f_film', 'f_sc'];
+const CHAIN_TOOLS = ['point', 'adjust', 'curves', 'f_bw', 'f_film', 'f_sc', ...FX_LIST.map(d => d.sec)];
 const defaultChain = () => CHAIN_TOOLS.map(t => ({ id: t, t }));
 /* Stackable tools (redesign section 8): the same tool more than once in the chain. The first instance
    of a tool (id = the tool) keeps its values in the edit's flat keys; every extra instance (id =
    tool#n) has its own in e.inst[id], its switch in e.off[id] and an optional label in e.lbl[id].
    Mid/Detail works on every Adjustments instance (each smooths the image as it arrives there). */
-const STACKABLE = ['adjust', 'curves', 'f_bw', 'f_film', 'f_sc'];
+const STACKABLE = ['adjust', 'curves', 'f_bw', 'f_film', 'f_sc', ...FX_LIST.filter(d => !d.single).map(d => d.sec)];
 const MAX_INST = 8;                     // instances per tool, the first one included
 const isExtra = x => x.id !== x.t;
 /* the edit's chain, made whole: known tools only, each first instance once, missing ones added at

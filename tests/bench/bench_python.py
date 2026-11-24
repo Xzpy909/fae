@@ -48,7 +48,7 @@ def main():
     if not core.available():
         sys.exit(core.error())
     print(f"Rust core {core.info()}")
-    run = lambda e: core.render(rgb, e)
+    run = lambda e: core.render(rgb, e, engine="cpu")
     print(f"core: {w}x{h} ({w * h / 1e6:.1f} MP), best of {a.runs}")
     res = {}
     for cid in ids:

@@ -227,10 +227,11 @@ async function main() {
     pw.terminate();
   }
 
+  let coreInfo = null;
   await check('Python core', () => new Promise((resolve) => {
     const run = async () => {
       try {
-        const r = await window.pywebview.api.core_info();
+        const r = coreInfo = await window.pywebview.api.core_info();
         if (r && r.ok) resolve(['ok', `fastedit_core ${r.version}, ${r.threads} threads, loads and runs`]);
         else resolve(['bad', (r && r.error) || 'not available: run core\\build_core.bat']);
       } catch (e) { resolve(['bad', String(e)]); }
@@ -241,6 +242,15 @@ async function main() {
       setTimeout(() => resolve(['warn', 'no pywebview API (page opened outside the app?)']), 5000);
     }
   }));
+
+  // Process on the GPU core (gpu-core plan G5): which device, and the same edit as the CPU core
+  await check('Process engine', async () => {
+    const G = coreInfo && coreInfo.gpu;
+    if (!G) return ['warn', 'no answer from the Python core'];
+    if (!G.ok) return ['warn', `CPU core (GPU core: ${G.error})`];
+    const d = G.max_diff != null ? `; vs the CPU core: max ${G.max_diff}, mean ${G.mean_diff}` : '';
+    return [G.same === false ? 'bad' : 'ok', `GPU core fae_gpu ${G.version} on ${G.name} (${G.backend})${d}`];
+  });
 }
 
 document.getElementById('copy').onclick = () => { report.select(); document.execCommand('copy'); };

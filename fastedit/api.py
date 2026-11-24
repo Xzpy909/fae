@@ -197,12 +197,13 @@ class Api:
     # ---- processing -------------------------------------------------------
     @staticmethod
     def _render_full(job) -> tuple[Entry, Image.Image]:
-        """Stage + point correction + curves at full resolution (what Process writes)."""
+        """The stage + the whole edit at full resolution (what Process writes): the GPU core when it
+        can, else the CPU core (core.render)."""
         P = StageParams.from_dict(job.get("stage"))
         e, img = ENGINE.stage(job.get("path"), P)
         alpha = img.getchannel("A") if img.mode == "RGBA" else None
         rgb = np.ascontiguousarray(np.asarray(img.convert("RGB")))
-        out = Image.fromarray(core.render(rgb, job.get("edit")))     # Rust core where it can, else NumPy
+        out = Image.fromarray(core.render(rgb, job.get("edit")))
         if alpha is not None:
             out.putalpha(alpha)
         return e, out
@@ -233,7 +234,10 @@ class Api:
             if _LOSSY["key"] == key:
                 dec, nbytes, enc, used = _LOSSY["val"]
             else:
-                e, out = self._render_full(job)
+                try:
+                    e, out = self._render_full(job)
+                finally:
+                    core.gpu_release()          # the GPU memory of a full-size image isn't kept
                 check_cancel()
                 data, enc, used = encode_lossy(out, fmt, opts, e.icc)
                 check_cancel()
@@ -279,4 +283,5 @@ class Api:
                         f"window.onProcessProgress && window.onProcessProgress({i + 1},{n},{json.dumps(r)})")
                 except Exception:
                     pass
+        core.gpu_release()                       # same-size images reused it; now give it back
         return results

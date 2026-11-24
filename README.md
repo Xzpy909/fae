@@ -108,7 +108,7 @@ python fae.py [images or folders...]
 python fae.py --debug     # opens the web inspector
 python fae.py --selftest  # checks for the Rust core (WASM, threads, Python extension)
 python fae.py --native-frame  # normal Windows title bar instead of the app's own header
-python fae.py --no-gpu    # live preview without the GPU core
+python fae.py --no-gpu    # live preview and Process without the GPU core
 ```
 
 ## Rust core
@@ -153,7 +153,9 @@ every tool (Point correction, Adjustments with Mid/Detail, Curves, Perceptual Sa
 Super Contrast, Sharpen) and counts the histograms. The live preview uses it whenever WebGPU is
 available (`ui/js/gpu-view.js`; the status bar says which core draws): the image is then drawn at
 exactly the screen's pixels on every change, pan and zoom, and the histograms follow a dragged
-slider. Process still uses the CPU core. The GPU computes in f32 (the CPU core in f64): 99.99 % of the
+slider. Process (and the encoded compare preview) renders on the GPU core too when it is installed
+and has a device; otherwise, with `--no-gpu`, for an image too big for the GPU, or after a GPU error,
+the CPU core renders it, with the same result within the tolerance rule. The GPU computes in f32 (the CPU core in f64): 99.99 % of the
 values match exactly, the rest are 1 level off with rare outliers (`tests/gpu/tolerance.py` explains
 the rule).
 
@@ -162,8 +164,9 @@ core\gpu\build_gpu.bat             # Python extension fae_gpu + WebAssembly in u
 python tests/gpu/tolerance.py       # GPU vs CPU core on the parity cases + Sharpen cases (--trace: where outliers
                                     #   start, --steps: how often each step on its own differs)
 python tests/gpu/bench_native.py    # speed, DirectX 12 and Vulkan (--warp: software renderer)
+python tests/gpu/process_check.py   # Process on the GPU vs the CPU core, own photos at full size
 python fae.py --gpu-spike           # WebGPU in the app window: limits, speed of the WebAssembly build
-python fae.py --no-gpu              # live preview on the CPU core only
+python fae.py --no-gpu              # live preview and Process on the CPU core only
 ```
 
 ## Keyboard shortcuts
@@ -216,7 +219,7 @@ fastedit/              # Python back end
 ├── config.py          # paths, defaults, per-image stage parameters
 ├── geometry.py        # resize presets, crop / rotate / flip
 ├── colour.py          # White-Patch, Gray-Edge
-├── core.py            # the Rust core (fastedit_core): Process / compare preview
+├── core.py            # Process / compare preview: GPU core (fae_gpu) or CPU core (fastedit_core)
 ├── engine.py          # image loading, stage cache, thumbnails
 ├── proc.py            # running external encoders (cancellable preview encodes)
 ├── jpeg.py, avif.py   # JPEG (jpegli) and AVIF (SVT-AV1 + container muxer, aom fallback)

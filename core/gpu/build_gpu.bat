@@ -3,9 +3,10 @@ rem Builds the GPU core (wgpu + WGSL, see claude/gpu-core-plan.md):
 rem   1. Python extension fae_gpu     -> installed into the current Python (pip)
 rem   2. WebAssembly for the preview  -> ui\gpu\
 rem Same Rust as the CPU core (core\rust-toolchain.toml). The live preview uses ui\gpu\ when every
-rem tool of the edit runs on the GPU (ui\js\gpu-view.js); Process still uses the CPU core. Checks:
+rem tool of the edit runs on the GPU (ui\js\gpu-view.js), Process too (fastedit\core.py). Checks:
 rem   python tests\gpu\tolerance.py       GPU vs CPU core on the parity cases
 rem   python tests\gpu\bench_native.py    speed (DX12 / Vulkan)
+rem   python tests\gpu\process_check.py   Process on the GPU vs the CPU core, own photos at full size
 rem   python fae.py --gpu-spike           WebGPU in the app window, speed of the WebAssembly build
 setlocal
 cd /d "%~dp0"

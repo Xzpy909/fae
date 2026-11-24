@@ -709,6 +709,19 @@ impl Gpu {
         })
     }
 
+    /// Drop the stage and the passes (their GPU memory: for a 50 MP image well over 1 GB); the
+    /// steps are kept, the next upload sets everything up again. Process calls it after a batch.
+    pub fn release(&mut self) {
+        self.stage = None;
+        self.ops.clear();
+        self.result = 0;
+        self.dirty = false;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.upload_staging = None;
+        }
+    }
+
     /// Validation / out-of-memory errors reported since the last call.
     pub fn take_errors(&self) -> Vec<String> {
         self.errors.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default()

@@ -5,6 +5,7 @@
 //!                                           optionally ("sharp", as, bs, st, lc, fo, scale) last;
 //!                                           ValueError for a step the GPU can't run yet
 //!   g.upload(rgb); g.set_steps(steps); g.run(times=1); g.readback()   (benchmarks)
+//!   g.release()                             frees the last image's GPU memory (Process, after a batch)
 //! Every call waits for the GPU (so Python can time it); the waits run without the GIL.
 use numpy::{PyArray3, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3, PyUntypedArrayMethods};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -200,6 +201,11 @@ impl PyGpu {
         self.check()
     }
 
+    /// Free the GPU memory of the last image (the device stays; the next render sets up again).
+    fn release(&mut self) -> PyResult<()> {
+        self.release_impl()
+    }
+
     /// The chain's result as HxWx3 uint8. Waits.
     fn readback<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyArray3<u8>>> {
         let (w, h) = self.g.size().ok_or_else(|| err("no image".into()))?;
@@ -212,6 +218,13 @@ impl PyGpu {
 }
 
 impl PyGpu {
+    /// Free the GPU memory of the last image (the device stays). Waits.
+    fn release_impl(&mut self) -> PyResult<()> {
+        self.g.release();
+        self.g.wait().map_err(err)?;
+        self.check()
+    }
+
     fn check(&self) -> PyResult<()> {
         let e = self.g.take_errors();
         if e.is_empty() { Ok(()) } else { Err(err(e.join("; "))) }

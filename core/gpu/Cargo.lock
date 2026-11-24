@@ -141,7 +141,7 @@ checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
 name = "fae-gpu"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "futures-channel",
  "naga",
@@ -151,7 +151,7 @@ dependencies = [
 
 [[package]]
 name = "fae-gpu-py"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fae-gpu",
  "numpy",
@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "fae-gpu-wasm"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fae-gpu",
  "js-sys",

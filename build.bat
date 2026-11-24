@@ -9,6 +9,10 @@ python -m pip install -r requirements.txt || goto :fail
 rem Rust core (required: the app has no NumPy / JS fallback)
 call core\build_core.bat || goto :fail
 
+rem GPU core (optional: the live preview and Process use it when there is a GPU; without it the
+rem CPU core does everything). PyInstaller picks up fae_gpu and ui\gpu\ when they are built.
+call core\gpu\build_gpu.bat || echo GPU core not built: the exe will use the CPU core only.
+
 set ICON=
 if exist app.ico set ICON=--icon app.ico
 

@@ -91,7 +91,7 @@ def run(label, out, sizes, **kw):
             out.append(f"WARN  {name}: not run: {ex}")
             continue
         ref = {}
-        t_cpu = best(3, lambda: ref.__setitem__("o", core.render(img, job)))
+        t_cpu = best(3, lambda: ref.__setitem__("o", core.render(img, job, engine="cpu")))
         d = np.abs(r["o"].astype(np.int16) - ref["o"].astype(np.int16))
         state = "OK  " if d.mean() < 0.05 and (d.max(axis=2) > 2).mean() <= 1e-4 else "FAIL"
         out.append(f"{state}  {name}: max diff {int(d.max())}, mean {d.mean():.4f} · upload {t_up:.1f} ms · chain {t_pass:.2f} ms · "

@@ -579,6 +579,11 @@ pub fn run_region(src: &[u8], fw: usize, fh: usize, (rx, ry, rw, rh): (usize, us
         || c.stats.len() != steps.len() {
         return false;
     }
+    // the cache keeps one Mid/Detail smoothing: with Mid/Detail on more than one Adjustments step
+    // (since 0.15) a draft can't be exact, so the preview renders the whole image instead
+    if steps.iter().filter(|s| matches!(s, Step::Adjust(a) if a.md != 0.0)).count() > 1 {
+        return false;
+    }
     for (k, s) in steps.iter().enumerate() {
         let ok = match s {
             Step::Bw(Bw { ps: Some(_), .. }) => matches!(c.stats[k], Some(Stat::Ps(_))),

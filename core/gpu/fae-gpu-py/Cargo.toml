@@ -1,0 +1,18 @@
+[package]
+name = "fae-gpu-py"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "fae_gpu"
+crate-type = ["cdylib"]
+
+[dependencies]
+gpu = { package = "fae-gpu", path = "../fae-gpu" }
+numpy = "0.30"
+pyo3 = { version = "0.30", features = ["extension-module"] }
+pollster = "0.4"
+
+[features]
+# test-only, see fae-gpu/src/emulate.rs: maturin build --features emulate
+emulate = ["gpu/emulate"]

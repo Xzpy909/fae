@@ -62,13 +62,34 @@ function editChanged() {
 
 function render() {
   const I = S.img;
-  if (!I || !S.E) { drawCurve(); drawHisto(); return; }
+  if (!I || !S.E) { GV.hide(); GV.badge(I, S.E, null); drawCurve(); drawHisto(); return; }
   const n = I.pw * I.ph, E = S.E;
+  // the GPU core shows the image when it runs every step of the edit (gpu-view.js); the CPU core
+  // below still makes S.outData and the histograms, once the edit settles
+  S.gpuFrame = GV.wants(I, E, viewMode()) && GV.show(I, E);
+  GV.badge(I, E, viewMode());
   // same image and edit as the pixels in S.outData (only the view changed: before, Alt, compare line)
   if (S.rendered && S.rendered.I === I && S.rendered.E === E) { present(n); return; }
-  const rect = S.live && !viewMode() && !S.cropMode ? visibleRect(!!I.full) : null;
+  if (S.gpuFrame) {                  // histograms from the GPU now; its pixels once the edit settles
+    const full = !S.live;
+    GV.results(I, E, full, r => {
+      if (S.img !== I) return;
+      S.hin.set(r.hist.subarray(0, 768)); S.hout.set(r.hist.subarray(768, 1536));
+      S.hmx.set(r.hist.subarray(1536, 1792)); S.hmn.set(r.hist.subarray(1792, 2048));
+      if (r.px && r.E === S.E && S.outData && r.px.length === S.outData.data.length) {
+        S.outData.data.set(r.px);
+        S.rendered = { I, E: r.E };
+        present(n);
+      } else if (S.gpuFrame) {
+        histoLive(false); drawHisto(); drawCurve();
+      }
+    });
+    Sharp.hide(); drawCurve(); drawLoupe(); updateCmp();
+    return;
+  }
+  const rect = S.live && !S.gpuFrame && !viewMode() && !S.cropMode ? visibleRect(!!I.full) : null;
   if (!WP.ready()) {                // the core is starting (it asks for a render when ready) or missing
-    if (WP.failed()) {              // missing: show the unedited image (WP has said why)
+    if (WP.failed() && !S.gpuFrame) {   // missing: show the unedited image (WP has said why)
       S.outData.data.set(I.base);
       S.hin.fill(0); S.hout.fill(0); S.hmx.fill(0); S.hmn.fill(0);
       present(n);
@@ -89,6 +110,7 @@ function render() {
 /* a draft: its rectangle into the image, and only that rectangle onto the canvas (the split views
    are composed there too); histograms, HUD and the rest wait for the full render */
 function presentDraft(R, px) {
+  GV.hide();
   const I = S.img, o = S.outData.data, W = I.pw * 4, rw = R.w * 4;
   for (let y = 0; y < R.h; y++) o.set(px.subarray(y * rw, (y + 1) * rw), (R.y + y) * W + R.x * 4);
   S.rendered = null;                       // the full render still has to come
@@ -120,6 +142,14 @@ function presentDraft(R, px) {
 function present(n) {
   S.n = n;
   const mode = viewMode();
+  if (S.gpuFrame) {                 // the GPU canvas shows the image; S.outData feeds the readouts
+    S.shown = mode === 'before' ? S.baseData : S.outData;
+    Sharp.hide();
+    histoLive(false);
+    drawHisto(); drawCurve(); updateHud(mode); drawLoupe(); updateCmp();
+    return;
+  }
+  GV.hide();
   let disp = S.outData;
   if (mode === 'before') disp = S.baseData;
   else if (mode) { buildModeView(mode); disp = S.dispData; }

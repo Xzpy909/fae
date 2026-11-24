@@ -87,6 +87,10 @@ def main():
     debug = "--debug" in sys.argv
     selftest = "--selftest" in sys.argv
     page = "selftest.html" if selftest else ""     # Rust core / WASM / isolation checks
+    if "--gpu-spike" in sys.argv:                  # GPU core feasibility page (gpu-core-plan, G0)
+        selftest, page = True, "gpu-spike.html"
+    elif "--no-gpu" in sys.argv and not selftest:  # live preview on the CPU core only (ui/js/gpu-view.js)
+        page = "?gpu=0"
     if not core.available() and not selftest:      # no NumPy fallback any more: say how to build it
         msg = (core.error() or "").replace("&", "&amp;").replace("<", "&lt;")
         webview.create_window("Fae", html=(

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-REQUIRED = (0, 13)          # extension version this file needs (bump with the API)
+REQUIRED = (0, 16)          # extension version this file needs (bump with the API)
 BUILD_HINT = r"run core\build_core.bat (needs Rust from https://rustup.rs)"
 
 try:

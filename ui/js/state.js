@@ -114,7 +114,7 @@ const defaultChain = () => CHAIN_TOOLS.map(t => ({ id: t, t }));
 /* Stackable tools (redesign section 8): the same tool more than once in the chain. The first instance
    of a tool (id = the tool) keeps its values in the edit's flat keys; every extra instance (id =
    tool#n) has its own in e.inst[id], its switch in e.off[id] and an optional label in e.lbl[id].
-   Mid/Detail works on the first Adjustments only (the core keeps one smoothing). */
+   Mid/Detail works on every Adjustments instance (each smooths the image as it arrives there). */
 const STACKABLE = ['adjust', 'curves', 'f_bw', 'f_film', 'f_sc'];
 const MAX_INST = 8;                     // instances per tool, the first one included
 const isExtra = x => x.id !== x.t;
@@ -183,7 +183,6 @@ const instOn = (e, id) => !(e.off && e.off[id]);
 function instEdit(e, x) {
   const o = Object.assign({}, e, instValues(e, x.id, x.t));
   if (!instOn(e, x.id)) Object.assign(o, SEC_NEUTRAL[x.t]());
-  if (x.t === 'adjust') o.adj_middetail = 0;
   delete o.chain; delete o.inst;
   return o;
 }

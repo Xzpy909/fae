@@ -191,6 +191,8 @@ button.primary:hover { background: var(--grad); filter: brightness(1.08) saturat
 /* screen-resolution redraw of the visible part (sharp-view.js), over the canvas once the view settles */
 #sharp { position: absolute; display: none; pointer-events: none; }
 #sharp.show { display: block; }
+#gpu { position: absolute; display: none; pointer-events: none; }   /* GPU preview (gpu-view.js) */
+#gpu.show { display: block; }
 #markers { position: absolute; inset: 0; pointer-events: none; }
 .mk { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%;
   border: 2px solid #fff; box-shadow: 0 0 0 1.5px rgba(0,0,0,.7), 0 2px 6px rgba(0,0,0,.5);
@@ -622,6 +624,12 @@ input[type=range]:hover::-webkit-slider-thumb { background: #fff; transform: sca
 #statusbar { grid-area: status; display: flex; align-items: center; gap: 18px; padding: 0 12px;
   background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; }
 #statusbar .grow { flex: 1; }
+/* which core draws the preview (gpu-view.js badge) */
+#stEngine { color: var(--muted); white-space: nowrap; cursor: default; }
+#stEngine::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: #8a8a8a; margin-right: 6px; vertical-align: 1px; }
+#stEngine.gpu { color: #5fd38d; }
+#stEngine.gpu::before { background: #5fd38d; box-shadow: 0 0 6px #5fd38d; }
 .chip { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin: 0 4px; border: 1px solid rgba(255,255,255,.25); }
 
 #toast { position: fixed; left: 50%; bottom: 44px; transform: translate(-50%, 20px); opacity: 0;

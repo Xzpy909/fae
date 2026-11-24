@@ -74,9 +74,16 @@ pub fn sniff(data: &[u8], ext: &str) -> Option<&'static str> {
 
 /// Open `data` (a file's bytes; `ext` = its extension without the dot). `heif` = libheif, when loaded.
 pub fn decode(data: &[u8], ext: &str, heif: Option<&heif::Lib>) -> Result<Image, Error> {
+    decode_draft(data, ext, heif, None)
+}
+
+/// [`decode`], with Pillow's `draft(mode, size)` for JPEG (B2, file-list thumbnails): decoded at 1/2,
+/// 1/4 or 1/8 by libjpeg's DCT scaling, the largest step that keeps both sides at least `size`.
+/// Other formats decode at full size (Pillow's draft does nothing for them).
+pub fn decode_draft(data: &[u8], ext: &str, heif: Option<&heif::Lib>, draft: Option<(u32, u32)>) -> Result<Image, Error> {
     let format = sniff(data, ext).ok_or_else(|| unsupported("unknown image format"))?;
     let (mut img, exif) = match format {
-        "jpeg" => jpeg(data)?,
+        "jpeg" => jpeg(data, draft)?,
         "png" => png(data)?,
         "gif" => (gif(data)?, None),
         "webp" => webp(data)?,
@@ -143,10 +150,18 @@ pub fn orient(img: &mut Image, o: u32) {
 
 // ---- JPEG ---------------------------------------------------------------------------------------------
 
-fn jpeg(data: &[u8]) -> Result<(Image, Option<Vec<u8>>), Error> {
+fn jpeg(data: &[u8], draft: Option<(u32, u32)>) -> Result<(Image, Option<Vec<u8>>), Error> {
     let f = |e| fail("jpeg", e);
-    let d = mozjpeg::Decompress::with_markers(mozjpeg::ALL_MARKERS).from_mem(data).map_err(f)?;
-    let (w, h) = (d.width() as u32, d.height() as u32);
+    let mut d = mozjpeg::Decompress::with_markers(mozjpeg::ALL_MARKERS).from_mem(data).map_err(f)?;
+    if let Some((dw, dh)) = draft {
+        let (w, h) = (d.width() as u32, d.height() as u32);
+        // JpegImagePlugin.draft: scale = min(w // dw, h // dh), then the largest of 8, 4, 2, 1 not above it
+        let scale = (w / dw.max(1)).min(h / dh.max(1));
+        let s = [8u32, 4, 2, 1].into_iter().find(|s| scale >= *s).unwrap_or(1);
+        if s > 1 {
+            d.scale((8 / s) as u8);
+        }
+    }
     let mut exif = None;
     let mut icc: Vec<(u8, Vec<u8>)> = vec![];
     let mut adobe = false;
@@ -164,8 +179,11 @@ fn jpeg(data: &[u8]) -> Result<(Image, Option<Vec<u8>>), Error> {
     icc.sort_by_key(|c| c.0);
     let icc = if icc.is_empty() { None } else { Some(icc.into_iter().flat_map(|c| c.1).collect()) };
     let cs = d.color_space();
+    // the output size (smaller with a draft scale)
+    let (w, h);
     let px = if cs == mozjpeg::ColorSpace::JCS_CMYK || cs == mozjpeg::ColorSpace::JCS_YCCK {
         let mut s = d.to_colorspace(mozjpeg::ColorSpace::JCS_CMYK).map_err(f)?;
+        (w, h) = (s.width() as u32, s.height() as u32);
         let cmyk = s.read_scanlines::<u8>().map_err(f)?;
         s.finish().map_err(f)?;
         let mut px = Vec::with_capacity(cmyk.len() / 4 * 3);
@@ -182,6 +200,7 @@ fn jpeg(data: &[u8]) -> Result<(Image, Option<Vec<u8>>), Error> {
     } else {
         // grey is decoded as grey and repeated (libjpeg's grey → RGB does the same)
         let mut s = d.rgb().map_err(f)?;
+        (w, h) = (s.width() as u32, s.height() as u32);
         let px = s.read_scanlines::<u8>().map_err(f)?;
         s.finish().map_err(f)?;
         px

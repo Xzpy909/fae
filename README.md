@@ -152,9 +152,10 @@ Own images can go into `tests/parity/images/` (not committed).
 The Python back end (`fastedit/`) moves to Rust wave by wave (`core/backend/`, Python extension
 `fae_backend`), behind one table of commands, so the app shell stays thin and could later be swapped
 (pywebview → Tauri) without touching the rest. `ui/js/bridge.js` is the only UI file that knows the
-shell. So far in Rust: settings, presets and opening images (every format but AVIF, with the same
+shell. So far in Rust: settings, presets, opening images (every format but AVIF, with the same
 pixels Pillow gave; HEIC through the libheif that comes with pillow-heif; with [nasm](https://nasm.us)
-installed, `build_backend.bat` builds libjpeg-turbo's faster SIMD code). Before a part moves, its Python results are stored as
+installed, `build_backend.bat` builds libjpeg-turbo's faster SIMD code), and crop / rotate / flip,
+resizing and the file-list thumbnails (Pillow's and OpenCV's maths ported, multi-threaded). Before a part moves, its Python results are stored as
 goldens; the Rust version must match them (exactly, or within the tolerance rule for the parts that
 re-implement OpenCV maths):
 
@@ -163,6 +164,7 @@ core\backend\build_backend.bat           # Python extension fae_backend (build.b
 python tests/stage/stage_check.py        # decode, geometry, resize, colour balance vs the goldens
                                          #   (--impl rust: the Rust version; --own: own photos too)
 python tests/backend/commands_check.py   # the commands moved so far vs their Python behaviour
+python tests/stage/stage_bench.py        # timing: the moved stage steps, Python vs Rust
 ```
 
 ### GPU core (in progress)

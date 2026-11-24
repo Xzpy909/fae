@@ -6,12 +6,13 @@ core: without it the app shows how to build it (app.py) instead of starting.
 """
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import json
 import os
 import sys
 
-REQUIRED = (0, 2)           # extension version this file needs (bump with the API)
+REQUIRED = (0, 3)           # extension version this file needs (bump with the API)
 BUILD_HINT = r"run core\backend\build_backend.bat (needs Rust from https://rustup.rs)"
 
 try:
@@ -77,6 +78,35 @@ class Backend:
             if str(ex).startswith("unknown:"):
                 return None
             raise
+
+
+    def thumb(self, path: str, size: int):
+        """A file-list thumbnail (B2): JPEG bytes; None when the format isn't in the back end yet."""
+        try:
+            return self._b.thumb(path, size)
+        except RuntimeError as ex:
+            if str(ex).startswith("unknown:"):
+                return None
+            raise
+
+    @staticmethod
+    def geometry(raw, P):
+        """Flip / rotate / crop (B2): raw = (pixels, w, h, channels) in and out; P = StageParams."""
+        return _fb.geometry(*raw, _params(P))
+
+    @staticmethod
+    def fit(raw, P):
+        """The resize step (B2): raw in and out."""
+        return _fb.fit(*raw, _params(P))
+
+    @staticmethod
+    def fit_scale(size, P) -> float:
+        """The largest per-axis factor the resize applies to an image of `size` (> 1: upscaling)."""
+        return _fb.fit_scale(size[0], size[1], _params(P))
+
+
+def _params(P) -> str:
+    return json.dumps(dataclasses.asdict(P))
 
 
 _SHARED = None

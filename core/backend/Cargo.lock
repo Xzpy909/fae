@@ -145,7 +145,7 @@ checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
 name = "fae-backend"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "gif",
  "image",
@@ -156,13 +156,14 @@ dependencies = [
  "mozjpeg",
  "mozjpeg-sys",
  "png",
+ "rayon",
  "serde_json",
  "tiff",
 ]
 
 [[package]]
 name = "fae-backend-py"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fae-backend",
  "pyo3",

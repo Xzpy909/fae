@@ -211,6 +211,10 @@ const Crop = (() => {
     v = clamp(Math.round(v * 10) / 10, -45, 45);
     if (Math.abs(v) < 0.05) v = 0;
     if (v === C.angle) return;
+    // turn about the crop box's centre: the box keeps the same part of the image under its centre (the
+    // frame turns about the image centre, so the box centre turns with it by the angle's change)
+    const da = (v - C.angle) * Math.PI / 180, c = Math.cos(da), s = Math.sin(da), d = C.desired;
+    C.desired = { ...d, x: c * d.x - s * d.y, y: s * d.x + c * d.y };
     C.angle = v;
     C.crop = (v === 0 && C.aspect === 'original' && sameRect(C.desired, fullFrame())) ? fullFrame() : shrink(C.desired);
     draw(); drawRuler(); follow();

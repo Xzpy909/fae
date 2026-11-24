@@ -16,8 +16,13 @@
 //!   progress through a callback the shell supplies (pywebview: evaluate_js, Tauri: an event).
 
 pub mod decode;
+pub mod fit;
+pub mod geometry;
 pub mod heif;
+pub mod px;
+pub mod resample;
 pub mod store;
+pub mod thumb;
 
 use serde_json::Value;
 use std::fmt;
@@ -75,6 +80,7 @@ impl std::error::Error for Error {}
 pub enum Wave {
     B0,
     B1,
+    B2,
     B3,
     B4,
     B5,
@@ -110,8 +116,10 @@ pub const COMMANDS: &[(&str, Wave, &str)] = &[
     ("core_info", Wave::B5, "the cores' self-test (self-test page)"),
 ];
 
-/// The waves done in this build (B1 has no command of its own: decoding is used by load_stage, B3).
-const DONE: &[Wave] = &[Wave::B0, Wave::B1];
+/// The waves done in this build. B1 (decoding) and B2 (geometry, resize, thumbnails) have no command of
+/// their own: load_stage (B3) uses them; until then the shell calls them directly ([`Backend::decode_file`],
+/// [`Backend::thumb_file`], [`geometry::apply`], [`fit::fit_image`]).
+const DONE: &[Wave] = &[Wave::B0, Wave::B1, Wave::B2];
 
 pub struct Backend {
     cfg: Config,
@@ -147,6 +155,17 @@ impl Backend {
         let ext = path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
         let heif = if decode::sniff(&data, &ext) == Some("heif") { Some(self.heif()?) } else { None };
         decode::decode(&data, &ext, heif)
+    }
+
+    /// The file list's thumbnail of an image file (B2): JPEG bytes, at most `max` × `max` pixels (as
+    /// engine.py's `_make_thumb`). Kind Unknown for a format the back end doesn't open yet.
+    pub fn thumb_file(&self, path: &Path, max: u32) -> Result<Vec<u8>, Error> {
+        let data = std::fs::read(path).map_err(|e| Error::new(ErrorKind::Io, format!("{}: {e}", path.display())))?;
+        let ext = path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
+        let heif = if decode::sniff(&data, &ext) == Some("heif") { Some(self.heif()?) } else { None };
+        let img = decode::decode_draft(&data, &ext, heif, Some((max, max)))?;
+        let t = thumb::thumbnail(img.into(), (max as usize, max as usize));
+        thumb::encode_jpeg(&t, 82)
     }
 
     /// The commands this build runs (the rest still run in the shell's Python).

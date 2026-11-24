@@ -170,6 +170,12 @@ def make_inputs():
         save("rgba.heic", rgba, quality=90)
     except ImportError:
         out["rgba.heic"] = "not written: pillow-heif missing"
+    # B2: thumbnails that use JPEG draft scaling (+ EXIF rotation) and Pillow's reduce step
+    ex6 = Image.Exif()
+    ex6[0x0112] = 6
+    save("thumb_draft.jpg", Image.fromarray(scene(1000, 700)), quality=85, exif=ex6.tobytes())
+    save("thumb_wide.jpg", Image.fromarray(scene(2000, 240)), quality=85)
+    save("thumb_reduce.png", Image.fromarray(scene(960, 300)))
     for k, v in out.items():
         print(f"  {k:28s} {'ok' if v is True else v}")
 
@@ -268,8 +274,8 @@ class NotMoved(Exception):
 
 
 class PythonImpl:
-    """The Python code as it was: Pillow / OpenCV (decode: Pillow directly; the whole stage: the app's
-    path, which mixes in the parts already moved to Rust)."""
+    """The Python code as it was: Pillow / OpenCV (decode, geometry, resize, thumbnails: Pillow / OpenCV
+    directly; the whole stage: the app's path, which mixes in the parts already moved to Rust)."""
     name = "python"
 
     def __init__(self):
@@ -304,7 +310,8 @@ class PythonImpl:
         return np.asarray(out)
 
     def thumb(self, path):
-        return np.asarray(Image.open(io.BytesIO(self.engine.make_thumb(path))).convert("RGB"))
+        # Pillow itself (engine.make_thumb uses the Rust back end since B2): the reference
+        return np.asarray(Image.open(io.BytesIO(self.engine.make_thumb_pillow(path))).convert("RGB"))
 
     def sizes(self):
         g, c = self.geometry, self.config
@@ -320,8 +327,9 @@ class PythonImpl:
 
 
 class RustImpl:
-    """The Rust back end (fae_backend). Parts arrive wave by wave (B1 decode, B2 geometry / resize, B3
-    colour balance and the stage); until then they raise NotMoved and are skipped."""
+    """The Rust back end (fae_backend). Parts arrive wave by wave (B1 decode, B2 geometry / resize /
+    thumbnails / the size maths, B3 colour balance and the stage); until then they raise NotMoved and
+    are skipped."""
     name = "rust"
 
     def __init__(self):
@@ -329,12 +337,17 @@ class RustImpl:
         from fastedit import backend
         self.fb = fae_backend
         self.b = backend.shared()
-        self.ops = getattr(fae_backend, "stage_ops", None)      # test entry points (B2 on)
 
-    def _op(self, name, *args):
-        if self.ops is None or not hasattr(self.ops, name):
+    def _fn(self, name):
+        f = getattr(self.fb, name, None)
+        if f is None:
             raise NotMoved(name)
-        return getattr(self.ops, name)(*args)
+        return f
+
+    def _raw(self, name, a, kw):
+        h, w, c = a.shape
+        px, ow, oh, oc = self._fn(name)(np.ascontiguousarray(a).tobytes(), w, h, c, json.dumps(kw))
+        return np.frombuffer(px, np.uint8).reshape(oh, ow, oc)
 
     def decode(self, path):
         r = self.b.decode(path)
@@ -345,25 +358,45 @@ class RustImpl:
         return a, {"mode": "RGBA" if ch == 4 else "RGB", "icc": hashlib.sha1(icc).hexdigest()[:12] if icc else None}
 
     def geometry_(self, a, kw):
-        return self._op("geometry", a, kw)
+        return self._raw("geometry", a, kw)
 
     def resize(self, a, kw):
-        return self._op("resize", a, kw)
+        return self._raw("fit", a, dict(resize_on=True, **kw))
 
     def colour_(self, a, spec):
-        return self._op("colour", a, list(spec))
+        raise NotMoved("colour balance (B3)")
 
     def stage(self, path, kw):
-        return self._op("stage", path, kw)
+        raise NotMoved("the whole stage (B3)")
 
     def thumb(self, path):
-        return self._op("thumb", path)
+        from fastedit.config import THUMB_SIZE
+        try:
+            data = self.b._b.thumb(path, THUMB_SIZE * 2)
+        except RuntimeError as ex:
+            if str(ex).startswith("unknown:"):
+                raise NotMoved(str(ex)) from None
+            raise
+        return np.asarray(Image.open(io.BytesIO(data)).convert("RGB"))
 
     def sizes(self):
-        return self._op("sizes", SIZES_WH)
+        mp, ps = self._fn("mpix_size"), self._fn("preset_size")
+        out = {}
+        for w, h in SIZES_WH:
+            for m in (0.05, 0.5, 2.0, 12.0):
+                for pr in ("Balanced", "Mpix priority", "Ratio error priority"):
+                    out[f"mpix {w}x{h} {m} {pr}"] = list(mp(w, h, m, pr))
+        for ar in ("16:9", "4:3", "3:2", "1:1", "9:16", "2:3", "21:9", "bad", "0:5"):
+            for res in (16, 240, 720, 1080, 2160):
+                out[f"preset {ar} {res}"] = list(ps(ar, res))
+        return out
 
 
 # ---- results ------------------------------------------------------------------------------------------
+def _img(r):
+    return r[0] if isinstance(r, tuple) else r
+
+
 def png(a: np.ndarray) -> bytes:
     b = io.BytesIO()
     Image.fromarray(a).save(b, "PNG", optimize=True)
@@ -428,7 +461,7 @@ def cases(own: bool):
     photo = os.path.join(INPUTS, "photo.jpg")
     for n, (kw, ex) in STAGE.items():
         out.append((f"stage/{n}", "img", lambda im, kw=kw: im.stage(photo, kw), ex))
-    for n in ("photo.jpg", "rgba.png", "orient_6.jpg"):
+    for n in ("photo.jpg", "rgba.png", "orient_6.jpg", "thumb_draft.jpg", "thumb_wide.jpg", "thumb_reduce.png"):
         out.append((f"thumb/{n}", "img", lambda im, n=n: im.thumb(os.path.join(INPUTS, n)), False))
     out.append(("sizes/all", "json", lambda im: im.sizes(), True))
     if own:
@@ -436,7 +469,17 @@ def cases(own: bool):
             n = os.path.basename(p)
             out.append((f"own/{n}/decode", "img", lambda im, p=p: im.decode(p), True))
             out.append((f"own/{n}/stage_1080", "img", lambda im, p=p: im.stage(p, dict(resize_on=True, mode="preset", preset_res=1080)), True))
+            # B2 on real photos: the resize, a fine angle with a crop, the thumbnail
+            out.append((f"own/{n}/fit_1080", "img", lambda im, p=p: im.resize(im.decode(p)[0], dict(mode="preset", preset_res=1080)), True))
+            out.append((f"own/{n}/angle_3_crop", "img", lambda im, p=p: _own_angle(im, p), False))
+            out.append((f"own/{n}/thumb", "img", lambda im, p=p: im.thumb(p), False))
     return out
+
+
+def _own_angle(im, path):
+    a = im.decode(path)[0]
+    h, w = a.shape[:2]
+    return im.geometry_(a, dict(angle=3.0, crop_x=w * 0.02, crop_y=-h * 0.01, crop_w=w * 0.85, crop_h=h * 0.85))
 
 
 def record_missing(args) -> int:
@@ -444,10 +487,19 @@ def record_missing(args) -> int:
     im = PythonImpl()
     with zipfile.ZipFile(RESULTS) as z:
         items = {n: z.read(n) for n in z.namelist()}
+    own = {}
+    if args.own and os.path.exists(OWN_RESULTS):
+        with zipfile.ZipFile(OWN_RESULTS) as z:
+            own = {n: z.read(n) for n in z.namelist()}
     meta = json.loads(items.get("meta.json", b"{}"))
     added = []
-    for name, kind, run, _exact in cases(False):
+    for name, kind, run, _exact in cases(args.own):
         key = name + (".json" if kind == "json" else ".png")
+        if name.startswith("own/"):
+            if key not in own and args.k in name:
+                own[key] = png(np.ascontiguousarray(_img(run(im))))
+                added.append(name)
+            continue
         if key in items or args.k not in name:
             continue
         if name in FIXED:
@@ -463,6 +515,11 @@ def record_missing(args) -> int:
     with zipfile.ZipFile(RESULTS, "w", zipfile.ZIP_STORED) as z:
         for k in sorted(items):
             z.writestr(zipfile.ZipInfo(k, date_time=(2026, 1, 1, 0, 0, 0)), items[k])
+    if own:
+        os.makedirs(WORK, exist_ok=True)
+        with zipfile.ZipFile(OWN_RESULTS, "w", zipfile.ZIP_STORED) as z:
+            for k in sorted(own):
+                z.writestr(zipfile.ZipInfo(k, date_time=(2026, 1, 1, 0, 0, 0)), own[k])
     print(f"added {len(added)}: {', '.join(added) or '-'}")
     return 0
 

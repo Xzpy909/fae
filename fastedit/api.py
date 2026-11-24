@@ -10,7 +10,6 @@ import time
 import numpy as np
 from PIL import Image
 from .config import IMAGE_EXTS, PASTE_DIR, PRESETS_PATH, PREVIEW_MAX, SETTINGS_PATH, StageParams
-from .geometry import fit_scale
 from . import backend, core
 from .engine import ENGINE, Entry, collect
 from .proc import Cancelled, _PREV, _TL, check_cancel, preview_begin
@@ -182,10 +181,10 @@ class Api:
             return {
                 "ok": True, "req_id": req_id, "token": token,
                 "w": w, "h": h, "pw": pw, "ph": ph, "full": float(full or 0),
-                "src_w": e.base.size[0], "src_h": e.base.size[1],
+                "src_w": e.size[0], "src_h": e.size[1],
                 "alpha": img.mode == "RGBA",
-                "scale": round(fit_scale(e.geometried(P).size, P), 4),
-                "geo_w": e.geometried(P).size[0], "geo_h": e.geometried(P).size[1],
+                "scale": round(backend.shared().fit_scale(e.geo_size(P), P), 4),
+                "geo_w": e.geo_size(P)[0], "geo_h": e.geo_size(P)[1],
             }
         except Exception as ex:
             return {"ok": False, "req_id": req_id, "error": f"{type(ex).__name__}: {ex}"}

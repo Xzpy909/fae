@@ -21,5 +21,7 @@ image = { version = "0.25", default-features = false, features = ["tiff", "bmp",
 tiff = "0.11"
 jxl-oxide = "0.12"
 kamadak-exif = "0.6"
+# geometry / resampling (B2): rows in parallel
+rayon = "1"
 # HEIC: libheif loaded at run time (heif.rs)
 libloading = "0.9"

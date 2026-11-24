@@ -8,7 +8,7 @@ import uuid
 from collections import OrderedDict
 from PIL import Image, ImageOps, UnidentifiedImageError
 from .config import IMAGE_EXTS, PLUGIN_HINT, StageParams, THUMB_SIZE
-from .geometry import apply_geometry, fit_image, prepare
+from .geometry import prepare
 from .colour import gray_edge_enhance, white_patch_enhance
 from . import backend
 
@@ -27,32 +27,64 @@ def open_image(path: str) -> Image.Image:
         raise
 
 
-def decode(path: str) -> tuple[Image.Image, bytes | None]:
-    """An image file -> (upright RGB / RGBA image, its ICC profile): the Rust back end's decoders
-    (B1, the same pixels Pillow gave), Pillow for the formats not moved yet (AVIF)."""
+def to_pil(raw) -> Image.Image:
+    """(pixels, w, h, channels) -> a Pillow image (RGB / RGBA)."""
+    px, w, h, ch = raw
+    mode = "RGBA" if ch == 4 else "RGB"
+    return Image.frombuffer(mode, (w, h), px, "raw", mode, 0, 1)
+
+
+def decode(path: str) -> tuple[tuple, bytes | None]:
+    """An image file -> ((pixels, w, h, channels): upright RGB / RGBA, its ICC profile): the Rust back
+    end's decoders (B1, the same pixels Pillow gave), Pillow for the formats not moved yet (AVIF)."""
     r = backend.shared().decode(path)
     if r is not None:
         px, w, h, ch, icc, _fmt = r
-        mode = "RGBA" if ch == 4 else "RGB"
-        return Image.frombuffer(mode, (w, h), px, "raw", mode, 0, 1), icc
+        return (px, w, h, ch), icc
     with open_image(path) as im:
         im.load()
-        return prepare(im), im.info.get("icc_profile")
+        img = prepare(im)
+        return (img.tobytes(), img.width, img.height, len(img.getbands())), im.info.get("icc_profile")
 
 
 class Entry:
+    """One opened image: its pixels as decoded (raw: pixels, w, h, channels), the geometry result for
+    the last geometry settings, the resized results for the last few resize settings. Geometry and
+    resizing run in the Rust back end (B2); Pillow images only where the Python stage still needs them."""
+
     def __init__(self, path: str):
         self.path = path
         self.mtime = os.path.getmtime(path)
-        self.base, self.icc = decode(path)
+        self.raw, self.icc = decode(path)
+        self._base = None
         self.fits: dict = {}
         self.geo = (None, None)
 
-    def geometried(self, P: StageParams) -> Image.Image:
+    @property
+    def size(self) -> tuple[int, int]:
+        return self.raw[1], self.raw[2]
+
+    @property
+    def alpha(self) -> bool:
+        return self.raw[3] == 4
+
+    @property
+    def base(self) -> Image.Image:
+        """The decoded image as a Pillow image (crop mode's source), made on first use."""
+        if self._base is None:
+            self._base = to_pil(self.raw)
+        return self._base
+
+    def geometried(self, P: StageParams) -> tuple:
+        """The raw pixels after flip / rotation / crop."""
         key = P.geom_key()
         if self.geo[0] != key:
-            self.geo = (key, apply_geometry(self.base, P))
+            self.geo = (key, backend.shared().geometry(self.raw, P) if P.has_geom() else self.raw)
         return self.geo[1]
+
+    def geo_size(self, P: StageParams) -> tuple[int, int]:
+        g = self.geometried(P)
+        return g[1], g[2]
 
     def fitted(self, P: StageParams) -> Image.Image:
         key = P.fit_key()
@@ -60,7 +92,8 @@ class Entry:
         if img is None:
             if len(self.fits) > 3:
                 self.fits.clear()
-            img = self.fits[key] = fit_image(self.geometried(P), P)
+            g = self.geometried(P)
+            img = self.fits[key] = to_pil(backend.shared().fit(g, P) if P.resize_on else g)
         return img
 
 
@@ -147,6 +180,14 @@ def make_thumb(path: str) -> bytes:
 
 
 def _make_thumb(path: str) -> bytes:
+    """The Rust back end's thumbnail (B2: the same pixels as Pillow's below), Pillow for the formats not
+    moved yet (AVIF)."""
+    data = backend.shared().thumb(path, THUMB_SIZE * 2)
+    return data if data is not None else make_thumb_pillow(path)
+
+
+def make_thumb_pillow(path: str) -> bytes:
+    """Pillow's thumbnail (AVIF until B4; the stage tests' reference)."""
     with open_image(path) as im:
         im.draft("RGB", (THUMB_SIZE * 2, THUMB_SIZE * 2))
         im = ImageOps.exif_transpose(im).convert("RGB")

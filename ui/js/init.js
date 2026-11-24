@@ -33,10 +33,12 @@ async function initSteps() {
       if (s.aom_speed != null && isFinite(Number(s.aom_speed))) S.prefs.aom_speed = clamp(Math.round(Number(s.aom_speed)), 0, 10);
       if (!['WEBP', 'PNG', 'JPEG', 'AVIF'].includes(S.prefs.fmt)) S.prefs.fmt = 'WEBP';
       if (typeof s.advance === 'boolean') S.prefs.advance = s.advance;
+      if (typeof s.dock === 'boolean') S.prefs.dock = s.dock;
       if (s.stage) S.stage = Object.assign(clone(DEFAULT_STAGE), s.stage);
       if (S.stage.mode === '720p') Object.assign(S.stage, { mode: 'preset', preset_ar: '16:9', preset_res: 720 });
     }
   } catch (_) {}
+  Cmd.syncDock();
   Boot.mark('settings');
   try { const ji = await api().encoder_info(); S.cmp.jpegli = !!(ji && ji.jpegli); S.cmp.avif = !!(ji && ji.avif); S.cmp.svt = !!(ji && ji.svt); } catch (_) {}
   Boot.mark('encoders');

@@ -53,9 +53,8 @@ function pasteEdits() {
   else if (stageChanged) requestStage(true);
   status(sameSize || isDefaultGeom(S.clipboard.geom) ? 'Edits pasted' : 'Edits pasted (crop skipped: different image size)');
 }
-$('#copyBtn').addEventListener('click', copyEdits);
-$('#pasteBtn').addEventListener('click', pasteEdits);
-$('#resetBtn').addEventListener('click', () => { S.edit = defaultEdit(); syncPanel(); editChanged(); commit(); });
+// Copy / paste / reset live in the Edit menu and the search (commands.js)
+function resetEdits() { S.edit = defaultEdit(); syncPanel(); editChanged(); commit(); }
 
 /* ======================================================================
    Files

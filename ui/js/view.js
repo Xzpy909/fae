@@ -13,7 +13,11 @@ function applyView() {
   stageEl.style.transform = `translate(${sx}px, ${sy}px) scale(${v.z})`;
   canvas.classList.toggle('pixel', v.z * d >= 2);
   if (typeof GV !== 'undefined') GV.viewChanged();
-  $('#zoomLabel').textContent = I ? Math.round(v.z * dpr() * (I.pw / I.w) * 100) + '%' : '–';
+  const pct = I ? Math.round(v.z * dpr() * (I.pw / I.w) * 100) : 0;
+  $('#zoomLabel').textContent = I ? pct + '%' : '–';
+  // the view toolbar's segment shows which of Fit / 100% is current
+  $('#zoomFit').classList.toggle('on', !!(I && v.fit));
+  $('#zoom100').classList.toggle('on', !!(I && !v.fit && pct === 100));
   updateMarkers();
   updateCmp();
 }
@@ -123,7 +127,7 @@ vp.addEventListener('wheel', e => {
 }, { passive: false });
 
 $('#zoomFit').addEventListener('click', fitView);
-$('#zoomLabel').addEventListener('click', zoom100);      // the zoom readout doubles as the 100% button
+$('#zoom100').addEventListener('click', zoom100);         // the zoom readout opens the zoom levels (commands.js)
 
 window.addEventListener('resize', () => { if (S.view.fit) fitView(); else applyView(); drawCurve(); drawHisto(); });
 
@@ -163,9 +167,9 @@ function drawLoupe() {
   lctx.fillStyle = '#000'; lctx.fillRect(0, 0, 132, 132);
   lctx.drawImage(lsrc, 0, 0, 132, 132);
   // 3x3 sample box (what the eyedropper medians)
-  lctx.strokeStyle = 'rgba(0,0,0,.85)'; lctx.lineWidth = 3;
+  lctx.strokeStyle = 'rgba(14, 14, 17, .85)'; lctx.lineWidth = 3;
   lctx.strokeRect(12 * (half - 1), 12 * (half - 1), 36, 36);
-  lctx.strokeStyle = '#00ffaa'; lctx.lineWidth = 1.5;
+  lctx.strokeStyle = '#d4d4d8'; lctx.lineWidth = 1.5;
   lctx.strokeRect(12 * (half - 1), 12 * (half - 1), 36, 36);
 }
 

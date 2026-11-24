@@ -10,54 +10,51 @@
 <div id="app">
 
   <header id="topbar">
+    <!-- left: logo, the menu bar (commands.js) and the current file -->
     <div class="tb-left">
-    <div class="brand"><img class="logo" src="logo.svg" alt=""><span>Fae</span></div>
-    <div class="fileinfo">
-      <span id="fileName">No image</span>
-      <span id="fileDims" class="muted"></span>
+      <img class="logo" src="logo.svg" alt="Fae">
+      <nav id="menuBar" class="menubar" aria-label="Menu"></nav>
+      <span class="sep"></span>
+      <div class="fileinfo">
+        <span id="fileName">No image</span>
+        <span id="fileDims" class="muted mono"></span>
+        <span id="filePos" class="file-pos mono"></span>
+      </div>
     </div>
-    </div>
-    <!-- zoom: centred in the bar -->
-    <div class="tb-group tb-center" id="zoomGroup">
-      <span class="tb-label">Zoom</span>
-      <button id="zoomFit" class="ghost" title="Fit (0)">Fit</button>
-      <button id="zoomLabel" class="ghost mono" title="Click for 100% (1)">–</button>
-    </div>
-    <div class="tb-right">
-    <div class="tb-group">
+    <!-- centre: the view toolbar (zoom, compare, split view) -->
+    <div class="tb-center" id="viewBar" role="toolbar" aria-label="View">
+      <div class="seg zoom-seg" id="zoomGroup">
+        <button id="zoomFit" title="Fit (0)">Fit</button>
+        <button id="zoom100" title="Actual pixels (1)">100%</button>
+        <button id="zoomLabel" class="mono" title="Zoom levels">–</button>
+      </div>
       <!-- compare: hold to see the original (or hold \), split view on / off -->
-      <button class="icon" id="btnCompare" title="Compare: hold to see the original (or hold \)"><svg viewBox="0 0 24 24"><rect x="2.5" y="6.5" width="13" height="11" rx="1.5"/><path d="M8.5 6.5V4.5a1.5 1.5 0 0 1 1.5-1.5h10a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-4.5"/></svg></button>
-      <button class="icon" id="btnSplit" title="Split view: original | edited (drag the divider)"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="m8 8-4 4 4 4"/><path d="m16 8 4 4-4 4"/></svg></button>
-      <span class="tb-label">Compare</span>
+      <button class="icon" id="btnCompare" title="Compare: hold to see the original (or hold \)" aria-label="Compare"><svg viewBox="0 0 24 24"><rect x="2.5" y="6.5" width="13" height="11" rx="1.5"/><path d="M8.5 6.5V4.5a1.5 1.5 0 0 1 1.5-1.5h10a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-4.5"/></svg></button>
+      <button class="icon" id="btnSplit" title="Split view: original | edited (drag the divider)" aria-label="Split view"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="m8 8-4 4 4 4"/><path d="m16 8 4 4-4 4"/></svg></button>
     </div>
-    <div class="tb-group">
-      <button id="undoBtn" class="icon" title="Undo (Ctrl+Z)">
+    <!-- right: search, history and settings next to the window buttons -->
+    <div class="tb-right">
+      <button id="searchBtn" class="icon" title="Search tools, presets and commands (Ctrl+Space)" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+      <span class="sep"></span>
+      <button id="undoBtn" class="icon" title="Undo (Ctrl+Z)" aria-label="Undo">
         <svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
       </button>
-      <button id="redoBtn" class="icon" title="Redo (Ctrl+Y)">
+      <button id="redoBtn" class="icon" title="Redo (Ctrl+Y)" aria-label="Redo">
         <svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
       </button>
-      <span class="sep"></span>
-      <button id="copyBtn" class="ghost" title="Copy edits (Ctrl+Shift+C)">Copy edits</button>
-      <button id="pasteBtn" class="ghost" title="Paste edits (Ctrl+Shift+V)">Paste</button>
-      <button id="resetBtn" class="ghost" title="Reset point correction and curves">Reset</button>
-    </div>
-    <!-- window buttons (frameless window on Windows: the top bar is the title bar) -->
-    <div class="win-btns">
-      <button id="winMin" title="Minimize" aria-label="Minimize"><svg viewBox="0 0 12 12"><path d="M1.5 6h9"/></svg></button>
-      <button id="winMax" title="Maximize" aria-label="Maximize"><svg class="i-max" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1"/></svg><svg class="i-rest" viewBox="0 0 12 12"><rect x="1.5" y="3.5" width="7" height="7" rx="1"/><path d="M3.5 3.5V2.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1"/></svg></button>
-      <button id="winClose" class="close" title="Close" aria-label="Close"><svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8"/></svg></button>
-    </div>
+      <button id="settingsBtn" class="icon" title="Settings (Ctrl+,)" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg></button>
+      <!-- window buttons (frameless window on Windows: the top bar is the title bar) -->
+      <div class="win-btns">
+        <button id="winMin" title="Minimize" aria-label="Minimize"><svg viewBox="0 0 12 12"><path d="M1.5 6h9"/></svg></button>
+        <button id="winMax" title="Maximize" aria-label="Maximize"><svg class="i-max" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1"/></svg><svg class="i-rest" viewBox="0 0 12 12"><rect x="1.5" y="3.5" width="7" height="7" rx="1"/><path d="M3.5 3.5V2.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1"/></svg></button>
+        <button id="winClose" class="close" title="Close" aria-label="Close"><svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8"/></svg></button>
+      </div>
     </div>
   </header>
 
   <aside id="sidebar">
     <div class="side-head">
       <span class="label">Images <b id="count">0</b></span>
-      <div class="row-btns">
-        <button id="addFiles" class="small">+ Files</button>
-        <button id="addFolder" class="small">+ Folder</button>
-      </div>
     </div>
     <ul id="fileList"></ul>
     <div class="side-foot">
@@ -81,21 +78,23 @@
         <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
       </div>
       <div class="big">Drop images or folders here</div>
-      <div class="muted">or use <b>+ Files</b> / <b>+ Folder</b></div>
+      <div class="muted">or use <b>File › Add files</b> (Ctrl+O) / <b>Add folder</b></div>
     </div>
     <div id="hud"></div>
-    <div id="toolPills">
+    <div id="toolPills" role="toolbar" aria-label="Tools">
       <!-- fixed place in the run order: Crop, Resize, Color balance first, Sharpen last -->
-      <button class="pill" data-sec="crop" title="Crop &amp; Rotate"><svg viewBox="0 0 24 24"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg><i></i></button>
-      <button class="pill" data-sec="resize" title="Resize"><svg viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg><i></i></button>
-      <button class="pill" data-sec="color" title="Color Balance"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path class="fill" d="M12 3a9 9 0 0 0 0 18z"/></svg><i></i></button>
-      <button class="pill" data-sec="sharpen" title="Sharpen"><svg viewBox="0 0 24 24"><path d="M12 2.5 21.5 12 12 21.5 2.5 12z"/><path class="fill" d="M12 2.5 21.5 12H2.5z"/></svg><i></i></button>
+      <button class="pill" data-sec="crop" title="Crop &amp; Rotate"><svg viewBox="0 0 24 24"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg><span class="pl">Crop</span><i></i></button>
+      <button class="pill" data-sec="resize" title="Resize"><svg viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg><span class="pl">Resize</span><i></i></button>
+      <button class="pill" data-sec="color" title="Color Balance"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path class="fill" d="M12 3a9 9 0 0 0 0 18z"/></svg><span class="pl">Color</span><i></i></button>
+      <button class="pill" data-sec="sharpen" title="Sharpen"><svg viewBox="0 0 24 24"><path d="M12 2.5 21.5 12 12 21.5 2.5 12z"/><path class="fill" d="M12 2.5 21.5 12H2.5z"/></svg><span class="pl">Sharpen</span><i></i></button>
+      <span class="dock-sep"></span>
       <!-- the chain: added in the order you open them, re-orderable in the panel -->
-      <button class="pill" data-sec="point" title="Point Correction"><svg viewBox="0 0 24 24"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/></svg><i></i></button>
-      <button class="pill" data-sec="adjust" title="Adjustments"><svg viewBox="0 0 24 24"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></svg><i></i></button>
-      <button class="pill" data-sec="curves" title="Curves"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M6.5 17.5C11 17.5 10 6.5 17.5 6.5"/></svg><i></i></button>
+      <button class="pill" data-sec="point" title="Point Correction"><svg viewBox="0 0 24 24"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/></svg><span class="pl">Point</span><i></i></button>
+      <button class="pill" data-sec="adjust" title="Adjustments"><svg viewBox="0 0 24 24"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></svg><span class="pl">Adjust</span><i></i></button>
+      <button class="pill" data-sec="curves" title="Curves"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M6.5 17.5C11 17.5 10 6.5 17.5 6.5"/></svg><span class="pl">Curves</span><i></i></button>
+      <span class="dock-sep"></span>
       <!-- Filters: opens a centred, scrollable tile popover -->
-      <button id="filtersPill" class="pill" title="Filters"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="6"/><circle cx="15" cy="15" r="6"/></svg><i></i></button>
+      <button id="filtersPill" class="pill" title="Filters"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="6"/><circle cx="15" cy="15" r="6"/></svg><span class="pl">Filters</span><i></i></button>
     </div>
     <div id="filterPop">
       <div class="fp-veil"></div>
@@ -351,6 +350,7 @@
 <script src="js/instances.js"></script>
 <script src="js/chain-presets.js"></script>
 <script src="js/process.js"></script>
+<script src="js/commands.js"></script>
 <script src="js/winchrome.js"></script>
 <script src="js/init.js"></script>
 <script src="js/crop.js"></script>

@@ -131,7 +131,7 @@ function makeJog(cv, pos) {
     ctx.save();
     ctx.beginPath(); ctx.roundRect(0.5, 0.5, W - 1, H - 1, rr); ctx.clip();
     let g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#00373c'); g.addColorStop(0.5, '#002225'); g.addColorStop(1, '#001517');
+    g.addColorStop(0, '#37373a'); g.addColorStop(0.5, '#28282b'); g.addColorStop(1, '#1e1e21');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     // ridges every 6 px of arc at the centre
     const dA = 6 / R, phase = (((pos() / R) % dA) + dA) % dA;
@@ -140,20 +140,20 @@ function makeJog(cv, pos) {
       const lit = 0.10 + 0.55 * c * c;
       ctx.fillStyle = `rgba(0,0,0,${0.55 * c})`;
       ctx.fillRect(x + w * 0.5, 4, Math.max(0.5, 1.6 * c), H - 8);
-      ctx.fillStyle = on ? `rgba(0, 255, 170,${lit})` : `rgba(190, 214, 211,${lit})`;
+      ctx.fillStyle = on ? `rgba(230, 230, 230,${lit})` : `rgba(200, 200, 204,${lit})`;
       ctx.fillRect(x - w * 0.5, 4, w, H - 8);
     }
     // cylinder shading towards the ends + top sheen
     g = ctx.createLinearGradient(0, 0, W, 0);
-    g.addColorStop(0, 'rgba(0, 13, 14,.95)'); g.addColorStop(0.2, 'rgba(0, 13, 14,.15)');
-    g.addColorStop(0.5, 'rgba(0, 13, 14,0)'); g.addColorStop(0.8, 'rgba(0, 13, 14,.15)'); g.addColorStop(1, 'rgba(0, 13, 14,.95)');
+    g.addColorStop(0, 'rgba(24, 24, 27, .95)'); g.addColorStop(0.2, 'rgba(24, 24, 27, .15)');
+    g.addColorStop(0.5, 'rgba(24, 24, 27, 0)'); g.addColorStop(0.8, 'rgba(24, 24, 27, .15)'); g.addColorStop(1, 'rgba(24, 24, 27, .95)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, 'rgba(255,255,255,.07)'); g.addColorStop(0.35, 'rgba(255,255,255,0)');
-    g.addColorStop(1, 'rgba(0,0,0,.35)');
+    g.addColorStop(1, 'rgba(14, 14, 17, .35)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     ctx.restore();
-    ctx.strokeStyle = on ? 'rgba(0, 255, 170,.55)' : 'rgba(255,255,255,.09)';
+    ctx.strokeStyle = on ? 'rgba(255, 255, 255, .23)' : 'rgba(255,255,255,.09)';
     ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(0.5, 0.5, W - 1, H - 1, rr); ctx.stroke();
   };
   new ResizeObserver(draw).observe(cv);

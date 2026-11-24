@@ -218,7 +218,7 @@ const S = {
   geom: defaultGeom(),
   cropMode: false,
   E: null,
-  prefs: { fmt: 'WEBP', advance: true, stage: null, jpeg_q: 90, jpeg_mode: 'q', jpeg_d: 1.0,
+  prefs: { fmt: 'WEBP', advance: true, dock: true, stage: null, jpeg_q: 90, jpeg_mode: 'q', jpeg_d: 1.0,
     webp_lossy: false, webp_q: 90, avif_enc: 'svt', avif_crf: 25, avif_preset: 4, aom_q: 80, aom_speed: 6,
     split: true, secs: [] },
   cmp: { x: 0.5, data: null, path: null, key: null, bytes: 0, enc: '', fmt: '', opts: null, req: Date.now(), busy: false,

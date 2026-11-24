@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex};
 pub use wgpu;
 
 pub mod ops;
+pub mod sharp;
 pub mod view;
 #[cfg(feature = "emulate")]
 pub mod emulate;
@@ -131,8 +132,8 @@ pub fn parse_backends(s: &str) -> Option<wgpu::Backends> {
     if b.is_empty() { None } else { Some(b) }
 }
 
-/// The kinds of steps the GPU runs (G2: every per-pixel tool; Mid/Detail, Perceptual Saturation's
-/// perceptual mode, Super Contrast and Sharpen follow in G3 / G4).
+/// The kinds of steps the GPU runs: every tool (G2: the per-pixel ones; G3: Mid/Detail, Perceptual
+/// Saturation's perceptual mode, Super Contrast; G4: Sharpen, as steps at the end of the chain).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Curves = 0,
@@ -141,6 +142,8 @@ pub enum Kind {
     Bw = 3,
     Film = 4,
     Sc = 5,
+    /// one part of Sharpen (sharp.rs)
+    Sharp = 6,
 }
 
 /// One step of the chain, as the GPU runs it: its kind and its parameter buffer (the layouts are
@@ -163,6 +166,10 @@ pub(crate) enum Aux {
     Ps,
     /// Super Contrast: global statistics, and with `dyn` the Dynamic Contrast cell curves
     Sc { dyn_on: bool },
+    /// Sharpen's blur-based parts: shrink factor, kernel length, formula (sharp_blur.wgsl)
+    SharpBlur { k: u32, taps: u32, mode: u32 },
+    /// Sharpen's Structure (sharp_st.wgsl)
+    SharpSt,
 }
 
 fn f32_bytes(v: &[f32]) -> Vec<u8> {
@@ -179,6 +186,10 @@ pub const MAX_TONES: usize = 16;
 impl Step {
     pub fn kind(&self) -> Kind {
         self.kind
+    }
+
+    pub(crate) fn raw(kind: Kind, p: Vec<f32>, aux: Aux) -> Step {
+        Step { kind, data: f32_bytes(&p), aux }
     }
 
     /// Curves: 3 x 256 levels (r, g, b; the master curve folded in).
@@ -427,8 +438,8 @@ fn mix_table(op: f64, v: impl Fn(usize) -> f64) -> Vec<f32> {
     t
 }
 
-/// The tool kinds the GPU can run (names as in fastedit/core.py's steps). Not yet: Sharpen.
-pub const PORTED: &[&str] = &["point", "adjust", "curves", "bw", "film", "sc"];
+/// The tool kinds the GPU can run (names as in fastedit/core.py's steps; "sharp" = the Sharpen tool).
+pub const PORTED: &[&str] = &["point", "adjust", "curves", "bw", "film", "sc", "sharp"];
 
 /// Uniforms shared by decode / encode (16 bytes).
 fn dims(w: u32, h: u32, third: u32) -> [u8; 16] {
@@ -462,6 +473,8 @@ struct Stage {
     rgba: Option<(wgpu::Buffer, wgpu::Buffer)>,
     /// two vec2<f32> planes for the whole-image passes (Mid/Detail's guided filter), made on first use
     scratch: Option<[wgpu::Buffer; 2]>,
+    /// two RGB f32 planes (12 bytes per pixel) for Sharpen's blurs, made on first use
+    splanes: Option<[wgpu::Buffer; 2]>,
     /// read back: packed RGB words, len = ceil(w*h*3 / 4)
     words: u64,
     out: wgpu::Buffer,
@@ -515,6 +528,13 @@ pub(crate) enum Pipe {
     ScClip,
     ScCurve,
     ScApply,
+    SbMeans,
+    SbAcross,
+    SbDown,
+    SbApply,
+    StPrep,
+    StFine,
+    StApply,
 }
 
 pub struct Gpu {
@@ -636,6 +656,13 @@ impl Gpu {
             compute_pipeline_at(&device, ops::SC_WGSL, "sc_clip", "clip"),
             compute_pipeline_at(&device, ops::SC_WGSL, "sc_curve", "curve"),
             compute_pipeline_at(&device, ops::SC_WGSL, "sc_apply", "apply"),
+            compute_pipeline_at(&device, sharp::BLUR_WGSL, "sb_means", "means"),
+            compute_pipeline_at(&device, sharp::BLUR_WGSL, "sb_across", "across"),
+            compute_pipeline_at(&device, sharp::BLUR_WGSL, "sb_down", "down"),
+            compute_pipeline_at(&device, sharp::BLUR_WGSL, "sb_apply", "apply"),
+            compute_pipeline_at(&device, sharp::ST_WGSL, "st_prep", "prep"),
+            compute_pipeline_at(&device, sharp::ST_WGSL, "st_fine", "fine"),
+            compute_pipeline_at(&device, sharp::ST_WGSL, "st_apply", "apply"),
         ];
         let dummy = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("dummy"),
@@ -772,6 +799,7 @@ impl Gpu {
             hist_groups,
             rgba: None,
             scratch: None,
+            splanes: None,
             words,
             out,
             staging,
@@ -914,6 +942,16 @@ impl Gpu {
             put(11, w as f32);
             put(12, h as f32);
         }
+        if let Aux::SharpBlur { k, .. } = st.aux {
+            put(6, w.div_ceil(k) as f32);
+            put(7, h.div_ceil(k) as f32);
+            put(8, w as f32);
+            put(9, h as f32);
+        }
+        if st.aux == Aux::SharpSt {
+            put(0, sharp::st_coarse(h).1 as f32);
+            put(1, sharp::st_mid(h).1 as f32);
+        }
         d
     }
 
@@ -951,9 +989,19 @@ impl Gpu {
                 clears.extend(c);
                 None
             }
+            Aux::SharpBlur { k, .. } => {
+                passes.extend(self.sharp_blur_passes(inp, out, &params, k));
+                None
+            }
+            Aux::SharpSt => {
+                let (p, k) = self.sharp_st_passes(inp, out, &params);
+                passes.extend(p);
+                keep.extend(k);
+                None
+            }
             Aux::None => None,
         };
-        if matches!(st.aux, Aux::Ps | Aux::Sc { .. }) {
+        if matches!(st.aux, Aux::Ps | Aux::Sc { .. } | Aux::SharpBlur { .. } | Aux::SharpSt) {
             // ps_passes made the whole step, its apply pass included
             return Op { kind: st.kind, aux: st.aux.clone(), len: st.data.len(), params, passes, clears, keep, inp, out };
         }
@@ -964,7 +1012,7 @@ impl Gpu {
             Kind::Adjust => Pipe::Adjust,
             Kind::Bw => Pipe::Bw,
             Kind::Film => Pipe::Film,
-            Kind::Sc => unreachable!("sc_passes makes the whole step"),
+            Kind::Sc | Kind::Sharp => unreachable!("their passes make the whole step"),
         };
         let mut res = vec![
             wgpu::BindingResource::TextureView(&s.views[inp]),
@@ -999,8 +1047,10 @@ impl Gpu {
             return Ok(());
         }
         let stats = self.stats_on;
-        // hin = the input of the first Curves step (the output when there is none)
-        let first_curves = self.ops.iter().position(|o| o.kind == Kind::Curves);
+        // hin = the input of the first Curves step; without one the image before Sharpen (the
+        // output when there is no Sharpen either), as the CPU core counts it
+        let first_curves = self.ops.iter().position(|o| o.kind == Kind::Curves)
+            .or_else(|| self.ops.iter().position(|o| o.kind == Kind::Sharp));
         let mut enc = self.device.create_command_encoder(&Default::default());
         if stats {
             enc.clear_buffer(&self.hist, 0, None);

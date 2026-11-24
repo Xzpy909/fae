@@ -1,7 +1,8 @@
 //! Python extension `fae_gpu`: the GPU core natively (DirectX 12 on Windows, FAE_GPU_BACKEND=vulkan
 //! to try Vulkan; Vulkan elsewhere). API:
 //!   g = Gpu(fallback=False, backends=None); g.info()
-//!   g.render(rgb, steps) -> HxWx3 uint8     steps as fastedit/core.py's _steps builds them;
+//!   g.render(rgb, steps) -> HxWx3 uint8     steps as fastedit/core.py's _steps builds them, then
+//!                                           optionally ("sharp", as, bs, st, lc, fo, scale) last;
 //!                                           ValueError for a step the GPU can't run yet
 //!   g.upload(rgb); g.set_steps(steps); g.run(times=1); g.readback()   (benchmarks)
 //! Every call waits for the GPU (so Python can time it); the waits run without the GIL.
@@ -95,6 +96,12 @@ fn to_steps(steps: &Bound<'_, PyList>) -> PyResult<Vec<gpu::Step>> {
                 let shl = table(t.get_item(6)?)?;
                 gpu::Step::sc(t.get_item(1)?.extract()?, t.get_item(2)?.extract()?, t.get_item(3)?.extract()?,
                               t.get_item(4)?.extract()?, dk.as_deref(), shl.as_deref()).map_err(ve)?
+            }
+            // ("sharp", adaptive, balance, structure, local_contrast, focus, scale): Sharpen, last
+            "sharp" => {
+                let v: Vec<f64> = (1..7).map(|i| t.get_item(i)?.extract()).collect::<PyResult<_>>()?;
+                out.extend(gpu::Step::sharp(v[0], v[1], v[2], v[3], v[4], v[5]));
+                continue;
             }
             other => return Err(PyValueError::new_err(format!("not on the GPU yet: {other}"))),
         });

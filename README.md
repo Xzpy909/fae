@@ -149,17 +149,17 @@ Own images can go into `tests/parity/images/` (not committed).
 ### GPU core (in progress)
 
 The edit math is moving to the GPU (wgpu + WGSL shaders, `core/gpu/`), in waves. The GPU core runs
-every tool except Sharpen (Point correction, Adjustments with Mid/Detail, Curves, Perceptual
-Saturation, Film Effect, Super Contrast) and counts the histograms. The live preview uses it whenever
-the edit has no Sharpen (`ui/js/gpu-view.js`; the status bar says which core draws): the image is then
-drawn at exactly the screen's pixels on every change, pan and zoom, and the histograms follow a dragged
+every tool (Point correction, Adjustments with Mid/Detail, Curves, Perceptual Saturation, Film Effect,
+Super Contrast, Sharpen) and counts the histograms. The live preview uses it whenever WebGPU is
+available (`ui/js/gpu-view.js`; the status bar says which core draws): the image is then drawn at
+exactly the screen's pixels on every change, pan and zoom, and the histograms follow a dragged
 slider. Process still uses the CPU core. The GPU computes in f32 (the CPU core in f64): 99.99 % of the
 values match exactly, the rest are 1 level off with rare outliers (`tests/gpu/tolerance.py` explains
 the rule).
 
 ```
 core\gpu\build_gpu.bat             # Python extension fae_gpu + WebAssembly in ui/gpu/
-python tests/gpu/tolerance.py       # GPU vs CPU core on the parity cases (--trace: where outliers
+python tests/gpu/tolerance.py       # GPU vs CPU core on the parity cases + Sharpen cases (--trace: where outliers
                                     #   start, --steps: how often each step on its own differs)
 python tests/gpu/bench_native.py    # speed, DirectX 12 and Vulkan (--warp: software renderer)
 python fae.py --gpu-spike           # WebGPU in the app window: limits, speed of the WebAssembly build

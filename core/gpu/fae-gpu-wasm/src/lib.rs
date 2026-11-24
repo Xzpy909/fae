@@ -3,7 +3,7 @@
 //! Used by ui/js/gpu-view.js (the preview) and ui/js/gpu-spike.js (the G0 benchmark page):
 //!   const g = await create(canvas);  g.info() -> JSON
 //!   g.upload(px, w, h, bpp)                         the stage, RGBA (bpp 4) or RGB (3)
-//!   g.steps_begin(); g.step_curves(luts768); g.step_point(...); ...; g.steps_end()   the chain
+//!   g.steps_begin(); g.step_curves(luts768); g.step_point(...); ...; g.step_sharp(...); g.steps_end()   the chain
 //!   g.draw(cw, ch, ox, oy, s, split, nearestFrom)   runs the chain if it changed, draws the canvas
 //!   await g.stats()           the UI's histograms (Uint32Array, 2048: hin, hout, hmx, hmn)
 //!   await g.readback_rgba()   the result as RGBA (S.outData)
@@ -148,6 +148,12 @@ impl GpuPreview {
     pub fn step_sc(&mut self, cast: f64, cc: f64, dyn_: f64, op: f64, dk: Option<Vec<f64>>, shl: Option<Vec<f64>>) -> Result<(), JsValue> {
         self.building.push(Step::sc(cast, cc, dyn_, op, dk.as_deref(), shl.as_deref()).map_err(js)?);
         Ok(())
+    }
+
+    /// Sharpen, after every other step: Adaptive (0..1), Balance, Structure, Local Contrast, Focus
+    /// (-1..1), scale = preview pixels per output pixel (its blurs are a fixed size in output pixels).
+    pub fn step_sharp(&mut self, adaptive: f64, balance: f64, structure: f64, local_contrast: f64, focus: f64, scale: f64) {
+        self.building.extend(Step::sharp(adaptive, balance, structure, local_contrast, focus, scale));
     }
 
     pub fn steps_end(&mut self) -> Result<(), JsValue> {

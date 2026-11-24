@@ -6,8 +6,10 @@
 
 Three edits: Curves alone; a per-pixel chain from the parity cases (combo_26: Point, Adjustments,
 Curves, the Perceptual Saturation filter, Film); a whole-image chain (combo_19: Adjustments with
-Mid/Detail, Perceptual Saturation with its perceptual mode, Film, Super Contrast with Dynamic Contrast). Times: upload of the stage, one run of the chain
-(from 20 in one submit), read back; CPU core = the same edit through fastedit_core.
+Mid/Detail, Perceptual Saturation with its perceptual mode, Film, Super Contrast with Dynamic Contrast);
+Sharpen alone with every slider on ("sharp": Adaptive + Balance, Structure, Local Contrast, Focus).
+Times: upload of the stage, one run of the chain (from 20 in one submit), read back; CPU core = the
+same edit through fastedit_core.
 """
 from __future__ import annotations
 
@@ -29,6 +31,7 @@ sys.path.insert(0, os.path.join(ROOT, "tests", "parity"))
 import parity  # noqa: E402
 
 SIZES = [(1001, 999), (6000, 4000), (8660, 5773)]
+SHARP = {"sharp": {"as": 0.6, "bs": 0.4, "st": 0.5, "lc": 0.3, "fo": 0.2}}
 
 
 def test_image(w, h, seed):
@@ -69,12 +72,15 @@ def run(label, out, sizes, **kw):
     out.append(f"INFO  {label}: {i['name']} via {i['backend']} ({i['driver']} {i['driver_info']}), "
                f"max {i['max_texture_2d']} px, up to {i['max_pixels'] / 1e6:.0f} MP")
     cases = {c["id"]: c["job"] for c in parity.load_cases()[0]}
-    edits = (("curves", None), ("chain", cases["combo_26"]), ("whole", cases["combo_19"]))
+    edits = (("curves", None), ("chain", cases["combo_26"]), ("whole", cases["combo_19"]), ("sharp", SHARP))
     for (w, h), (what, job0) in [(sz, e) for sz in sizes for e in edits]:
         name = f"{label} {w}x{h} ({w * h / 1e6:.1f} MP) {what:6s}"
         img = test_image(w, h, w + h)
         job = job0 or {"steps": [{"t": "curves", "luts": random_luts(w * 7 + h).tolist()}]}
         steps = core._steps(job)
+        sp = job.get("sharp")
+        if sp:
+            steps.append(("sharp", sp["as"], sp["bs"], sp["st"], sp["lc"], sp["fo"], 1.0))
         try:
             g.set_steps(steps)
             t_up = best(3, lambda: g.upload(img))

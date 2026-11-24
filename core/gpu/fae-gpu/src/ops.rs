@@ -136,7 +136,7 @@ impl Gpu {
 
 
 
-    fn small_storage(&self, v: &[f32]) -> wgpu::Buffer {
+    pub(crate) fn small_storage(&self, v: &[f32]) -> wgpu::Buffer {
         let b = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("pass params"),
             size: (v.len() * 4).max(16) as u64,
@@ -149,7 +149,7 @@ impl Gpu {
     }
 
     /// The stage's two scratch planes (vec2<f32> per pixel), made on first use.
-    fn scratch(&mut self) -> [wgpu::Buffer; 2] {
+    pub(crate) fn scratch(&mut self) -> [wgpu::Buffer; 2] {
         let d = self.device.clone();
         let s = self.stage.as_mut().unwrap();
         if s.scratch.is_none() {

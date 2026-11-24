@@ -1,13 +1,13 @@
 'use strict';
-/* GPU preview (GPU core plan, waves G1-G2): when every step of the edit runs on the GPU core
+/* GPU preview (GPU core plan, waves G1-G4): when every step of the edit runs on the GPU core
    (ui/gpu/, WebGPU), the image is shown by a WebGPU canvas over the viewport, drawn at exactly the
    screen's pixels (Lanczos-3; nearest from 2 screen px per image px, like the pixel view) on every
    edit, pan and zoom - no drafts, no screen-resolution redraw. The original | edited split and the
    before view are drawn there too.
    The GPU also counts the histograms (every frame, so they follow a dragged slider) and, once the
    edit settles, hands back the pixels (S.outData: RGB readout, loupe, the Alt views on the 2D
-   canvas). The CPU core isn't used for such an edit at all. An edit with Sharpen (not on the GPU
-   yet) uses the CPU path unchanged. Off with ?gpu=0 (fae.py --no-gpu); without WebGPU or ui/gpu/ the app works
+   canvas). The CPU core isn't used for such an edit at all. Since G4 every tool runs on the GPU,
+   Sharpen included (its blurs get the preview's scale, as the CPU preview's). Off with ?gpu=0 (fae.py --no-gpu); without WebGPU or ui/gpu/ the app works
    as before. */
 const GV = (() => {
   const params = new URLSearchParams(location.search);
@@ -16,7 +16,7 @@ const GV = (() => {
   ($('#sharp') || stageEl).after(cv);       // over the image and the Lanczos overlay, under markers / split line
 
   let g = null, ready = false, failed = false, why = '', info = null;
-  let img = null, edit = null, on = false, queued = false, checking = false;
+  let img = null, edit = null, editImg = null, on = false, queued = false, checking = false;
   const plans = new WeakMap(), blockers = new WeakMap();
   const TOOL_NAMES = { md: 'Mid/Detail', ps: 'Perceptual Saturation ≈', sc: 'Super Contrast', sharp: 'Sharpen',
     point: 'Point correction', adjust: 'Adjustments', bw: 'Perceptual Saturation', film: 'Film Effect' };
@@ -38,7 +38,6 @@ const GV = (() => {
   function plan(E) {
     if (plans.has(E)) return plans.get(E);
     let out = [], blocker = null;
-    if (E.sharp) { out = null; blocker = 'sharp'; }
     const list = E.steps || ORDER.map(t => ({ t, e: E }));
     for (const x of out ? list : []) {
       const s = x.e || x;
@@ -85,14 +84,20 @@ const GV = (() => {
       }
       if (!out) break;
     }
+    // Sharpen last, as the CPU core runs it; show() adds the image's scale
+    const SH = E.sharp;
+    if (out && SH) out.push({ t: 'sharp', args: [SH.as || 0, SH.bs || 0, SH.st || 0, SH.lc || 0, SH.fo || 0], scaled: true });
     plans.set(E, out);
     if (blocker) blockers.set(E, blocker);
     return out;
   }
 
+  // preview pixels per output pixel (wasm-preview.js outScale for the live image)
+  const outScale = I => (I.w ? I.pw / I.w : 1);
+
   function fail(reason) {
     if (failed) return;
-    failed = true; ready = false; why = reason; g = null; img = null; edit = null;
+    failed = true; ready = false; why = reason; g = null; img = null; edit = null; editImg = null;
     hide();
     console.warn('GPU preview off: ' + reason);
     if (typeof requestRender === 'function') requestRender();
@@ -179,11 +184,12 @@ const GV = (() => {
     show(I, E) {
       try {
         if (img !== I) { g.upload(I.base, I.pw, I.ph, 4); img = I; }
-        if (edit !== E) {
+        const P = plan(E), scaled = P.some(st => st.scaled);
+        if (edit !== E || (scaled && editImg !== I)) {      // Sharpen's scale depends on the image too
           g.steps_begin();
-          for (const st of plan(E)) g['step_' + st.t](...st.args);
+          for (const st of P) g['step_' + st.t](...(st.scaled ? [...st.args, outScale(I)] : st.args));
           g.steps_end();
-          edit = E;
+          edit = E; editImg = I;
         }
       } catch (e) { fail(String((e && e.message) || e)); return false; }
       on = true;

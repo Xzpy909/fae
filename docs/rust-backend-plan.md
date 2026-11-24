@@ -1,7 +1,7 @@
 # Rust back end: plan
 
-Status: **B0, B1, B2 done** (on main; B2 in e5f520a). **B3 in Rust** (fae_backend 0.4.0, branch
-`rust-backend-b3`): waiting for the Windows build and the owner's check; then the Python stage goes. Moves the Python back
+Status: **B0, B1, B2, B3 done** (on main; fae_backend 0.4.0). B3 passed the Windows build and the owner's
+check; its clean-up (removing the Python stage and OpenCV, below) is still to do. **Next: B4.** Moves the Python back
 end (`fastedit/`) into Rust, wave by wave, so the app keeps working after every wave and a later switch from
 pywebview to **Tauri** is a small last step instead of a rewrite. Not a goal in itself: no visible change to
 the editor; the gains are a smaller, faster-starting app (no NumPy / OpenCV / Pillow at run time), one
@@ -126,7 +126,7 @@ dependency removed.
 - Result: every stage case identical to Python; engine.py's `Entry` keeps raw pixels and calls
   `backend.geometry` / `backend.fit`. geometry.py stays as the test reference until B3.
 
-### B3 — Color balance → `load_stage` in Rust (1 session) — IN RUST, waiting for the Windows check
+### B3 — Color balance → `load_stage` in Rust (1 session) — DONE (on main), clean-up left
 - White-Patch (percentile, strength), Gray-Edge (Minkowski p, sigma, strength) in linear sRGB.
 - `load_stage` / `load_source` / `sample` move to fae-backend (with the entry cache: decoded pixels, the
   geometry result, the last few resize results); preview tokens served from Rust.

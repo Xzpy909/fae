@@ -18,7 +18,7 @@ Pipeline order:
 Code layout: fastedit/ (Python back end), ui/ (front end: index.html, style.css, js/).
 
 Requirements:
-    pip install pywebview pillow numpy opencv-python
+    pip install pywebview pillow numpy
     optional input formats: pip install pillow-heif (HEIC/HEIF)  pillow-jxl-plugin (JPEG XL)
 
 Run:

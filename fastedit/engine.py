@@ -1,20 +1,19 @@
-"""Image loading, stage cache and thumbnails."""
+"""Opening images with Pillow (the formats the Rust back end doesn't decode yet: AVIF until B4), file
+lists and thumbnails. The stage itself (decode, geometry, resize, colour balance, its cache and the
+previews) runs in the Rust back end since B3 (fae-backend stage.rs)."""
 from __future__ import annotations
 
 import io
 import os
 import threading
-import uuid
 from collections import OrderedDict
 from PIL import Image, ImageOps, UnidentifiedImageError
-from .config import IMAGE_EXTS, PLUGIN_HINT, StageParams, THUMB_SIZE
-from .geometry import prepare
-from .colour import gray_edge_enhance, white_patch_enhance
+from .config import IMAGE_EXTS, PLUGIN_HINT, THUMB_SIZE
 from . import backend
 
 
 # ---------------------------------------------------------------------------
-# Image cache + stage pipeline
+# Opening images with Pillow
 # ---------------------------------------------------------------------------
 def open_image(path: str) -> Image.Image:
     """Image.open with a clear message when an optional decoder is missing."""
@@ -34,117 +33,23 @@ def to_pil(raw) -> Image.Image:
     return Image.frombuffer(mode, (w, h), px, "raw", mode, 0, 1)
 
 
-def decode(path: str) -> tuple[tuple, bytes | None]:
-    """An image file -> ((pixels, w, h, channels): upright RGB / RGBA, its ICC profile): the Rust back
-    end's decoders (B1, the same pixels Pillow gave), Pillow for the formats not moved yet (AVIF)."""
-    r = backend.shared().decode(path)
-    if r is not None:
-        px, w, h, ch, icc, _fmt = r
-        return (px, w, h, ch), icc
-    return decode_pillow(path)
+def prepare(img: Image.Image) -> Image.Image:
+    """EXIF rotation, then RGB or RGBA (grayscale is promoted to RGB for editing): as decode.rs does."""
+    img = ImageOps.exif_transpose(img)
+    has_alpha = "A" in img.getbands() or "transparency" in img.info
+    want = "RGBA" if has_alpha else "RGB"
+    if img.mode != want:
+        img = img.convert(want)
+    return img
 
 
 def decode_pillow(path: str) -> tuple[tuple, bytes | None]:
-    """Pillow's decode, for the formats the Rust back end doesn't open yet (AVIF until B4)."""
+    """Pillow's decode, for the formats the Rust back end doesn't open yet (AVIF until B4): ((pixels, w,
+    h, channels): upright RGB / RGBA, its ICC profile)."""
     with open_image(path) as im:
         im.load()
         img = prepare(im)
         return (img.tobytes(), img.width, img.height, len(img.getbands())), im.info.get("icc_profile")
-
-
-class Entry:
-    """The Python stage, kept as the stage tests' reference until B3 is checked on Windows (the app's
-    stage runs in the Rust back end since B3: fae-backend stage.rs). One opened image: its pixels as decoded (raw: pixels, w, h, channels), the geometry result for
-    the last geometry settings, the resized results for the last few resize settings. Geometry and
-    resizing run in the Rust back end (B2); Pillow images only where the Python stage still needs them."""
-
-    def __init__(self, path: str):
-        self.path = path
-        self.mtime = os.path.getmtime(path)
-        self.raw, self.icc = decode(path)
-        self._base = None
-        self.fits: dict = {}
-        self.geo = (None, None)
-
-    @property
-    def size(self) -> tuple[int, int]:
-        return self.raw[1], self.raw[2]
-
-    @property
-    def alpha(self) -> bool:
-        return self.raw[3] == 4
-
-    @property
-    def base(self) -> Image.Image:
-        """The decoded image as a Pillow image (crop mode's source), made on first use."""
-        if self._base is None:
-            self._base = to_pil(self.raw)
-        return self._base
-
-    def geometried(self, P: StageParams) -> tuple:
-        """The raw pixels after flip / rotation / crop."""
-        key = P.geom_key()
-        if self.geo[0] != key:
-            self.geo = (key, backend.shared().geometry(self.raw, P) if P.has_geom() else self.raw)
-        return self.geo[1]
-
-    def geo_size(self, P: StageParams) -> tuple[int, int]:
-        g = self.geometried(P)
-        return g[1], g[2]
-
-    def fitted(self, P: StageParams) -> Image.Image:
-        key = P.fit_key()
-        img = self.fits.get(key)
-        if img is None:
-            if len(self.fits) > 3:
-                self.fits.clear()
-            g = self.geometried(P)
-            img = self.fits[key] = to_pil(backend.shared().fit(g, P) if P.resize_on else g)
-        return img
-
-
-class Engine:
-    def __init__(self):
-        self.lock = threading.RLock()
-        self.entries: "OrderedDict[str, Entry]" = OrderedDict()
-        self.previews: "OrderedDict[str, tuple[bytes, int, int]]" = OrderedDict()
-        self.current = None        # {"path","rgb","req"}
-        self.latest_req = -1
-
-    def entry(self, path: str) -> Entry:
-        with self.lock:
-            key = os.path.normcase(os.path.abspath(path))
-            e = self.entries.get(key)
-            if e is not None and e.mtime != os.path.getmtime(path):
-                e = None
-            if e is None:
-                e = Entry(path)
-                self.entries[key] = e
-                while len(self.entries) > 4:
-                    self.entries.popitem(last=False)
-            self.entries.move_to_end(key)
-            return e
-
-    def stage(self, path: str, P: StageParams) -> tuple[Entry, Image.Image]:
-        with self.lock:
-            e = self.entry(path)
-            out = e.fitted(P)
-            if P.wp_on:
-                out = white_patch_enhance(out, P.wp_pct, P.wp_strength)
-            if P.ge_on:
-                out = gray_edge_enhance(out, P.ge_p, P.ge_sigma, P.ge_strength)
-            return e, out
-
-    def put_preview(self, rgba: bytes, w: int, h: int) -> str:
-        token = uuid.uuid4().hex
-        with self.lock:
-            self.previews[token] = (rgba, w, h)
-            while len(self.previews) > 8:   # image + Mid/Detail base per load
-                self.previews.popitem(last=False)
-        return token
-
-
-ENGINE = Engine()
 
 
 def collect(paths) -> list[str]:

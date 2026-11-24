@@ -1,7 +1,7 @@
 # Rust back end: plan
 
-Status: **B0, B1, B2, B3 done** (on main; fae_backend 0.4.0). B3 passed the Windows build and the owner's
-check; its clean-up (removing the Python stage and OpenCV, below) is still to do. **Next: B4.** Moves the Python back
+Status: **B0, B1, B2, B3 done** (on main; fae_backend 0.4.0; geometry.py, colour.py, the Python stage and
+OpenCV removed). **Next: B4.** Moves the Python back
 end (`fastedit/`) into Rust, wave by wave, so the app keeps working after every wave and a later switch from
 pywebview to **Tauri** is a small last step instead of a rewrite. Not a goal in itself: no visible change to
 the editor; the gains are a smaller, faster-starting app (no NumPy / OpenCV / Pillow at run time), one
@@ -34,12 +34,12 @@ language for the engine, and an easy Tauri switch later.
   algorithm is ported, the tolerance rule where OpenCV maths is re-implemented (section 3); the Python code
   goes only after the Rust version passes on Windows. Bump the crate version (`core/backend/Cargo.toml`) and
   `REQUIRED` in backend.py together. Commit / privacy rules: `CLAUDE.md`.
-- **B3 starting point:** colour balance is `fastedit/colour.py` (White-Patch, Gray-Edge in linear sRGB,
-  OpenCV Gaussian / Sobel) — the colour-balance and whole-stage cases in the stage tests are waiting
-  for it (`RustImpl.colour_` / `RustImpl.stage` raise NotMoved). The stage itself is engine.py `Engine.stage`
-  / `Entry` (raw pixels → `backend.geometry` → `backend.fit` → colour balance → api.py `_preview_rgba`);
-  B3 moves that whole path (with `load_stage` / `load_source` / `sample` and the preview tokens) into
-  fae-backend, so the pixels stop crossing into Python. Then geometry.py, colour.py and OpenCV go.
+- **B4 starting point:** the encoders are `fastedit/output.py` (PNG, WebP, the lossy dispatch, saving),
+  `jpeg.py` (cjpegli.exe) and `avif.py` (SvtAv1EncApp.exe, the 10-bit 4:4:4 conversion, the OBU parser /
+  AVIF muxer, Pillow's aom fallback); `proc.py` runs them cancellably. AVIF is also the one format the
+  stage still opens with Pillow (engine.py `decode_pillow`, handed to Rust with `give_source`) and the
+  file list's AVIF thumbnails (`make_thumb_pillow`): an AVIF decoder (dav1d) in Rust ends both. Decide
+  the alpha AVIF question first (section 3). Record goldens from the Python encoders before replacing them.
 
 ## 1. Where things are
 
@@ -47,10 +47,10 @@ language for the engine, and an easy Tauri switch later.
 |---|---|---|
 | Decode + prepare | **Rust (B1)**: decode.rs, heif.rs (EXIF rotation, RGB / RGBA, ICC kept for output); AVIF still Pillow until B4 | engine.py `decode`, geometry.py `prepare` (Pillow, pillow-heif, pillow-jxl-plugin) |
 | Thumbnails (file list) | **Rust (B2)**: thumb.rs; AVIF still Pillow | engine.py `make_thumb_pillow` |
-| Geometry | **Rust (B2)**: geometry.rs (quarter turns / flip, free angle as OpenCV's warpAffine Lanczos-4, crop, crop_free) | geometry.py `apply_geometry` (kept as the test reference until B3) |
-| Resize | **Rust (B2)**: resample.rs, fit.rs (Pillow's Lanczos, Mpix / preset / custom sizes) | geometry.py `fit_image` and helpers (test reference until B3) |
-| Color balance | Python: colour.py White-Patch, Gray-Edge (linear sRGB, Gaussian, Sobel) — **B3** | NumPy, OpenCV |
-| The stage and its cache | Python: engine.py `Engine`, `Entry`; api.py `load_stage` / `load_source` / `sample` — **B3** | Pillow (preview resize) |
+| Geometry | **Rust (B2)**: geometry.rs (quarter turns / flip, free angle as OpenCV's warpAffine Lanczos-4, crop, crop_free) | geometry.py `apply_geometry` (removed in B3) |
+| Resize | **Rust (B2)**: resample.rs, fit.rs (Pillow's Lanczos, Mpix / preset / custom sizes) | geometry.py `fit_image` and helpers (removed in B3) |
+| Color balance | **Rust (B3)**: colour.rs (White-Patch, Gray-Edge) | colour.py (removed in B3), NumPy, OpenCV |
+| The stage and its cache | **Rust (B3)**: stage.rs (entry cache, load_stage / load_source / sample, preview tokens) | engine.py `Engine`, `Entry` (removed in B3) |
 | The edit (Process) | core.py `render`: GPU core, else CPU core, skipped kit filters — **B5** | fae_gpu, fastedit_core (both Rust already) |
 | Encoders | output.py PNG / WebP, jpeg.py (cjpegli.exe), avif.py (SvtAv1EncApp.exe + own OBU parser / AVIF muxer; Pillow aom fallback, also for alpha) — **B4** | Pillow, subprocess |
 | Encoded compare | api.py `lossy_preview`: render, encode, decode back, size; cancellation (proc.py) — **B5** | all of the above |
@@ -126,7 +126,7 @@ dependency removed.
 - Result: every stage case identical to Python; engine.py's `Entry` keeps raw pixels and calls
   `backend.geometry` / `backend.fit`. geometry.py stays as the test reference until B3.
 
-### B3 — Color balance → `load_stage` in Rust (1 session) — DONE (on main), clean-up left
+### B3 — Color balance → `load_stage` in Rust (1 session) — DONE (on main)
 - White-Patch (percentile, strength), Gray-Edge (Minkowski p, sigma, strength) in linear sRGB.
 - `load_stage` / `load_source` / `sample` move to fae-backend (with the entry cache: decoded pixels, the
   geometry result, the last few resize results); preview tokens served from Rust.
@@ -140,9 +140,11 @@ dependency removed.
   over (`give_source`); Process and the encoded compare take the stage image from Rust (`Backend.stage`)
   and store their preview with `put_preview`. `tests/backend/commands_check.py` compares the three
   commands with api.py's old code (answers, preview pixels, samples, AVIF).
-- Left for after the owner's check: delete geometry.py / colour.py / engine.py's `Engine` / `Entry` (the
-  stage tests' Python reference then reads only the goldens), drop opencv-python from requirements.txt
-  (`prepare` moves next to engine.py's Pillow decode for AVIF).
+- Clean-up done after the owner's check: geometry.py, colour.py and engine.py's `Engine` / `Entry` deleted,
+  opencv-python dropped (`prepare` lives next to engine.py's Pillow decode for AVIF). The stage tests'
+  goldens are now the only reference for geometry, resize, colour balance and the stage; new cases of
+  theirs are recorded from Rust (`--record-missing`), `--record` is refused. Python at run time: Pillow
+  (AVIF decode, thumbnails' AVIF, encoders) and NumPy (core.py, avif.py) until B4 / B5.
 
 ### B4 — Encoders and output (2–3 sessions)
 - PNG, WebP lossless / lossy (libwebp), JPEG through cjpegli.exe (quality / distance), AVIF through

@@ -7,9 +7,10 @@ B0: get_settings / save_settings / get_presets / save_presets. The reference is 
 (kept below): the same files must come back the same, edge cases included (missing, broken, not an
 object, non-ASCII text, key order, a file written by the old code read by the new and back).
 
-B3: load_stage / load_source / sample. The reference is api.py's code before B3 (kept below, on the
-Python stage in engine.py): the same answers (sizes, scale, alpha, ...), the same preview pixels, the
-same samples; AVIF (opened by Pillow until B4) goes through give_source.
+B3: load_stage / load_source / sample. The reference is api.py's code before B3 (kept below), on the
+stage image the back end hands Python for Process (Backend.stage; the Python stage it replaced is gone,
+the stage tests hold its results): the same answers (sizes, scale, alpha, ...), the same preview pixels
+(Pillow), the same samples (NumPy); AVIF (opened by Pillow until B4) goes through give_source.
 """
 from __future__ import annotations
 
@@ -48,35 +49,50 @@ def py_get_presets(path):
         return {}
 
 
-# ---- the Python behaviour before B3 (api.py, on engine.py's Python stage) -------------------------------
+# ---- the Python behaviour before B3 (api.py), on the stage image from the back end -----------------------
+_CURRENT = {}
+
+
+def _src_geo(path, P):
+    """The source size and the size after the geometry step (what engine.py's Entry reported)."""
+    from fastedit.engine import decode_pillow
+    r = backend.shared().decode(path)
+    raw = (r[0], r[1], r[2], r[3]) if r is not None else decode_pillow(path)[0]
+    g = backend.Backend.geometry(raw, P) if P.has_geom() else raw
+    return (raw[1], raw[2]), (g[1], g[2])
+
+
 def py_load_stage(path, params, req_id, full=0):
     import numpy as np
     from PIL import Image
     from fastedit.api import _preview_rgba, _pv_size
     from fastedit.config import StageParams
-    from fastedit.engine import ENGINE
+    from fastedit.engine import to_pil
     P = StageParams.from_dict(params)
-    e, img = ENGINE.stage(path, P)
+    raw, _icc = backend.shared().stage(path, P)
+    img = to_pil(raw)
+    src, geo = _src_geo(path, P)
     w, h = img.size
     pw, ph = _pv_size(w, h, full)
     rgba = _preview_rgba(img, (pw, ph), Image.Resampling.LANCZOS)
-    ENGINE.current = {"rgb": np.ascontiguousarray(np.asarray(img.convert("RGB")))}
+    _CURRENT["rgb"] = np.ascontiguousarray(np.asarray(img.convert("RGB")))
     return {
         "ok": True, "req_id": req_id,
         "w": w, "h": h, "pw": pw, "ph": ph, "full": float(full or 0),
-        "src_w": e.size[0], "src_h": e.size[1],
+        "src_w": src[0], "src_h": src[1],
         "alpha": img.mode == "RGBA",
-        "scale": round(backend.shared().fit_scale(e.geo_size(P), P), 4),
-        "geo_w": e.geo_size(P)[0], "geo_h": e.geo_size(P)[1],
+        "scale": round(backend.shared().fit_scale(geo, P), 4),
+        "geo_w": geo[0], "geo_h": geo[1],
     }, rgba
 
 
 def py_load_source(path):
     from PIL import Image
     from fastedit.api import _preview_rgba
-    from fastedit.config import PREVIEW_MAX
-    from fastedit.engine import ENGINE
-    img = ENGINE.entry(path).base
+    from fastedit.config import PREVIEW_MAX, StageParams
+    from fastedit.engine import to_pil
+    raw, _icc = backend.shared().stage(path, StageParams())     # no geometry, no resize: the source
+    img = to_pil(raw)
     W, H = img.size
     pw, ph = W, H
     if max(W, H) > PREVIEW_MAX:
@@ -88,8 +104,7 @@ def py_load_source(path):
 
 def py_sample(nx, ny):
     import numpy as np
-    from fastedit.engine import ENGINE
-    a = ENGINE.current["rgb"]
+    a = _CURRENT["rgb"]
     h, w = a.shape[:2]
     x = int(min(w - 1, max(0, nx * w)))
     y = int(min(h - 1, max(0, ny * h)))
@@ -139,11 +154,12 @@ def check_stage(check, b, d):
     check(f"load_stage of a missing file: ok false ({r.get('error')})", r.get("ok") is False and r.get("req_id") == 99)
     check("an old preview token is gone", b.preview("0" * 32) is None)
     from fastedit.config import StageParams
-    from fastedit.engine import Entry
+    from fastedit.engine import decode_pillow
     path = os.path.join(INPUTS, "icc.png")
     raw, icc = b.stage(path, StageParams())
-    check("stage image (Process): the source's ICC profile", icc is not None and icc == Entry(path).icc)
-    check("stage image (Process): the pixels as decoded", raw == Entry(path).raw)
+    want_raw, want_icc = decode_pillow(path)
+    check("stage image (Process): the source's ICC profile", icc is not None and icc == want_icc)
+    check("stage image (Process): the pixels as decoded", raw == want_raw)
 
 
 SAMPLES = [

@@ -3,15 +3,16 @@ the edit (decode, geometry, resize, colour balance, the whole stage, file-list t
 maths), recorded from the Python implementation **before** each part moves to Rust, then checked against
 whichever implementation runs it.
 
-    python tests/stage/stage_check.py                  # check (implementation: python; later waves: rust)
-    python tests/stage/stage_check.py --impl rust      # the Rust back end (parts not moved yet: skipped)
+    python tests/stage/stage_check.py                  # check the Rust back end against the stored results
+    python tests/stage/stage_check.py --impl python    # Pillow's decode / thumbnails (the rest: no Python version
+                                                       #   since B3, skipped)
     python tests/stage/stage_check.py -k resize -v     # only cases whose name contains "resize", list each
-    python tests/stage/stage_check.py --record         # store the Python results (tests/stage/results.zip)
-    python tests/stage/stage_check.py --record-missing # store only cases without a result (new inputs / cases)
+    python tests/stage/stage_check.py --record-missing # store only cases without a result (new inputs / cases;
+                                                       #   from Python where it still exists, else from Rust)
     python tests/stage/stage_check.py --make-inputs    # (re)write tests/stage/inputs/ (once; committed)
     python tests/stage/stage_check.py --own            # also own photos in tests/parity/images/ (results in
                                                        #   tests/stage/.work/own_results.zip, not committed;
-                                                       #   --record --own stores them)
+                                                       #   --record-missing --own stores them)
 
 Inputs: small synthetic files in every format the app opens (tests/stage/inputs/, committed so every
 machine decodes the same bytes) and two synthetic images made in memory (a 401 x 267 "scene", a
@@ -275,56 +276,42 @@ class NotMoved(Exception):
 
 
 class PythonImpl:
-    """The Python code as it was: Pillow / OpenCV (decode, geometry, resize, thumbnails: Pillow / OpenCV
-    directly; the whole stage: the app's path, which mixes in the parts already moved to Rust)."""
+    """The Python code as it was, where it still exists: Pillow's decode and thumbnails. Geometry, resize,
+    colour balance and the whole stage lost their Python version in B3 (geometry.py, colour.py and the
+    Python stage were removed once the Rust back end matched them on every case): the stored results are
+    their reference now, and new cases of theirs are recorded from the Rust back end (--record-missing)."""
     name = "python"
 
     def __init__(self):
-        from fastedit import config, engine, geometry, colour
-        self.config, self.engine, self.geometry, self.colour = config, engine, geometry, colour
-
-    def P(self, **kw):
-        return self.config.StageParams(**kw)
+        from fastedit import engine
+        self.engine = engine
 
     def decode(self, path):
-        # Pillow itself (engine.Entry opens with the Rust back end since B1): the reference
+        # Pillow itself (the stage opens files with the Rust back end since B1): the reference
         with self.engine.open_image(path) as im:
             im.load()
             icc = im.info.get("icc_profile")
-            base = self.geometry.prepare(im)
+            base = self.engine.prepare(im)
         return np.asarray(base), {"mode": base.mode, "icc": hashlib.sha1(icc).hexdigest()[:12] if icc else None}
 
     def geometry_(self, a, kw):
-        return np.asarray(self.geometry.apply_geometry(Image.fromarray(a), self.P(**kw)))
+        raise NotMoved("geometry: Python version removed in B3")
 
     def resize(self, a, kw):
-        return np.asarray(self.geometry.fit_image(Image.fromarray(a), self.P(resize_on=True, **kw)))
+        raise NotMoved("resize: Python version removed in B3")
 
     def colour_(self, a, spec):
-        im = Image.fromarray(a)
-        if spec[0] == "wp":
-            return np.asarray(self.colour.white_patch_enhance(im, spec[1], spec[2]))
-        return np.asarray(self.colour.gray_edge_enhance(im, spec[1], spec[2], spec[3]))
+        raise NotMoved("colour balance: Python version removed in B3")
 
     def stage(self, path, kw):
-        _, out = self.engine.ENGINE.stage(path, self.P(**kw))
-        return np.asarray(out)
+        raise NotMoved("the stage: Python version removed in B3")
 
     def thumb(self, path):
         # Pillow itself (engine.make_thumb uses the Rust back end since B2): the reference
         return np.asarray(Image.open(io.BytesIO(self.engine.make_thumb_pillow(path))).convert("RGB"))
 
     def sizes(self):
-        g, c = self.geometry, self.config
-        out = {}
-        for w, h in SIZES_WH:
-            for mp in (0.05, 0.5, 2.0, 12.0):
-                for pr in (c.PRIO_BALANCED, c.PRIO_MPIX, c.PRIO_RATIO):
-                    out[f"mpix {w}x{h} {mp} {pr}"] = list(g.mpix_size(w, h, mp, pr))
-        for ar in ("16:9", "4:3", "3:2", "1:1", "9:16", "2:3", "21:9", "bad", "0:5"):
-            for res in (16, 240, 720, 1080, 2160):
-                out[f"preset {ar} {res}"] = list(g.preset_size(ar, res))
-        return out
+        raise NotMoved("the size maths: Python version removed in B3")
 
 
 class RustImpl:
@@ -494,8 +481,18 @@ def _own_angle(im, path):
 
 
 def record_missing(args) -> int:
-    """Add the Python results of cases that have none to results.zip; every stored entry keeps its bytes."""
-    im = PythonImpl()
+    """Add the results of cases that have none to results.zip: the Python version's where it still exists,
+    else the Rust back end's (geometry, resize, colour balance, the stage: identical to the removed Python
+    code on every case when B3 removed it); every stored entry keeps its bytes."""
+    py, rs = PythonImpl(), None
+
+    def run_ref(run):
+        nonlocal rs
+        try:
+            return run(py)
+        except NotMoved:
+            rs = rs or RustImpl()
+            return run(rs)
     with zipfile.ZipFile(RESULTS) as z:
         items = {n: z.read(n) for n in z.namelist()}
     own = {}
@@ -508,7 +505,7 @@ def record_missing(args) -> int:
         key = name + (".json" if kind == "json" else ".png")
         if name.startswith("own/"):
             if key not in own and args.k in name:
-                own[key] = png(np.ascontiguousarray(_img(run(im))))
+                own[key] = png(np.ascontiguousarray(_img(run_ref(run))))
                 added.append(name)
             continue
         if key in items or args.k not in name:
@@ -516,7 +513,7 @@ def record_missing(args) -> int:
         if name in FIXED:
             items[key] = png(FIXED[name][1]())
         else:
-            r = run(im)
+            r = run_ref(run)
             if isinstance(r, tuple):
                 r, info = r
                 meta[name] = info
@@ -537,7 +534,7 @@ def record_missing(args) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--impl", default="python", choices=["python", "rust"])
+    ap.add_argument("--impl", default="rust", choices=["python", "rust"])
     ap.add_argument("-k", default="")
     ap.add_argument("-v", action="store_true")
     ap.add_argument("--record", action="store_true", help="store the Python implementation's results")
@@ -550,8 +547,9 @@ def main() -> int:
         return 0
     if args.record_missing:
         return record_missing(args)
-    if args.record and args.impl != "python":
-        print("--record stores the Python implementation's results (the reference)")
+    if args.record:
+        print("--record would rewrite every result, and the Python version of geometry, resize, colour balance and the\n"
+              "stage is gone since B3 (the stored results are their reference): use --record-missing")
         return 2
     im = PythonImpl() if args.impl == "python" else RustImpl()
     t0 = time.perf_counter()
@@ -604,7 +602,7 @@ def main() -> int:
                     meta[name] = info
                 good, msg = True, "recorded"
             elif key not in stored:
-                good, msg = False, "not recorded (--record with the Python implementation)"
+                good, msg = False, "not recorded (--record-missing)"
             else:
                 want = unpng(stored[key])
                 good, msg = compare(r, want, exact)

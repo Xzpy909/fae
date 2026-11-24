@@ -2,7 +2,7 @@
 
 **Fast Image Editor.** A fast, keyboard-friendly desktop editor for batch-preparing images: crop and rotate, colour-correct with eyedroppers and curves, resize to 720p or a target megapixel count, then export to lossless WEBP/PNG or lossy JPEG (jpegli), AVIF (SVT-AV1) or WEBP. Lossy formats have a split-view preview, so you can judge the real encode at the chosen settings before saving.
 
-Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/JS; the edit math is a Rust core (Python extension + WebAssembly, see below); loading, geometry, resizing and encoding use NumPy, OpenCV and Pillow.
+Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/JS; the edit math is a Rust core (Python extension + WebAssembly, see below); the stage (loading, geometry, resizing, colour balance) is a Rust back end; encoding uses Pillow and the encoders.
 
 ## Preview
 
@@ -76,7 +76,7 @@ Pipeline order: `geometry → resize → White-Patch → Gray-Edge → point cor
 pip install -r requirements.txt
 ```
 
-(`pywebview>=5.0`, `pillow>=11.2`, `numpy`, `opencv-python`, `pillow-heif`, `pillow-jxl-plugin`). Pillow 11.2 or newer is needed for AVIF decoding in the preview and for the aom fallback.
+(`pywebview>=5.0`, `pillow>=11.2`, `numpy`, `pillow-heif`, `pillow-jxl-plugin`). Pillow 11.2 or newer is needed for AVIF decoding in the preview and for the aom fallback.
 The Rust core and the Rust back end are required as well: build them once with `core\build_core.bat` and
 `core\backend\build_backend.bat` (see [Rust core](#rust-core)).
 
@@ -156,17 +156,19 @@ The Python back end (`fastedit/`) moves to Rust wave by wave (`core/backend/`, P
 (pywebview → Tauri) without touching the rest. `ui/js/bridge.js` is the only UI file that knows the
 shell. So far in Rust: settings, presets, opening images (every format but AVIF, with the same
 pixels Pillow gave; HEIC through the libheif that comes with pillow-heif; with [nasm](https://nasm.us)
-installed, `build_backend.bat` builds libjpeg-turbo's faster SIMD code), and crop / rotate / flip,
-resizing and the file-list thumbnails (Pillow's and OpenCV's maths ported, multi-threaded). Before a part moves, its Python results are stored as
+installed, `build_backend.bat` builds libjpeg-turbo's faster SIMD code), crop / rotate / flip,
+resizing, the file-list thumbnails, White-Patch / Gray-Edge and the whole stage with its cache and
+previews (Pillow's, OpenCV's and NumPy's maths ported, multi-threaded; OpenCV is no longer needed).
+Before a part moves, its Python results are stored as
 goldens; the Rust version must match them (exactly, or within the tolerance rule for the parts that
 re-implement OpenCV maths):
 
 ```
 core\backend\build_backend.bat           # Python extension fae_backend (build.bat runs it too)
-python tests/stage/stage_check.py        # decode, geometry, resize, colour balance vs the goldens
-                                         #   (--impl rust: the Rust version; --own: own photos too)
+python tests/stage/stage_check.py        # decode, geometry, resize, colour balance, the stage vs the goldens
+                                         #   (--impl python: Pillow's decode / thumbnails; --own: own photos too)
 python tests/backend/commands_check.py   # the commands moved so far vs their Python behaviour
-python tests/stage/stage_bench.py        # timing: the moved stage steps, Python vs Rust
+python tests/stage/stage_bench.py        # timing of the stage in Rust (Pillow next to it where it still does the job)
 ```
 
 Plan, status and how to work on a wave (build, tests, rules, where B3 starts): `docs/rust-backend-plan.md`.
@@ -255,10 +257,9 @@ python fae.py --test-filters        # the kit's hidden test filters in the Filte
 fae.py   # entry point
 fastedit/              # Python back end
 ├── config.py          # paths, defaults, per-image stage parameters
-├── geometry.py        # resize presets, crop / rotate / flip
-├── colour.py          # White-Patch, Gray-Edge
 ├── core.py            # Process / compare preview: GPU core (fae_gpu) or CPU core (fastedit_core)
-├── engine.py          # image loading, stage cache, thumbnails
+├── backend.py         # the Rust back end (fae_backend): the stage, settings, presets
+├── engine.py          # Pillow decode (AVIF), file lists, thumbnails
 ├── proc.py            # running external encoders (cancellable preview encodes)
 ├── jpeg.py, avif.py   # JPEG (jpegli) and AVIF (SVT-AV1 + container muxer, aom fallback)
 ├── output.py          # WEBP, lossy dispatch, saving

@@ -900,7 +900,7 @@ body.tile-dragging, body.tile-dragging * { cursor: grabbing !important; }
 /* the tool dock: frosted, centred at the bottom of the image, icon + word; off in Settings › Preferences */
 #toolPills { left: 50%; top: auto; bottom: 18px; transform: translateX(-50%); flex-wrap: nowrap; max-width: none;
   align-items: flex-end; gap: 3px; padding: 6px 8px; border-radius: 18px;
-  background: rgba(41, 41, 44, .55); border: 1px solid rgba(255, 255, 255, .13);  
+  background: rgba(41, 41, 44, .94); border: 1px solid rgba(255, 255, 255, .13);  
   box-shadow: 0 14px 40px rgba(14, 14, 17, .45), inset 0 1px 0 rgba(255, 255, 255, .06); }
 #toolPills .pill { width: 58px; height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 4px; border-radius: 12px; background: transparent; border-color: transparent; box-shadow: none;   }

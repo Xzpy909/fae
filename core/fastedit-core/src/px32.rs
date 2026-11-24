@@ -76,15 +76,30 @@ fn rnd(x: F) -> F {
     ((x + 0.5).clamp(0.0, 255.0) as i32) as F
 }
 
+/// 10000 x luma of whole levels: an exact integer (0.2126 r + 0.7152 g + 0.0722 b scaled).
+#[inline(always)]
+fn l10k(r: F, g: F, b: F) -> u32 {
+    r as u32 * 2126 + g as u32 * 7152 + b as u32 * 722
+}
+
+/// Luma of whole levels, exact: a whole result is exactly whole (the f64 sum of the three products
+/// wasn't always - white became 254.99999999999997 -> 254 under Saturation 0), and a fractional one
+/// is at least 2e-4 from a whole level, so f32 (the GPU core) truncates it the same way.
 #[inline(always)]
 fn luma(r: F, g: F, b: F) -> F {
+    l10k(r, g, b) as F / 10000.0
+}
+
+/// Mid/Detail's luma (unchanged: moves with Mid/Detail's port to the GPU)
+#[inline(always)]
+fn luma_md(r: F, g: F, b: F) -> F {
     0.2126 * r + 0.7152 * g + 0.0722 * b
 }
 
-/// min(floor(y * 16 + 0.5), 4095) for y >= 0
+/// min(floor(luma * 16 + 0.5), 4095) of whole levels, in integers (exact)
 #[inline(always)]
-fn t16(y: F) -> usize {
-    (y * 16.0 + 0.5).clamp(0.0, 4095.0) as usize
+fn t16(r: F, g: F, b: F) -> usize {
+    ((l10k(r, g, b) * 16 + 5000) / 10000).min(4095) as usize
 }
 
 pub(crate) struct Tone {
@@ -94,6 +109,7 @@ pub(crate) struct Tone {
 
 /// one step, its tables as F
 pub(crate) enum Op {
+    /// o: the anchor, the new luma at 255 (edit::point_anchor)
     Point { lv: bool, k: F, o: F, gains: Option<[F; 3]> },
     Adjust {
         /// Mid/Detail amount (0 = off) and its fade-in weight by luma (4097 entries over 0..=1)
@@ -124,7 +140,7 @@ impl Op {
     pub fn from_step(s: &Step) -> Option<Op> {
         Some(match s {
             Step::Point { k, o, gains } => Op::Point {
-                lv: *k != 1.0 || *o != 0.0, k: *k as F, o: *o as F,
+                lv: *k != 1.0 || *o != 0.0, k: *k as F, o: crate::edit::point_anchor(*k, *o) as F,
                 gains: gains.map(|g| [g[0] as F, g[1] as F, g[2] as F]),
             },
             Step::Adjust(a) => Op::Adjust {
@@ -201,10 +217,11 @@ fn point(c: &mut Chunk, lv: bool, k: F, o: F, gains: Option<[F; 3]>) {
         let (mut r, mut g, mut b) = (c.r[i], c.g[i], c.b[i]);
         if lv {
             let l = luma(r, g, b);
-            let ra = (l * k + o).clamp(0.0, 255.0) / l.max(1.0);
-            r *= ra;
-            g *= ra;
-            b *= ra;
+            let bl = (o + (l - 255.0) * k).clamp(0.0, 255.0);   // o: the anchor (edit::point_anchor)
+            let m = l.max(1.0);
+            r = r * bl / m;
+            g = g * bl / m;
+            b = b * bl / m;
         }
         c.r[i] = u8c(r * gn[0]);
         c.g[i] = u8c(g * gn[1]);
@@ -218,7 +235,7 @@ fn mid_detail(c: &mut Chunk, amount: F, w: &[F], base: &[f32]) {
     let n = N.min(base.len());
     let (mut j, mut fr) = ([0usize; N], [0 as F; N]);
     for i in 0..n {
-        let p = (luma(c.r[i], c.g[i], c.b[i]) / 255.0).clamp(0.0, 1.0) * 4096.0;
+        let p = (luma_md(c.r[i], c.g[i], c.b[i]) / 255.0).clamp(0.0, 1.0) * 4096.0;
         j[i] = (p as usize).min(4095);
         fr[i] = p - j[i] as F;
     }
@@ -229,8 +246,9 @@ fn mid_detail(c: &mut Chunk, amount: F, w: &[F], base: &[f32]) {
     }
     for i in 0..n {
         let (r, g, b) = (c.r[i], c.g[i], c.b[i]);
-        let y = luma(r, g, b) / 255.0;
+        let y = luma_md(r, g, b) / 255.0;
         let d = a * (w0[i] + (w1[i] - w0[i]) * fr[i]) * (y - base[i] as F);
+        let d = if d.abs() < crate::edit::MD_DEAD { 0.0 } else { d };
         c.r[i] = u8c(r + d);
         c.g[i] = u8c(g + d);
         c.b[i] = u8c(b + d);
@@ -263,7 +281,7 @@ fn contrast(c: &mut Chunk, t: &[F]) {
         ir[i] = c.r[i] as usize * 16;
         ig[i] = c.g[i] as usize * 16;
         ib[i] = c.b[i] as usize * 16;
-        iy[i] = t16(luma(c.r[i], c.g[i], c.b[i]));
+        iy[i] = t16(c.r[i], c.g[i], c.b[i]);
     }
     let (c0, c1, c2, cy) = (gather(t, &ir), gather(t, &ig), gather(t, &ib), gather(t, &iy));
     for i in 0..N {
@@ -278,16 +296,16 @@ fn contrast(c: &mut Chunk, t: &[F]) {
 fn tone(c: &mut Chunk, t: &Tone) {
     let mut iy = [0usize; N];
     for i in 0..N {
-        iy[i] = t16(luma(c.r[i], c.g[i], c.b[i]));
+        iy[i] = t16(c.r[i], c.g[i], c.b[i]);
     }
     let y2 = gather(&t.t, &iy);
     if t.ratio {
         for i in 0..N {
             let (r, g, b) = (c.r[i], c.g[i], c.b[i]);
-            let q = y2[i] / luma(r, g, b).max(0.5);
-            c.r[i] = u8c(r * q);
-            c.g[i] = u8c(g * q);
-            c.b[i] = u8c(b * q);
+            let m = luma(r, g, b).max(0.5);
+            c.r[i] = u8c(r * y2[i] / m);
+            c.g[i] = u8c(g * y2[i] / m);
+            c.b[i] = u8c(b * y2[i] / m);
         }
     } else {
         for i in 0..N {

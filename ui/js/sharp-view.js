@@ -38,7 +38,7 @@ const Sharp = (() => {
   function draw() {
     const I = S.img, v = S.view, d = dpr(), src = S.shown;
     const s = v.z * d;                  // screen pixels per canvas pixel
-    if (!I || !src || S.cropMode || S.live || canvas.style.display !== 'block' || s >= 0.999
+    if (!I || !src || S.cropMode || S.live || (typeof GV !== 'undefined' && GV.on()) || canvas.style.display !== 'block' || s >= 0.999
         || src.width !== canvas.width || src.height !== canvas.height) return;
     const r = vp.getBoundingClientRect();
     if (!r.width || !r.height) return;

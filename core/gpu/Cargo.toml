@@ -1,0 +1,17 @@
+# GPU core (wgpu + WGSL), see claude/gpu-core-plan.md. Its own workspace for now, so the CPU core's
+# Cargo.lock (and its pinned wasm-bindgen for the threaded WASM build) stays untouched.
+#   fae-gpu      : host code + shaders/*.wgsl
+#   fae-gpu-py   : Python extension `fae_gpu` (Process, benchmarks)
+#   fae-gpu-wasm : WebAssembly for the preview (WebGPU in WebView2)
+[workspace]
+resolver = "2"
+members = ["fae-gpu", "fae-gpu-py", "fae-gpu-wasm"]
+
+[workspace.package]
+version = "0.4.1"
+edition = "2021"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1

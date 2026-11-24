@@ -6,7 +6,7 @@
      original, same values, switch and label.
    - Row menu (right-click an island's head): Duplicate, Rename…, Move up, Move down, Reset, Remove.
    - A Filters tile adds a new instance when the filter is already open (Inst.add).
-   - Up to MAX_INST per tool. Mid/Detail is on the first Adjustments only (the core keeps one smoothing). */
+   - Up to MAX_INST per tool. Mid/Detail works on every Adjustments. */
 const Inst = (() => {
   const RESET = '<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
   const DUP = '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>';
@@ -41,7 +41,6 @@ const Inst = (() => {
     const box = c.querySelector('.ifields');
     if (t === 'adjust') {
       for (const [key, label, def, min, max, step, dec] of ADJUST) {
-        if (key === 'adj_middetail') continue;      // first Adjustments only
         makeField(box, { obj: 'edit', key, label, min, max, step, dec, def, target: tg,
           center: key === 'adj_sat' || key === 'adj_contrast' ? def : undefined });
       }
@@ -96,7 +95,6 @@ const Inst = (() => {
     if (!STACKABLE.includes(t)) return;
     if (full(t)) { toast(`At most ${MAX_INST} ${NAME[t]} in the chain`, true); return; }
     const id = nextInstId(e, t), v = instValues(e, key, t);
-    if (t === 'adjust') v.adj_middetail = 0;
     e.inst = Object.assign({}, e.inst, { [id]: v });
     if (!instOn(e, key)) e.off = Object.assign({}, e.off, { [id]: true });
     if (e.lbl && e.lbl[key]) e.lbl = Object.assign({}, e.lbl, { [id]: e.lbl[key] });

@@ -1,0 +1,24 @@
+[package]
+name = "fae-gpu"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+futures-channel = "0.3"
+# test-only: FAE_GPU_EMULATE (src/emulate.rs) rewrites the shaders the way NVIDIA's compiler does
+naga = { version = "30", features = ["wgsl-in", "wgsl-out"], optional = true }
+
+[features]
+emulate = ["dep:naga"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# native: DirectX 12 on Windows (WARP as the software fallback), Vulkan elsewhere
+wgpu = { version = "30", default-features = false, features = ["std", "wgsl", "dx12", "vulkan", "parking_lot"] }
+pollster = "0.4"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# browser: WebGPU only (no WebGL fallback, no wgpu-core in the .wasm)
+wgpu = { version = "30", default-features = false, features = ["std", "wgsl", "webgpu"] }
+
+[dev-dependencies]
+pollster = "0.4"

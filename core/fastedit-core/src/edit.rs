@@ -124,6 +124,10 @@ impl Edit<'_> {
 pub const MD_GAIN: f64 = 0.952;
 pub const MD_K: f64 = 0.706;
 pub const MD_GAMMA: f64 = 0.662;
+/// Mid/Detail changes below this many levels count as none: in flat areas the detail (luma minus
+/// its smoothed self) is 0 up to rounding noise, and truncating `level - 1e-9` darkened whole flat
+/// patches by one level depending on the noise's sign (and differently on the GPU).
+pub const MD_DEAD: f64 = 1.0 / 256.0;
 
 /// Mid/Detail for one pixel (apply_mid_detail in edit.py): detail = luma - smoothed luma,
 /// added to all channels, faded out in the shadows. libm's pow, the same in every build.
@@ -133,6 +137,7 @@ pub fn md_px(px: [u8; 3], amount: f64, base: f32) -> [u8; 3] {
     let y = (0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2]) / 255.0;
     let w = libm::pow(y.max(0.0) / MD_K, MD_GAMMA).min(1.0);
     let d = amount * MD_GAIN * w * (y - base as f64) * 255.0;
+    let d = if d.abs() < MD_DEAD { 0.0 } else { d };
     [u8c(f[0] + d), u8c(f[1] + d), u8c(f[2] + d)]
 }
 
@@ -143,9 +148,23 @@ pub fn luma01(rgb: &[u8]) -> Vec<f32> {
         .collect()
 }
 
+/// 10000 x luma of whole levels: an exact integer.
+#[inline(always)]
+pub(crate) fn l10k(r: f64, g: f64, b: f64) -> u32 {
+    r as u32 * 2126 + g as u32 * 7152 + b as u32 * 722
+}
+
+/// Luma of whole levels (0.2126 r + 0.7152 g + 0.0722 b), exact: whole results are exactly whole and
+/// fractional ones at least 2e-4 from a whole level (see px32.rs; the GPU core computes the same).
 #[inline(always)]
 pub(crate) fn luma(r: f64, g: f64, b: f64) -> f64 {
-    0.2126 * r + 0.7152 * g + 0.0722 * b
+    l10k(r, g, b) as f64 / 10000.0
+}
+
+/// t16 of the luma of whole levels, in integers (exact)
+#[inline(always)]
+pub(crate) fn t16l(r: f64, g: f64, b: f64) -> usize {
+    ((l10k(r, g, b) * 16 + 5000) / 10000).min(4095) as usize
 }
 
 /// np.clip(x, 0, 255).astype(np.uint8)  (clamp keeps NaN like np.clip; NaN as u8 = 0)
@@ -154,11 +173,6 @@ pub(crate) fn u8c(x: f64) -> u8 {
     x.clamp(0.0, 255.0) as u8
 }
 
-/// np.minimum(np.floor(y * 16 + 0.5), 4095).astype(np.intp)   (y >= 0 here)
-#[inline(always)]
-pub(crate) fn t16(y: f64) -> usize {
-    (y * 16.0 + 0.5).floor().min(4095.0) as usize
-}
 
 /// np.clip(np.floor(x + 0.5), 0, 255)   (still a float)
 #[inline(always)]
@@ -217,15 +231,26 @@ pub(crate) fn film_px(p: [u8; 3], fm: &Film) -> [u8; 3] {
 
 /// Point correction for one pixel: luma levels (k, o), then the neutral-gray gains.
 #[inline(always)]
+/// The new luma at 255 (`255 k + o`), whole when it is within 1e-9 of a whole level. The levels line
+/// is evaluated as `anchor + (luma - 255) k`, so white lands exactly on the anchor in any arithmetic
+/// (the GPU core does the same): "black only" keeps 255 anchored, but `255 k + o` came out
+/// 254.99999999999997 for some samples and white turned 254.
+pub fn point_anchor(k: f64, o: f64) -> f64 {
+    let a = 255.0 * k + o;
+    if (a - a.round()).abs() < 1e-9 { a.round() } else { a }
+}
+
 pub fn point_px(px: [u8; 3], k: f64, o: f64, gains: Option<[f64; 3]>) -> [u8; 3] {
     let (mut fr, mut fg, mut fb) = (px[0] as f64, px[1] as f64, px[2] as f64);
     if k != 1.0 || o != 0.0 {
+        // rgb * (new luma / luma), multiplied before dividing: a grey pixel gets exactly the new
+        // luma (255 * (255 / 37) was 254.99999999999997 -> 254: white point clipping missed white)
         let lum = luma(fr, fg, fb);
-        let bl = (lum * k + o).clamp(0.0, 255.0);
-        let ra = bl / lum.max(1.0);
-        fr *= ra;
-        fg *= ra;
-        fb *= ra;
+        let bl = (point_anchor(k, o) + (lum - 255.0) * k).clamp(0.0, 255.0);
+        let m = lum.max(1.0);
+        fr = fr * bl / m;
+        fg = fg * bl / m;
+        fb = fb * bl / m;
     }
     if let Some(gn) = gains {
         fr *= gn[0];
@@ -300,18 +325,17 @@ fn adjust_parts(px: [u8; 3], wb: &Option<[[f64; 3]; 3]>, con: Option<&[f64]>, to
         let c0 = con[r as usize * 16];
         let c1 = con[g as usize * 16];
         let c2 = con[b as usize * 16];
-        let y = luma(r as f64, g as f64, b as f64);
-        let d = con[t16(y)] - (0.2126 * c0 + 0.7152 * c1 + 0.0722 * c2);
+        let d = con[t16l(r as f64, g as f64, b as f64)] - (0.2126 * c0 + 0.7152 * c1 + 0.0722 * c2);
         (r, g, b) = (u8c(c0 + d), u8c(c1 + d), u8c(c2 + d));
     }
 
     for t in tones {
         let (fr, fg, fb) = (r as f64, g as f64, b as f64);
         let y = luma(fr, fg, fb);
-        let y2 = t.table[t16(y)];
+        let y2 = t.table[t16l(fr, fg, fb)];
         if t.ratio {
-            let q = y2 / y.max(0.5);
-            (r, g, b) = (u8c(fr * q), u8c(fg * q), u8c(fb * q));
+            let m = y.max(0.5);     // multiplied before dividing, as in point_px
+            (r, g, b) = (u8c(fr * y2 / m), u8c(fg * y2 / m), u8c(fb * y2 / m));
         } else {
             let d = y2 - y;
             (r, g, b) = (u8c(fr + d), u8c(fg + d), u8c(fb + d));

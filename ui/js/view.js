@@ -14,6 +14,7 @@ function applyView() {
   canvas.classList.toggle('pixel', v.z * d >= 2);
   checkHires();
   if (typeof Sharp !== 'undefined') Sharp.dirty();
+  if (typeof GV !== 'undefined') GV.viewChanged();
   $('#zoomLabel').textContent = I ? Math.round(v.z * dpr() * (I.pw / I.w) * 100) + '%' : '–';
   updateMarkers();
   updateCmp();

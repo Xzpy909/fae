@@ -2,6 +2,7 @@
 (live preview) must give exactly the same pixels and histograms as the stored goldens.
 
   python tests/parity/parity.py record                 # (re)write the goldens, from the Python core
+  python tests/parity/parity.py record --keep-cases    # same inputs, new goldens (the core's math changed)
   python tests/parity/parity.py check --impl core      # Rust core, Python extension
   python tests/parity/parity.py check --impl wasm      # Rust core, WebAssembly (in node, single thread)
   python tests/parity/parity.py tables                 # do this machine's UI tables match the stored cases?
@@ -272,7 +273,8 @@ def record(args):
     if args.k:
         sys.exit("record always writes every case (no -k)")
     need_core()
-    write_cases(generate_cases())
+    if not args.keep_cases:            # --keep-cases: new goldens for the stored inputs (no node needed)
+        write_cases(generate_cases())
     cases, _ = load_cases()
     man = {False: {"cases": {}, "images": {}, "results": {}}, True: {"cases": {}, "images": {}, "results": {}}}
     for m in man.values():
@@ -436,6 +438,8 @@ def main():
     ap.add_argument("--impl", default="core", choices=sorted(IMPLS))
     ap.add_argument("-k", help="only cases whose id contains this text")
     ap.add_argument("-v", action="store_true", help="list every failing image, not just the first per case")
+    ap.add_argument("--keep-cases", action="store_true",
+                    help="record: keep cases.json.gz, only re-record the results (a change in the core's math)")
     a = ap.parse_args()
     sys.exit({"record": record, "check": check, "tables": tables}[a.cmd](a))
 

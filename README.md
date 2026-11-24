@@ -35,7 +35,7 @@ Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/J
 - **Filters** (the Filters button at the end of the tool buttons opens a searchable grid of filter tiles; a click adds the filter to the end of the chain, or drag a tile into the panel to put it where the drop line shows; a tile shows how many are in the chain and where, e.g. `×2 · #2, #4 in chain`): Perceptual Saturation filter with Saturation and Warmth matched to the reference filter within 1 level (0–255), Perceptual Saturation (marked ≈) as an **approximation** that pushes colours away from their surroundings but does not match the reference exactly, and Opacity to blend the result. Film Effect: film presets (colour tables fitted on reference renders; the Film field opens a list of the films on your image, hover previews, click picks) plus Brightness and Contrast. Super Contrast: Correct Color Cast and Correct Contrast matched to the reference within 1 level, Dynamic Contrast (marked ≈) as an approximation (local, contrast-limited equalization), and Opacity.
 - Jog-wheel controls: drag the wheel left/right (`Shift` fine, `Ctrl` coarse), double-click to reset. Every number box can also be dragged left/right
 - Tool pills in the viewport show or hide each tool's card
-- **Stack tools**: Adjustments, Curves and the filters can be in the chain more than once (up to 8 each), each copy with its own values, switch, place and optional label — Duplicate icon in the island's head or `Ctrl+D`; the Adjustments / Curves button adds another copy once the tool is open, like a Filters tile does for an open filter (or drag the tile into the panel); right-click an island's head for Duplicate / Rename / Move up / Move down / Reset / Remove (`F2`, `Del`). Copies show `[1]`, `[2]` in chain order. Mid/Detail is on the first Adjustments only
+- **Stack tools**: Adjustments, Curves and the filters can be in the chain more than once (up to 8 each), each copy with its own values, switch, place and optional label — Duplicate icon in the island's head or `Ctrl+D`; the Adjustments / Curves button adds another copy once the tool is open, like a Filters tile does for an open filter (or drag the tile into the panel); right-click an island's head for Duplicate / Rename / Move up / Move down / Reset / Remove (`F2`, `Del`). Copies show `[1]`, `[2]` in chain order. Every Adjustments copy has its own Mid/Detail
 - **Presets** on Adjustments, Curves, Perceptual Saturation, Super Contrast and Sharpen: the button in the tool's row shows the current preset (`Default`, a name, or `Custom`) and opens a list with thumbnails of the current image through each preset; hover previews it on the image, click applies it (one undo step); save the current values as a preset, rename or delete your own
 - **Edit presets** (Presets in the top bar): the whole edit in one preset — Resize, Color balance, Adjustments, Curves, the filters and Sharpen with their order and on / off state. Cards with a thumbnail of the current image through the preset and the tools it uses; hover previews (Resize and Color balance take effect on click), click applies (one undo step), ⋯ renames, updates with the current edits or deletes. Crop, point correction and the output format stay with the image
 
@@ -108,6 +108,7 @@ python fae.py [images or folders...]
 python fae.py --debug     # opens the web inspector
 python fae.py --selftest  # checks for the Rust core (WASM, threads, Python extension)
 python fae.py --native-frame  # normal Windows title bar instead of the app's own header
+python fae.py --no-gpu    # live preview without the GPU core
 ```
 
 ## Rust core
@@ -144,6 +145,26 @@ Cases are random slider values run through the UI's own `computeEdit` / `jobFor`
 `tests/parity/cases.json.gz` by `record` so every machine checks the same inputs (`parity.py tables`
 shows whether this machine's JS computes the tables differently). The test images are synthetic.
 Own images can go into `tests/parity/images/` (not committed).
+
+### GPU core (in progress)
+
+The edit math is moving to the GPU (wgpu + WGSL shaders, `core/gpu/`), in waves. The GPU core runs
+every tool except Sharpen (Point correction, Adjustments with Mid/Detail, Curves, Perceptual
+Saturation, Film Effect, Super Contrast) and counts the histograms. The live preview uses it whenever
+the edit has no Sharpen (`ui/js/gpu-view.js`; the status bar says which core draws): the image is then
+drawn at exactly the screen's pixels on every change, pan and zoom, and the histograms follow a dragged
+slider. Process still uses the CPU core. The GPU computes in f32 (the CPU core in f64): 99.99 % of the
+values match exactly, the rest are 1 level off with rare outliers (`tests/gpu/tolerance.py` explains
+the rule).
+
+```
+core\gpu\build_gpu.bat             # Python extension fae_gpu + WebAssembly in ui/gpu/
+python tests/gpu/tolerance.py       # GPU vs CPU core on the parity cases (--trace: where outliers
+                                    #   start, --steps: how often each step on its own differs)
+python tests/gpu/bench_native.py    # speed, DirectX 12 and Vulkan (--warp: software renderer)
+python fae.py --gpu-spike           # WebGPU in the app window: limits, speed of the WebAssembly build
+python fae.py --no-gpu              # live preview on the CPU core only
+```
 
 ## Keyboard shortcuts
 

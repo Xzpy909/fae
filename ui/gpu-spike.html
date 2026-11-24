@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fae - GPU spike (G0)</title>
+<style>
+  body { background: #0e0f11; color: #d8d8d8; font: 14px/1.5 system-ui, sans-serif; margin: 32px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  p.sub { color: #8a8a8a; margin: 0 0 20px; }
+  table { border-collapse: collapse; min-width: 640px; }
+  td { padding: 6px 14px 6px 0; vertical-align: top; border-bottom: 1px solid #22252a; }
+  td.k { color: #9aa0a6; white-space: nowrap; }
+  .ok { color: #5fd38d; } .bad { color: #ff6b6b; } .warn { color: #f0b84a; } .wait { color: #8a8a8a; }
+  #wrap { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+  canvas { width: 480px; height: 320px; background: #000; border: 1px solid #2a2d33; }
+  textarea { width: 100%; max-width: 900px; height: 220px; margin-top: 20px; background: #16181c; color: #cfcfcf;
+             border: 1px solid #2a2d33; font: 12px/1.4 ui-monospace, Consolas, monospace; }
+  button { margin-top: 8px; background: #2a2d33; color: #ddd; border: 0; padding: 6px 14px; border-radius: 4px; cursor: pointer; }
+</style>
+</head>
+<body>
+<h1>GPU core: feasibility spike (G0)</h1>
+<p class="sub">WebGPU in this window, the WebAssembly build of the GPU core (Curves) and its speed.
+  Start with <code>fae.py --gpu-spike</code>. Takes about a minute; the big sizes need ~1.5 GB of GPU memory.</p>
+<div id="wrap">
+  <table id="rows"></table>
+  <canvas id="view"></canvas>
+</div>
+<textarea id="report" readonly></textarea><br>
+<button id="copy">Copy report</button>
+<script type="module" src="js/gpu-spike.js"></script>
+</body>
+</html>

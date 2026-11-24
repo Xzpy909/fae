@@ -193,7 +193,9 @@ const Cmd = (() => {
         <div class="set-head">Preferences</div>
         <label class="toggle"><input type="checkbox" data-k="dock"><span class="tg"></span>Show tool dock</label>
         <div class="set-note">Tools stay in the Image menu and the search when the dock is off.</div>
-        <label class="toggle"><input type="checkbox" data-k="advance"><span class="tg"></span>Next image after process</label>`, { align: 'right' });
+        <label class="toggle"><input type="checkbox" data-k="advance"><span class="tg"></span>Next image after process</label>
+        <label class="toggle"><input type="checkbox" data-k="remember"><span class="tg"></span>Remember last session</label>
+        <div class="set-note">Off: the next start is blank, with no tools or filters open.</div>`, { align: 'right' });
       el.classList.add('settings');
       el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Settings');
       sync();
@@ -201,6 +203,7 @@ const Cmd = (() => {
         const k = e.target.dataset.k;
         if (k === 'dock') setDock(e.target.checked);
         if (k === 'advance') setAdvance(e.target.checked);
+        if (k === 'remember') { S.prefs.remember = e.target.checked; savePrefsSoon(); }
       };
     }
     function sync() {
@@ -208,6 +211,8 @@ const Cmd = (() => {
       const d = Pop.el.querySelector('[data-k="dock"]'), a = Pop.el.querySelector('[data-k="advance"]');
       if (d) d.checked = S.prefs.dock !== false;
       if (a) a.checked = !!S.prefs.advance;
+      const r = Pop.el.querySelector('[data-k="remember"]');
+      if (r) r.checked = S.prefs.remember !== false;
     }
     btn.addEventListener('pointerdown', e => {
       e.stopPropagation(); e.preventDefault();

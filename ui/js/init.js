@@ -17,8 +17,11 @@ async function initSteps() {
     const s = await api().get_settings();
     if (s && typeof s === 'object') {
       if (s.fmt) S.prefs.fmt = s.fmt;
-      if (Array.isArray(s.secs)) S.prefs.secs = s.secs.filter(x => SECS.includes(x));
-      if (Array.isArray(s.collapsed)) S.prefs.collapsed = s.collapsed.filter(x => SECS.includes(x));
+      // Settings › Remember last session off: start blank (no tools open, the stage at its defaults)
+      if (typeof s.remember === 'boolean') S.prefs.remember = s.remember;
+      const session = S.prefs.remember !== false;
+      if (session && Array.isArray(s.secs)) S.prefs.secs = s.secs.filter(x => SECS.includes(x));
+      if (session && Array.isArray(s.collapsed)) S.prefs.collapsed = s.collapsed.filter(x => SECS.includes(x));
       if (s.jpeg_q != null) S.prefs.jpeg_q = clamp(Math.round(Number(s.jpeg_q)) || 90, 1, 100);
       if (s.jpeg_d != null && isFinite(Number(s.jpeg_d))) S.prefs.jpeg_d = clamp(Number(s.jpeg_d), 0, 25);
       if (s.jpeg_mode === 'q' || s.jpeg_mode === 'd') S.prefs.jpeg_mode = s.jpeg_mode;
@@ -34,7 +37,7 @@ async function initSteps() {
       if (!['WEBP', 'PNG', 'JPEG', 'AVIF'].includes(S.prefs.fmt)) S.prefs.fmt = 'WEBP';
       if (typeof s.advance === 'boolean') S.prefs.advance = s.advance;
       if (typeof s.dock === 'boolean') S.prefs.dock = s.dock;
-      if (s.stage) S.stage = Object.assign(clone(DEFAULT_STAGE), s.stage);
+      if (session && s.stage) S.stage = Object.assign(clone(DEFAULT_STAGE), s.stage);
       if (S.stage.mode === '720p') Object.assign(S.stage, { mode: 'preset', preset_ar: '16:9', preset_res: 720 });
     }
   } catch (_) {}

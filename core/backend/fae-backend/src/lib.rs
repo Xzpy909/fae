@@ -15,13 +15,16 @@
 //! - long work (Process, encoded compare, B4 / B5): cancellation by a request id the UI already sends,
 //!   progress through a callback the shell supplies (pywebview: evaluate_js, Tauri: an event).
 
+pub mod avif;
 pub mod colour;
 pub mod decode;
+pub mod encode;
 pub mod fit;
 pub mod geometry;
 pub mod heif;
 pub mod px;
 pub mod resample;
+pub mod run;
 pub mod stage;
 pub mod store;
 pub mod thumb;
@@ -40,6 +43,8 @@ pub struct Config {
     pub presets: PathBuf,
     /// where libheif (+ libde265) are, for HEIC; None: HEIC can't be opened
     pub heif_dir: Option<PathBuf>,
+    /// the external encoders' folder (cjpegli, SvtAv1EncApp; B4); None: none of them
+    pub encoders_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,6 +134,8 @@ pub struct Backend {
     heif: OnceLock<Result<heif::Lib, String>>,
     /// the stage: opened images, previews, the current stage image (B3)
     stage: stage::Stage,
+    /// the external encoders' runs: encoded-compare requests and their cancellation (B4)
+    runner: run::Runner,
 }
 
 fn args_n<'a>(name: &str, args: &'a [Value], n: usize) -> Result<&'a [Value], Error> {
@@ -140,7 +147,7 @@ fn args_n<'a>(name: &str, args: &'a [Value], n: usize) -> Result<&'a [Value], Er
 
 impl Backend {
     pub fn new(cfg: Config) -> Backend {
-        Backend { cfg, heif: OnceLock::new(), stage: stage::Stage::default() }
+        Backend { cfg, heif: OnceLock::new(), stage: stage::Stage::default(), runner: run::Runner::new() }
     }
 
     /// libheif, loaded on first use.
@@ -203,6 +210,28 @@ impl Backend {
         self.stage.put_preview(rgba)
     }
 
+    /// The external encoders (B4).
+    pub fn encoders(&self) -> encode::Encoders {
+        encode::Encoders::in_dir(self.cfg.encoders_dir.as_deref())
+    }
+
+    /// A new encoded-compare request: encoder runs of older requests are killed (proc.py `preview_begin`).
+    pub fn preview_begin(&self, req: i64) {
+        self.runner.begin(req)
+    }
+
+    /// JPEG / AVIF / lossy WebP (B4; output.py `encode_lossy`). `req`: the encoded compare's request id
+    /// (below-normal priority, cancelled by a newer one); None for Process.
+    pub fn encode_lossy(&self, img: px::View, fmt: &str, opts: &Value, icc: Option<&[u8]>, req: Option<i64>) -> Result<encode::Encoded, Error> {
+        self.runner.check(req)?;
+        encode::encode_lossy(img, fmt, opts, icc, &self.encoders(), &self.runner, req)
+    }
+
+    /// Encode and write next to `src` as `<name>_<w>x<h>.<ext>` (B4; output.py `save_image`).
+    pub fn save(&self, img: px::View, src: &str, fmt: &str, icc: Option<&[u8]>, opts: &Value) -> Result<PathBuf, Error> {
+        encode::save(img, src, fmt, icc, opts, &self.encoders(), &self.runner)
+    }
+
     /// The commands this build runs (the rest still run in the shell's Python).
     pub fn commands() -> Vec<&'static str> {
         COMMANDS.iter().filter(|(_, w, _)| DONE.contains(w)).map(|(n, _, _)| *n).collect()
@@ -248,7 +277,7 @@ mod tests {
     #[test]
     fn settings_and_presets() {
         let d = tmp("sp");
-        let b = Backend::new(Config { settings: d.join("s.json"), presets: d.join("p.json"), heif_dir: None });
+        let b = Backend::new(Config { settings: d.join("s.json"), presets: d.join("p.json"), heif_dir: None, encoders_dir: None });
         assert_eq!(b.call("get_settings", &[]).unwrap(), json!({}));
         let s = json!({"fmt": "PNG", "secs": ["adjust", "f_sc"], "jpeg_d": 1.25, "name": "Mirelle ✓"});
         assert_eq!(b.call("save_settings", &[s.clone()]).unwrap(), json!(true));

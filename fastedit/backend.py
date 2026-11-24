@@ -12,7 +12,7 @@ import json
 import os
 import sys
 
-REQUIRED = (0, 4)           # extension version this file needs (bump with the API)
+REQUIRED = (0, 5)           # extension version this file needs (bump with the API)
 BUILD_HINT = r"run core\backend\build_backend.bat (needs Rust from https://rustup.rs)"
 
 try:
@@ -61,10 +61,10 @@ class Backend:
     """One back end for the app: call(name, *args) runs a command of the table (JSON values in and
     out, as the UI sends and receives them). RuntimeError when the command fails."""
 
-    def __init__(self, settings: str, presets: str):
+    def __init__(self, settings: str, presets: str, encoders: str | None = None):
         if _fb is None:
             raise RuntimeError(_ERR)
-        self._b = _fb.Backend(settings=settings, presets=presets, heif_dir=heif_dir())
+        self._b = _fb.Backend(settings=settings, presets=presets, heif_dir=heif_dir(), encoders_dir=encoders)
 
     def call(self, name: str, *args):
         return json.loads(self._b.call(name, json.dumps(list(args))))
@@ -120,6 +120,30 @@ class Backend:
                 return None
             raise
 
+    def encode(self, img, fmt: str, opts, icc: bytes | None = None, req: int | None = None):
+        """JPEG / AVIF / lossy WebP in Rust (B4; output.py encode_lossy): (bytes, encoder, settings used).
+        `img`: a Pillow image (RGB / RGBA); `req`: the encoded compare's request (proc.Cancelled when a
+        newer one began). None when the encoder isn't in Rust yet (the caller uses its own)."""
+        px, w, h, ch = _raw(img)
+        try:
+            data, enc, used = self._b.encode(px, w, h, ch, fmt, json.dumps(opts or {}), icc or None, req)
+        except RuntimeError as ex:
+            return _encode_error(ex)
+        return data, enc, json.loads(used)
+
+    def save(self, img, src_path: str, fmt: str, icc: bytes | None = None, opts=None):
+        """Encode and write next to the source (B4; output.py save_image): the path written. None when
+        the encoder isn't in Rust yet."""
+        px, w, h, ch = _raw(img)
+        try:
+            return self._b.save(px, w, h, ch, src_path, fmt, json.dumps(opts or {}), icc or None)
+        except RuntimeError as ex:
+            return _encode_error(ex)
+
+    def preview_begin(self, req: int):
+        """A new encoded-compare request: the encoder runs of older ones are killed (proc.preview_begin)."""
+        self._b.preview_begin(int(req))
+
     @staticmethod
     def geometry(raw, P):
         """Flip / rotate / crop (B2): raw = (pixels, w, h, channels) in and out; P = StageParams."""
@@ -136,6 +160,23 @@ class Backend:
         return _fb.fit_scale(size[0], size[1], _params(P))
 
 
+def _raw(img):
+    """A Pillow image as (pixels, w, h, channels), RGB or RGBA."""
+    if img.mode not in ("RGB", "RGBA"):
+        img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
+    return img.tobytes(), img.width, img.height, len(img.getbands())
+
+
+def _encode_error(ex: RuntimeError):
+    msg = str(ex)
+    if msg.startswith("unknown:"):
+        return None
+    if msg.startswith("cancelled:"):
+        from .proc import Cancelled
+        raise Cancelled() from None
+    raise RuntimeError(msg.split(": ", 1)[-1]) from None
+
+
 def _params(P) -> str:
     return json.dumps(dataclasses.asdict(P))
 
@@ -147,6 +188,6 @@ def shared() -> Backend:
     """The app's one back end (its stage cache and previews are shared by api.py and app.py)."""
     global _SHARED
     if _SHARED is None:
-        from .config import PRESETS_PATH, SETTINGS_PATH
-        _SHARED = Backend(SETTINGS_PATH, PRESETS_PATH)
+        from .config import ENCODERS_DIR, PRESETS_PATH, SETTINGS_PATH
+        _SHARED = Backend(SETTINGS_PATH, PRESETS_PATH, ENCODERS_DIR)
     return _SHARED

@@ -25,3 +25,7 @@ kamadak-exif = "0.6"
 rayon = "1"
 # HEIC: libheif loaded at run time (heif.rs)
 libloading = "0.9"
+# encoders (B4, encode.rs): libwebp 1.6 (the version Pillow's wheels ship: the same WebP bytes), built by cc;
+# zlib-rs for PNG (zlib-ng's algorithms, as Pillow's wheels; pure Rust)
+libwebp-sys = "0.14.4"
+libz-rs-sys = "0.6"

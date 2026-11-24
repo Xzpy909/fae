@@ -211,11 +211,13 @@ class Api:
     def lossy_cancel(self, req_id):
         """Stop the running lossy preview encode (the encoded compare was turned off)."""
         preview_begin(int(req_id))
+        self._b.preview_begin(int(req_id))       # encoders run by the Rust back end (B4)
         return True
 
     def lossy_preview(self, job, fmt, opts, req_id, full=0):
         """Encode the fully edited image with the lossy format, decode it again, hand back preview pixels."""
         preview_begin(req_id)
+        self._b.preview_begin(req_id)
         _TL.preview_req = req_id
         try:
             check_cancel()

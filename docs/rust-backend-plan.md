@@ -1,7 +1,8 @@
 # Rust back end: plan
 
-Status: **B0, B1, B2, B3 done** (on main; fae_backend 0.4.0; geometry.py, colour.py, the Python stage and
-OpenCV removed). **Next: B4.** Moves the Python back
+Status: **B0, B1, B2, B3 done** (on main; geometry.py, colour.py, the Python stage and OpenCV removed).
+**B4 in progress** (fae_backend 0.5.0): PNG, WebP, JPEG and the SvtAv1EncApp path in Rust; next rav1e /
+rav1d for the other AVIF cases. Moves the Python back
 end (`fastedit/`) into Rust, wave by wave, so the app keeps working after every wave and a later switch from
 pywebview to **Tauri** is a small last step instead of a rewrite. Not a goal in itself: no visible change to
 the editor; the gains are a smaller, faster-starting app (no NumPy / OpenCV / Pillow at run time), one
@@ -92,7 +93,7 @@ ui/ (unchanged) ── bridge.js ──▶ shell: pywebview now, Tauri later (th
 | References | Before a part is replaced, its Python version records goldens (**stage parity**, like the CPU core's parity tests): synthetic images + own photos in `tests/parity/images/`. The Python code is deleted only after the Rust version passes on Windows. |
 | HEIC / HEIF | **Decided: libheif** — loaded at run time from the DLLs pillow-heif ships (same decoder, no C build); later copied next to the app. |
 | JPEG XL | jxl-oxide (pure Rust): lossless pixels exact; Pillow's synthesized sRGB ICC is not reproduced (listed difference). |
-| AVIF with alpha / without SvtAv1EncApp (the aom fallback) | **To decide (B4)**: libavif + aom (same as Pillow, heavy C build), rav1e (pure Rust, different encoder and look), or no alpha AVIF (alpha → WebP / PNG). The encoded compare also decodes AVIF back (dav1d). |
+| AVIF with alpha / without SvtAv1EncApp (the aom fallback) | **Decided (B4): rav1e** (pure Rust) replaces Pillow's aom: alpha AVIFs, the UI's "aom" choice and no SvtAv1EncApp; a different encoder, so those files look and weigh differently (aom_q / aom_speed map onto rav1e's quality / speed). AVIF decoding (the stage, thumbnails, the encoded compare's decode-back): **rav1d** (pure Rust port of dav1d). Cargo-only build, no CMake. |
 | Colour management | As now: the source's ICC profile is kept and embedded in the output, no conversion. |
 | Threads | Decode / resize / colour balance multi-threaded (rayon). B2, 42 MP, Python → Rust: resize to 1080p 191 → 11 ms, 12 MP 251 → 23 ms, fine angle 190 → 93 ms, quarter turn 83 → 36 ms. |
 | Toolchain | The pinned Rust 1.100; C libraries (libjpeg-turbo, libwebp, libheif) built by their -sys crates or shipped as DLLs — decided per wave, with build_backend.bat doing it in one go. |
@@ -152,6 +153,18 @@ dependency removed.
   path per the decision; ICC embedding everywhere; output names; running encoders without a console window,
   with cancellation.
 - Gate: same file sizes / bytes where the encoder is the same (exe paths, libwebp), pixels decoded back equal.
+- Part 1 (fae_backend 0.5.0): `encode.rs` (options as the Python normalised them, PNG, WebP, JPEG, saving,
+  output names), `avif.rs` (10-bit YUV, IVF / OBU parsing, the muxer), `run.rs` (encoders without a
+  console window, below-normal priority and killed by a newer request for the encoded compare; temp
+  folders). output.py's `encode_lossy` / `save_image` call the back end (`Backend.encode` / `save`); the
+  Python versions stay as `encode_lossy_py` / `save_image_py`, and for the AVIF cases not in Rust yet
+  (Rust answers "unknown:"). `tests/backend/encoders_check.py` compares them: WebP (libwebp 1.6, as
+  Pillow 12 / 13), the cjpegli and libjpeg-turbo JPEGs, the SvtAv1EncApp AVIF, the YUV conversion and the
+  muxer byte for byte; PNG has Pillow's filter choice exactly but zlib-rs instead of Pillow's zlib-ng
+  (same pixels and ICC, sizes within a few tenths of a percent, smaller on flat images); the options
+  (odd values too), output names, cancellation.
+- Part 2: rav1e for the "aom" cases, rav1d to open AVIF (then `give_source`, engine.py's Pillow decode and
+  the AVIF thumbnails go), `encoder_info` in Rust.
 
 ### B5 — Process and the encoded compare (1–2 sessions)
 - core.py's job in Rust: GPU core first (one device, lock, release after a batch), CPU core fallback, size

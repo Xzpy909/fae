@@ -107,6 +107,7 @@ def main():
         webview.start()
         return
     api = Api(args)
+    core.warm_gpu()                                # the GPU core's shaders, in the background
     port = start_server()
     # unified header: on Windows the window has no frame and the UI's top bar is the title bar
     # (fastedit/winchrome.py); --native-frame keeps the normal Windows frame

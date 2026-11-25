@@ -30,6 +30,46 @@ Built and tested in headless Chrome only (no Python core there):
 - Process an image with stacked tools (e.g. two Film Effects, two Curves) and check the file shows both.
 - Use the new parts on real photos: presets / edit presets, film list, stacking, tiles, crop straighten.
 
+### 1.4 Edit presets and applying edits to other images (decided 2026-11-25)
+The Edit presets popover and the Copy / Paste edits commands are confusing. Decided by the owner:
+
+**Preset cards: a gear menu instead of ⋯**
+- Delete is not found today (it sits in the ⋯ that shows only on hover over the thumbnail). Each card gets a
+  **gear icon in its top-right corner**, always visible; a click opens a small menu: **Rename preset**,
+  **Duplicate preset**, **Delete preset**. **Right-click** on the card opens the same menu.
+- Rename edits the name in place on the card (as now). Duplicate adds a copy right after the original,
+  named `<name> copy` (`copy 2`, … on a clash), and starts renaming it. Delete keeps the click-again arm.
+- The ⋯ entries that are not in the gear menu: *Apply to images…* moves to the batch window below;
+  *Update with current edits* goes in the gear menu too, under the three (to settle when building).
+
+**New preset: a "+" card instead of Save current edits**
+- The `Save current edits` button and the separate name row go. The **first card is always a big "+"**
+  (card-sized, shimmering effect) also when there are no presets (it replaces the "No edit presets yet" text).
+- A click turns it into a new card with the current edits (thumbnail, tool strip) and the cursor already in
+  the card's name field; **Enter saves** it, Esc / clicking away drops it. A name that exists asks
+  "Replace <name>?" on the card before overwriting.
+
+**Copy edits / Paste edits / Paste edits to… become two commands**
+- **Apply current edits to… (single file):** a window with the image cards (as Paste edits to… now); a click
+  on a card applies the current image's edits to that image and closes. No selection, no pills.
+- **Apply current edits to… (multiple files):** the same window, a click selects a card (Shift+click a range,
+  Ctrl+A all, as now); the head shows **Apply to all** from the start (not only once something is selected),
+  and Apply to N once there is a selection. The Apply pill on each card stays (applies to that
+  image alone and shows Applied, quicker than selecting for 2-3 images).
+- No clipboard step: the source is always the image on screen (its name shown in the head, "Edits from
+  game_a.tif" style). The current image is shown but can't be picked. Crop still goes only to images of the
+  same source size (notice as now). Ctrl+Shift+C / Ctrl+Shift+V go away or move to these two (to settle).
+- Each image keeps its own undo step (as now).
+
+**Still open**
+- Edit › *Apply preset to…*: give it the same two forms (single / multiple files) after Select preset, so
+  presets and current edits apply the same way.
+- Naming: the top-bar button says `Presets`, the tool rows have preset buttons too, the window says
+  `Edit presets`. A clearer name for whole-edit presets (e.g. `Recipes`) is worth a look.
+- Hover previews the card on the image, but Resize and Color balance only show after a click; and applying
+  replaces the whole edit (a preset with only Sharpen resets Adjustments). Both say so only in the footer.
+- `Yours` on every card says nothing while there are no built-in presets.
+
 ## 2. Later (parked)
 
 - **Crop in edit presets.** A crop is stored in the source image's pixels, so a preset needs a meaning that

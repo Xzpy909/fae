@@ -403,14 +403,10 @@ fn speed_settings(speed: u8, quantizer: usize) -> rav1e::config::SpeedSettings {
 fn rav1e_encode(w: usize, h: usize, planes: &[&[u16]], quantizer: usize, speed: u8) -> Result<Vec<u8>, Error> {
     use rav1e::prelude::*;
     let mono = planes.len() == 1;
-    let min_tile = match speed {
-        0 => 4096,
-        1 => 2048,
-        2 => 1024,
-        3 => 512,
-        4 => 256,
-        _ => 128,
-    } * if quantizer > quality_to_quantizer(80.0) { 2 } else { 1 };
+    // One tile per thread, down to 256 x 256 px tiles at any speed. (ravif keeps big tiles at the slow
+    // speeds for compression; that left a 6 MP image on one core at speeds 1-2, 20x slower, while 24
+    // tiles cost < 0.5 % in size.)
+    let min_tile = 256;
     let threads = rayon::current_num_threads();
     let enc = EncoderConfig {
         width: w,

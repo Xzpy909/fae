@@ -2,7 +2,7 @@
 
 The redesign is built (right panel with re-orderable islands, export block, unified window header, standard
 slider, per-tool presets, edit presets, film list, stackable tools incl. Curves, Filters tiles with
-drag-to-place). See the README for how it works. This file keeps only what is still open, and the rules
+drag-to-place). See docs/features.md for how it works. This file keeps only what is still open, and the rules
 later work has to follow.
 
 ## 1. Still to do

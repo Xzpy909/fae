@@ -1051,8 +1051,8 @@ body.frameless #topbar { padding-right: 0; }
 .win-btns button:active { background: #3a3a3e; }
 .win-btns button.close:hover { background: #c42b1c; border-color: #c42b1c; color: #fff; }
 .win-btns button.close:active { background: #a32416; border-color: #a32416; }
-/* the round logo: no square frame */
-.logo { border-radius: 50%; box-shadow: none; }
+/* the logo draws its own rounded tile: no frame */
+.logo { border-radius: 0; box-shadow: none; }
 .tb-left .logo { width: 22px; height: 22px; }
 
 /* frosted glass on every see-through surface that floats over the image or over other content:

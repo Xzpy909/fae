@@ -541,7 +541,8 @@ input[type=range]:hover::-webkit-slider-thumb { background: #fff; transform: sca
 .cmp-label.stale { opacity: .6; }
 #sizeChip { position: absolute; padding: 4px 9px; border-radius: 5px; font: 12px var(--mono);
   font-variant-numeric: tabular-nums; background: rgba(31, 31, 34, .9); border: 1px solid var(--line2);
-  color: #dadadd; pointer-events: none; display: none; white-space: nowrap; transform: translate(-100%, -100%); }
+  color: #dadadd; pointer-events: none; display: none; white-space: nowrap; transform: translate(-100%, -100%);
+  text-align: right; line-height: 1.45; }   /* two lines (size · resolution / bpp · time): narrow next to the tool dock */
 #sizeChip.show { display: block; }
 #sizeChip b { color: var(--accent); font-weight: 600; }
 #sizeChip.stale { opacity: .6; }

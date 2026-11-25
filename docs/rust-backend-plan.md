@@ -1,7 +1,8 @@
 # Rust back end: plan
 
-Status: **B0, B1, B2, B3 done** (on main; fae_backend 0.4.0; geometry.py, colour.py, the Python stage and
-OpenCV removed). **Next: B4.** Moves the Python back
+Status: **B0, B1, B2, B3 done** (on main; geometry.py, colour.py, the Python stage and OpenCV removed).
+**B4 in progress** (fae_backend 0.5.0): all encoders and AVIF decoding in Rust (rav1e / rav1d), checked by the
+owner on Windows; left: the B4 clean-up (the Python versions listed under B4). Moves the Python back
 end (`fastedit/`) into Rust, wave by wave, so the app keeps working after every wave and a later switch from
 pywebview to **Tauri** is a small last step instead of a rewrite. Not a goal in itself: no visible change to
 the editor; the gains are a smaller, faster-starting app (no NumPy / OpenCV / Pillow at run time), one
@@ -45,7 +46,7 @@ language for the engine, and an easy Tauri switch later.
 
 | Part | Where it runs | Python it replaces / uses |
 |---|---|---|
-| Decode + prepare | **Rust (B1)**: decode.rs, heif.rs (EXIF rotation, RGB / RGBA, ICC kept for output); AVIF still Pillow until B4 | engine.py `decode`, geometry.py `prepare` (Pillow, pillow-heif, pillow-jxl-plugin) |
+| Decode + prepare | **Rust (B1)**: decode.rs, heif.rs (EXIF rotation, RGB / RGBA, ICC kept for output); AVIF: avifdec.rs (rav1d) since B4 | engine.py `decode`, geometry.py `prepare` (Pillow, pillow-heif, pillow-jxl-plugin) |
 | Thumbnails (file list) | **Rust (B2)**: thumb.rs; AVIF still Pillow | engine.py `make_thumb_pillow` |
 | Geometry | **Rust (B2)**: geometry.rs (quarter turns / flip, free angle as OpenCV's warpAffine Lanczos-4, crop, crop_free) | geometry.py `apply_geometry` (removed in B3) |
 | Resize | **Rust (B2)**: resample.rs, fit.rs (Pillow's Lanczos, Mpix / preset / custom sizes) | geometry.py `fit_image` and helpers (removed in B3) |
@@ -92,7 +93,7 @@ ui/ (unchanged) ── bridge.js ──▶ shell: pywebview now, Tauri later (th
 | References | Before a part is replaced, its Python version records goldens (**stage parity**, like the CPU core's parity tests): synthetic images + own photos in `tests/parity/images/`. The Python code is deleted only after the Rust version passes on Windows. |
 | HEIC / HEIF | **Decided: libheif** — loaded at run time from the DLLs pillow-heif ships (same decoder, no C build); later copied next to the app. |
 | JPEG XL | jxl-oxide (pure Rust): lossless pixels exact; Pillow's synthesized sRGB ICC is not reproduced (listed difference). |
-| AVIF with alpha / without SvtAv1EncApp (the aom fallback) | **To decide (B4)**: libavif + aom (same as Pillow, heavy C build), rav1e (pure Rust, different encoder and look), or no alpha AVIF (alpha → WebP / PNG). The encoded compare also decodes AVIF back (dav1d). |
+| AVIF with alpha / without SvtAv1EncApp (the aom fallback) | **Decided (B4): rav1e** (pure Rust) replaces Pillow's aom: alpha AVIFs, the UI's "aom" choice and no SvtAv1EncApp; a different encoder, so those files look and weigh differently (aom_q / aom_speed map onto rav1e's quality / speed). AVIF decoding (the stage, thumbnails, the encoded compare's decode-back): **rav1d** (pure Rust port of dav1d). Cargo-only build, no CMake. |
 | Colour management | As now: the source's ICC profile is kept and embedded in the output, no conversion. |
 | Threads | Decode / resize / colour balance multi-threaded (rayon). B2, 42 MP, Python → Rust: resize to 1080p 191 → 11 ms, 12 MP 251 → 23 ms, fine angle 190 → 93 ms, quarter turn 83 → 36 ms. |
 | Toolchain | The pinned Rust 1.100; C libraries (libjpeg-turbo, libwebp, libheif) built by their -sys crates or shipped as DLLs — decided per wave, with build_backend.bat doing it in one go. |
@@ -152,6 +153,34 @@ dependency removed.
   path per the decision; ICC embedding everywhere; output names; running encoders without a console window,
   with cancellation.
 - Gate: same file sizes / bytes where the encoder is the same (exe paths, libwebp), pixels decoded back equal.
+- Part 1 (fae_backend 0.5.0): `encode.rs` (options as the Python normalised them, PNG, WebP, JPEG, saving,
+  output names), `avif.rs` (10-bit YUV, IVF / OBU parsing, the muxer), `run.rs` (encoders without a
+  console window, below-normal priority and killed by a newer request for the encoded compare; temp
+  folders). output.py's `encode_lossy` / `save_image` call the back end (`Backend.encode` / `save`); the
+  Python versions stay as `encode_lossy_py` / `save_image_py`, and for the AVIF cases not in Rust yet
+  (Rust answers "unknown:"). `tests/backend/encoders_check.py` compares them: WebP (libwebp 1.6, as
+  Pillow 12 / 13), the cjpegli and libjpeg-turbo JPEGs, the SvtAv1EncApp AVIF, the YUV conversion and the
+  muxer byte for byte; PNG has Pillow's filter choice exactly but zlib-rs instead of Pillow's zlib-ng
+  (same pixels and ICC, sizes within a few tenths of a percent, smaller on flat images); the options
+  (odd values too), output names, cancellation.
+- Part 2 (same version): **rav1e** for the old "aom" cases (alpha, the UI's choice, no SvtAv1EncApp): ravif's
+  quality → quantizer and speed settings, colour as the SVT path's 10-bit 4:4:4 full-range BT.709, alpha as
+  a 10-bit monochrome auxiliary item (`auxl` + `auxC`); the UI calls it "rav1e" (settings keys stay
+  `aom_*`). **rav1d** opens AVIF (`avifdec.rs`: own HEIF box parser, irot / imir as Pillow maps them):
+  libavif's choice between libyuv and its own float conversion is ported, with libyuv's integer YUV
+  constants and chroma upsampling, so the pixels equal Pillow's in every case tried (8 / 10 / 12-bit,
+  4:2:0 / 4:2:2 / 4:4:4, alpha, limited range, grey, identity matrix, odd sizes) and the thumbnails are
+  byte-identical. Grids and premultiplied alpha answer "unknown:" and still go to Pillow. `encoder_info`
+  is a command. The `simd` feature (build_backend.bat with nasm) also builds rav1e's asm; rav1d's asm
+  is off (it doesn't link into the extension).
+- rav1e speed on big images (owner's choice: patch rav1e rather than an AVIF grid): after its tiles,
+  rav1e ran CDEF, loop restoration and the deblocking-level search over the whole frame on one thread;
+  with 24 threads that was most of a 50 MP encode (speeds 3–8 all ≈ 7.5 s). rav1e 0.8.1 with those three steps in
+  parallel lives in github.com/Nukvah/rav1e-fae (upstream crate as the first commit, then the patch; notes
+  in its FAE-PATCH.md), pulled in by `[patch.crates-io]` pinned to a commit, output byte-identical; colour and alpha encode side by side.
+- Kept until the owner's check, then removed (B4 clean-up): jpeg.py, avif.py, output.py's
+  `encode_lossy_py` / `save_image_py`, proc.py's encoder runner, engine.py's `decode_pillow` /
+  `make_thumb_pillow` and `give_source` (these three stay as the fallback for the AVIFs Rust doesn't open).
 
 ### B5 — Process and the encoded compare (1–2 sessions)
 - core.py's job in Rust: GPU core first (one device, lock, release after a batch), CPU core fallback, size

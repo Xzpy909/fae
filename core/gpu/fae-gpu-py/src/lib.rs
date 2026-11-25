@@ -208,6 +208,19 @@ impl PyGpu {
         self.check()
     }
 
+    /// How many shader pipelines warm() compiles.
+    fn warm_count(&self) -> usize {
+        gpu::Gpu::pipeline_count()
+    }
+
+    /// Compile pipeline `i` (0 .. warm_count()) now instead of on first use: the app does it in the
+    /// background at start, so the first Process / encoded compare doesn't wait for the shaders.
+    fn warm(&self, py: Python<'_>, i: usize) -> PyResult<()> {
+        let g = &self.g;
+        py.detach(|| g.warm(i));
+        self.check()
+    }
+
     /// Free the GPU memory of the last image (the device stays; the next render sets up again).
     fn release(&mut self) -> PyResult<()> {
         self.release_impl()

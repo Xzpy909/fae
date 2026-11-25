@@ -3,6 +3,7 @@ rem Builds the Rust back end (docs/rust-backend-plan.md): Python extension fae_b
 rem the current Python (pip). Required by the app (fastedit\backend.py). Checks:
 rem   python tests\stage\stage_check.py --impl rust   the stage (decode, ...) in Rust vs the goldens
 rem   python tests\backend\commands_check.py   the commands moved so far, against their Python behaviour
+rem   python tests\backend\encoders_check.py   the encoders (B4), against the Python ones
 setlocal
 cd /d "%~dp0"
 
@@ -14,10 +15,11 @@ where cargo >nul 2>nul || (
 echo === Python extension (fae_backend) ===
 python -m pip install -q -U "maturin>=1.7,<2" || goto :fail
 if exist target\wheels rmdir /s /q target\wheels
-rem libjpeg-turbo's SIMD code needs nasm to build: same pixels, about 40 %% faster on big JPEGs
+rem libjpeg-turbo's SIMD code and rav1e's assembly need nasm to build: same pixels, about 40 %% faster on big
+rem JPEGs, AVIF through rav1e (alpha / the aom choice) several times faster
 set FEAT=
-where nasm >nul 2>nul && set FEAT=--features jpeg-simd
-if "%FEAT%"=="" echo nasm not found: JPEG decoding without SIMD (same pixels, slower on big photos). Get it with: winget install nasm
+where nasm >nul 2>nul && set FEAT=--features simd
+if "%FEAT%"=="" echo nasm not found: JPEG decoding and rav1e without SIMD (same pixels, slower). Get it with: winget install nasm
 pushd fae-backend-py
 python -m maturin build --release %FEAT% --out ..\target\wheels || (popd & goto :fail)
 popd

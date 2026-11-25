@@ -15,13 +15,17 @@
 //! - long work (Process, encoded compare, B4 / B5): cancellation by a request id the UI already sends,
 //!   progress through a callback the shell supplies (pywebview: evaluate_js, Tauri: an event).
 
+pub mod avif;
+pub mod avifdec;
 pub mod colour;
 pub mod decode;
+pub mod encode;
 pub mod fit;
 pub mod geometry;
 pub mod heif;
 pub mod px;
 pub mod resample;
+pub mod run;
 pub mod stage;
 pub mod store;
 pub mod thumb;
@@ -40,6 +44,8 @@ pub struct Config {
     pub presets: PathBuf,
     /// where libheif (+ libde265) are, for HEIC; None: HEIC can't be opened
     pub heif_dir: Option<PathBuf>,
+    /// the external encoders' folder (cjpegli, SvtAv1EncApp; B4); None: none of them
+    pub encoders_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,7 +117,7 @@ pub const COMMANDS: &[(&str, Wave, &str)] = &[
     ("load_stage", Wave::B3, "decode, geometry, resize, colour balance -> preview token"),
     ("load_source", Wave::B3, "the source for crop mode -> preview token"),
     ("sample", Wave::B3, "median colour around a point of the stage"),
-    ("encoder_info", Wave::B4, "which encoders are available"),
+    ("encoder_info", Wave::B4, "which encoders are available (cjpegli, SvtAv1EncApp; AVIF always: rav1e)"),
     ("lossy_preview", Wave::B5, "render, encode, decode back, size -> preview token"),
     ("lossy_cancel", Wave::B5, "cancel an encoded compare request"),
     ("process", Wave::B5, "render + encode + save a batch of images, with progress"),
@@ -121,7 +127,7 @@ pub const COMMANDS: &[(&str, Wave, &str)] = &[
 /// The waves done in this build. B1 (decoding) and B2 (geometry, resize, thumbnails) have no command of
 /// their own: load_stage (B3) runs them. The shell still asks for the stage image itself for Process and
 /// the encoded compare until B5 ([`Backend::stage_image`]), and for thumbnails until B6.
-const DONE: &[Wave] = &[Wave::B0, Wave::B1, Wave::B2, Wave::B3];
+const DONE: &[Wave] = &[Wave::B0, Wave::B1, Wave::B2, Wave::B3, Wave::B4];
 
 pub struct Backend {
     cfg: Config,
@@ -129,6 +135,8 @@ pub struct Backend {
     heif: OnceLock<Result<heif::Lib, String>>,
     /// the stage: opened images, previews, the current stage image (B3)
     stage: stage::Stage,
+    /// the external encoders' runs: encoded-compare requests and their cancellation (B4)
+    runner: run::Runner,
 }
 
 fn args_n<'a>(name: &str, args: &'a [Value], n: usize) -> Result<&'a [Value], Error> {
@@ -140,7 +148,7 @@ fn args_n<'a>(name: &str, args: &'a [Value], n: usize) -> Result<&'a [Value], Er
 
 impl Backend {
     pub fn new(cfg: Config) -> Backend {
-        Backend { cfg, heif: OnceLock::new(), stage: stage::Stage::default() }
+        Backend { cfg, heif: OnceLock::new(), stage: stage::Stage::default(), runner: run::Runner::new() }
     }
 
     /// libheif, loaded on first use.
@@ -203,6 +211,28 @@ impl Backend {
         self.stage.put_preview(rgba)
     }
 
+    /// The external encoders (B4).
+    pub fn encoders(&self) -> encode::Encoders {
+        encode::Encoders::in_dir(self.cfg.encoders_dir.as_deref())
+    }
+
+    /// A new encoded-compare request: encoder runs of older requests are killed (proc.py `preview_begin`).
+    pub fn preview_begin(&self, req: i64) {
+        self.runner.begin(req)
+    }
+
+    /// JPEG / AVIF / lossy WebP (B4; output.py `encode_lossy`). `req`: the encoded compare's request id
+    /// (below-normal priority, cancelled by a newer one); None for Process.
+    pub fn encode_lossy(&self, img: px::View, fmt: &str, opts: &Value, icc: Option<&[u8]>, req: Option<i64>) -> Result<encode::Encoded, Error> {
+        self.runner.check(req)?;
+        encode::encode_lossy(img, fmt, opts, icc, &self.encoders(), &self.runner, req)
+    }
+
+    /// Encode and write next to `src` as `<name>_<w>x<h>.<ext>` (B4; output.py `save_image`).
+    pub fn save(&self, img: px::View, src: &str, fmt: &str, icc: Option<&[u8]>, opts: &Value) -> Result<PathBuf, Error> {
+        encode::save(img, src, fmt, icc, opts, &self.encoders(), &self.runner)
+    }
+
     /// The commands this build runs (the rest still run in the shell's Python).
     pub fn commands() -> Vec<&'static str> {
         COMMANDS.iter().filter(|(_, w, _)| DONE.contains(w)).map(|(n, _, _)| *n).collect()
@@ -226,6 +256,11 @@ impl Backend {
             "load_stage" => self.stage.load_stage(args, &|p| self.source(p)),
             "load_source" => self.stage.load_source(args, &|p| self.source(p)),
             "sample" => Ok(self.stage.sample(args)),
+            "encoder_info" => {
+                let e = self.encoders();
+                // "avif": AVIF can be written and read back (rav1e / rav1d are built in since B4)
+                Ok(serde_json::json!({"jpegli": e.jpegli().is_some(), "avif": true, "svt": e.svt().is_some()}))
+            }
             _ if COMMANDS.iter().any(|(n, _, _)| *n == name) => {
                 Err(Error::new(ErrorKind::Unknown, format!("{name}: not in the Rust back end yet")))
             }
@@ -248,7 +283,7 @@ mod tests {
     #[test]
     fn settings_and_presets() {
         let d = tmp("sp");
-        let b = Backend::new(Config { settings: d.join("s.json"), presets: d.join("p.json"), heif_dir: None });
+        let b = Backend::new(Config { settings: d.join("s.json"), presets: d.join("p.json"), heif_dir: None, encoders_dir: None });
         assert_eq!(b.call("get_settings", &[]).unwrap(), json!({}));
         let s = json!({"fmt": "PNG", "secs": ["adjust", "f_sc"], "jpeg_d": 1.25, "name": "Mirelle ✓"});
         assert_eq!(b.call("save_settings", &[s.clone()]).unwrap(), json!(true));
@@ -268,7 +303,8 @@ mod tests {
         assert_eq!(b.call("get_settings", &[]).unwrap(), json!({}));
         // errors
         assert_eq!(b.call("save_settings", &[]).unwrap_err().kind, ErrorKind::BadArgs);
-        assert_eq!(b.call("encoder_info", &[]).unwrap_err().kind, ErrorKind::Unknown);
+        assert_eq!(b.call("encoder_info", &[]).unwrap(), json!({"jpegli": false, "avif": true, "svt": false}));
+        assert_eq!(b.call("process", &[]).unwrap_err().kind, ErrorKind::Unknown);
         assert_eq!(b.call("sample", &[json!(0.5), json!(0.5)]).unwrap(), Value::Null);
         assert_eq!(b.call("load_stage", &[json!("no/such/file.png"), json!({}), json!(1)]).unwrap()["ok"], json!(false));
         assert_eq!(b.call("nope", &[]).unwrap_err().kind, ErrorKind::Unknown);
@@ -279,7 +315,7 @@ mod tests {
     fn table() {
         assert_eq!(
             Backend::commands(),
-            vec!["get_settings", "save_settings", "get_presets", "save_presets", "load_stage", "load_source", "sample"]
+            vec!["get_settings", "save_settings", "get_presets", "save_presets", "load_stage", "load_source", "sample", "encoder_info"]
         );
         let mut names: Vec<_> = COMMANDS.iter().map(|c| c.0).collect();
         names.sort();

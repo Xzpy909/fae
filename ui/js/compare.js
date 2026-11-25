@@ -26,6 +26,7 @@ function buildCompare() {
   for (let y = 0, row = 0; y < I.ph; y++, row += W) d.set(j.subarray(row + split, row + W), row + split);
 }
 
+const fmtTime = ms => ms < 1000 ? Math.max(1, Math.round(ms)) + ' ms' : (ms / 1000).toFixed(1) + ' s';
 const fmtBytes = b => b >= 1048576 ? (b / 1048576).toFixed(2) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
 function updateSizeChip() {
   const el = $('#sizeChip'), I = S.img, c = S.cmp;
@@ -33,8 +34,8 @@ function updateSizeChip() {
   el.classList.toggle('show', !!on);
   if (!on) return;
   const ready = cmpReady(), stale = c.busy || !ready || c.key !== jpegKey();
-  el.innerHTML = ready
-    ? `<b>${fmtBytes(c.bytes)}</b> <span class="muted">&middot; ${I.w}×${I.h} &middot; ${(c.bytes * 8 / (I.w * I.h)).toFixed(2)} bpp</span>`
+  el.innerHTML = ready && !stale     // a change since the shown result: say so until the new encode is in
+    ? `<b>${fmtBytes(c.bytes)}</b> <span class="muted">&middot; ${I.w}×${I.h}<br>${(c.bytes * 8 / (I.w * I.h)).toFixed(2)} bpp${c.ms != null ? ` &middot; ${fmtTime(c.ms)}` : ''}</span>`
     : '<span class="muted">encoding…</span>';
   el.classList.toggle('stale', stale);
   // pinned to the image's bottom-right corner, kept inside the viewport
@@ -88,7 +89,7 @@ const encOpts = () => ({
 });
 function encName(fmt, enc) {
   if (fmt === 'JPEG') return enc === 'pillow' ? 'JPEG (Pillow)' : 'jpegli';
-  if (fmt === 'AVIF') return enc === 'svt' ? 'AVIF SVT 4:4:4' : 'AVIF aom (fallback)';
+  if (fmt === 'AVIF') return enc === 'svt' ? 'AVIF SVT 4:4:4' : 'AVIF rav1e';
   return 'WEBP lossy';
 }
 function optsLabel(fmt, o, enc) {
@@ -133,7 +134,7 @@ async function loadJpeg() {
   S.cmp.busy = false;
   if (S.files[S.cur] !== f) return;
   Object.assign(S.cmp, { data: new ImageData(new Uint8ClampedArray(buf), r.pw, r.ph), path: f.path,
-    key, bytes: r.bytes, enc: r.encoder, fmt: r.fmt, opts: r.opts });
+    key, bytes: r.bytes, ms: r.ms, enc: r.encoder, fmt: r.fmt, opts: r.opts });
   requestRender();
   if (jpegKey() !== key) requestJpeg();
 }

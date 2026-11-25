@@ -10,7 +10,9 @@ object, non-ASCII text, key order, a file written by the old code read by the ne
 B3: load_stage / load_source / sample. The reference is api.py's code before B3 (kept below), on the
 stage image the back end hands Python for Process (Backend.stage; the Python stage it replaced is gone,
 the stage tests hold its results): the same answers (sizes, scale, alpha, ...), the same preview pixels
-(Pillow), the same samples (NumPy); AVIF (opened by Pillow until B4) goes through give_source.
+(Pillow), the same samples (NumPy); AVIF (opened by Pillow until B4, by rav1d since) too.
+
+B4: encoder_info. The encoders themselves: tests/backend/encoders_check.py.
 """
 from __future__ import annotations
 
@@ -210,8 +212,13 @@ def main() -> int:
     check("save_presets into a missing folder -> false", b2.call("save_presets", {"a": 1}) is False)
     check("sample before any stage -> None", b.call("sample", 0.5, 0.5) is None)
     check_stage(check, b, d)
+    # B4: encoder_info (api.py before B4: cjpegli / SvtAv1EncApp found, Pillow's AVIF; now AVIF is built in)
+    from fastedit.avif import svt_available
+    from fastedit.jpeg import jpegli_available
+    info = backend.shared().call("encoder_info")
+    check(f"encoder_info {info}", info == {"jpegli": jpegli_available(), "avif": True, "svt": svt_available()})
     try:
-        b.call("encoder_info")
+        b.call("process", [])
         check("a command not moved yet raises", False)
     except RuntimeError as ex:
         check(f"a command not moved yet raises ({ex})", str(ex).startswith("unknown:"))

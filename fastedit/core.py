@@ -72,6 +72,30 @@ def gpu_info() -> dict:
         return {"ok": True, "version": _fg.version(), **_gpu["info"]}
 
 
+def warm_gpu():
+    """Compile the GPU core's shaders in the background (app start), one pipeline at a time with the
+    lock taken only for that one, so a render that comes meanwhile waits for one compile at most
+    (it compiles what it needs itself). Without it the first Process / encoded compare waited for
+    all of its shaders (seconds, on one CPU core). Older fae_gpu builds without warm(): skipped."""
+    if _fg is None or _gpu["why"] is not None:
+        return
+
+    def job():
+        try:
+            with _gpu["lock"]:
+                dev = _gpu_device()
+                n = dev.warm_count() if dev is not None and hasattr(dev, "warm") else 0
+            for i in range(n):
+                with _gpu["lock"]:
+                    if _gpu["dev"] is None:     # turned off or failed meanwhile
+                        return
+                    _gpu["dev"].warm(i)
+        except Exception as ex:                 # only a head start: a render compiles what it needs
+            print(f"GPU core warm-up stopped: {type(ex).__name__}: {ex}", file=sys.stderr)
+
+    threading.Thread(target=job, name="gpu-warm", daemon=True).start()
+
+
 def gpu_release():
     """Free the GPU memory of the last image (after a Process batch / a compare preview)."""
     with _gpu["lock"]:

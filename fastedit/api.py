@@ -13,8 +13,6 @@ from .config import IMAGE_EXTS, PASTE_DIR, PREVIEW_MAX, StageParams
 from . import backend, core
 from .engine import collect, to_pil
 from .proc import Cancelled, _PREV, _TL, check_cancel, preview_begin
-from .jpeg import jpegli_available
-from .avif import avif_available, svt_available
 from .output import encode_lossy, norm_fmt, save_image
 
 
@@ -206,41 +204,45 @@ class Api:
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
 
     def encoder_info(self):
-        return {"jpegli": jpegli_available(), "avif": avif_available(), "svt": svt_available()}
+        return self._b.call("encoder_info")             # B4: Rust (cjpegli / SvtAv1EncApp found, AVIF built in)
 
     def lossy_cancel(self, req_id):
         """Stop the running lossy preview encode (the encoded compare was turned off)."""
         preview_begin(int(req_id))
+        self._b.preview_begin(int(req_id))       # encoders run by the Rust back end (B4)
         return True
 
     def lossy_preview(self, job, fmt, opts, req_id, full=0):
         """Encode the fully edited image with the lossy format, decode it again, hand back preview pixels."""
         preview_begin(req_id)
+        self._b.preview_begin(req_id)
         _TL.preview_req = req_id
         try:
             check_cancel()
             fmt = norm_fmt(fmt)
             key = json.dumps([job, fmt, opts], sort_keys=True, default=str)
             if _LOSSY["key"] == key:
-                dec, nbytes, enc, used = _LOSSY["val"]
+                dec, nbytes, enc, used, ms = _LOSSY["val"]
             else:
                 try:
                     icc, out = self._render_full(job)
                 finally:
                     core.gpu_release()          # the GPU memory of a full-size image isn't kept
                 check_cancel()
+                t0 = time.perf_counter()
                 data, enc, used = encode_lossy(out, fmt, opts, icc)
+                ms = (time.perf_counter() - t0) * 1000    # the encode alone, shown next to the size
                 check_cancel()
                 with Image.open(io.BytesIO(data)) as jim:
                     jim.load()      # the encoded file's own alpha (JPEG: none, the white it was written on)
                     dec = jim.convert("RGBA" if "A" in jim.getbands() or "transparency" in jim.info else "RGB")
                 nbytes = len(data)
-                _LOSSY.update(key=key, val=(dec, nbytes, enc, used))
+                _LOSSY.update(key=key, val=(dec, nbytes, enc, used, ms))
             w, h = dec.size
             pw, ph = _pv_size(w, h, full)
             token = self._b.put_preview(_preview_rgba(dec, (pw, ph), Image.Resampling.LANCZOS))
             return {"ok": True, "req_id": req_id, "token": token, "pw": pw, "ph": ph,
-                    "bytes": nbytes, "encoder": enc, "fmt": fmt, "opts": used}
+                    "bytes": nbytes, "ms": round(ms, 1), "encoder": enc, "fmt": fmt, "opts": used}
         except Cancelled:
             return {"ok": False, "req_id": req_id, "cancelled": True}
         except Exception as ex:

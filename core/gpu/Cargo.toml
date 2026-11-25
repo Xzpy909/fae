@@ -8,7 +8,7 @@ resolver = "2"
 members = ["fae-gpu", "fae-gpu-py", "fae-gpu-wasm"]
 
 [workspace.package]
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 
 [profile.release]

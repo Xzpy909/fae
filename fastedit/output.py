@@ -1,4 +1,9 @@
-"""WEBP output, lossy-format dispatch and saving."""
+"""WEBP output, lossy-format dispatch and saving.
+
+B4 (docs/rust-backend-plan.md): encode_lossy and save_image run in the Rust back end; the Python versions
+(encode_lossy_py, save_image_py, with jpeg.py and avif.py) stay as the reference of
+tests/backend/encoders_check.py, and for the AVIF encoder that isn't in Rust yet, until B5.
+"""
 from __future__ import annotations
 
 import io
@@ -40,7 +45,16 @@ def is_lossy(fmt: str, opts: dict | None) -> bool:
 
 
 def encode_lossy(img: Image.Image, fmt: str, opts: dict | None, icc: bytes | None = None) -> tuple[bytes, str, dict]:
-    """Returns (bytes, encoder name, normalised settings) for JPEG / AVIF / lossy WEBP."""
+    """Returns (bytes, encoder name, normalised settings) for JPEG / AVIF / lossy WEBP: the Rust back end
+    (B4), Python for what isn't in it yet."""
+    from . import backend
+    from .proc import _preview_req
+    r = backend.shared().encode(img, norm_fmt(fmt), opts, icc, _preview_req())
+    return r if r is not None else encode_lossy_py(img, fmt, opts, icc)
+
+
+def encode_lossy_py(img: Image.Image, fmt: str, opts: dict | None, icc: bytes | None = None) -> tuple[bytes, str, dict]:
+    """The Python encoders (before B4)."""
     opts = opts or {}
     if fmt == "JPEG":
         data, enc = encode_jpeg(img, opts.get("jpeg"), icc)
@@ -65,9 +79,18 @@ def _out_path(src_path: str, size: tuple[int, int], ext: str) -> str:
 
 def save_image(img: Image.Image, src_path: str, fmt: str = "WEBP", icc: bytes | None = None,
                opts: dict | None = None) -> str:
+    """Encode and write next to the source: the Rust back end (B4), Python for what isn't in it yet."""
+    from . import backend
+    r = backend.shared().save(img, src_path, norm_fmt(fmt), icc, opts)
+    return r if r is not None else save_image_py(img, src_path, fmt, icc, opts)
+
+
+def save_image_py(img: Image.Image, src_path: str, fmt: str = "WEBP", icc: bytes | None = None,
+                  opts: dict | None = None) -> str:
+    """The Python version (before B4)."""
     fmt = norm_fmt(fmt)
     if is_lossy(fmt, opts):
-        data, _, _ = encode_lossy(img, fmt, opts, icc)
+        data, _, _ = encode_lossy_py(img, fmt, opts, icc)
         out_path = _out_path(src_path, img.size, EXTS[fmt])
         with open(out_path, "wb") as f:
             f.write(data)

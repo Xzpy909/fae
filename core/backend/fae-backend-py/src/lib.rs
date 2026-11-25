@@ -12,6 +12,10 @@
 //!     decoded itself (AVIF until B4); b.preview(token) -> RGBA bytes | None; b.put_preview(rgba) -> token
 //!   white_patch(px, w, h, ch, pct, strength) / gray_edge(px, w, h, ch, p, sigma, strength) -> (px, w, h, ch)
 //!     the colour balance (B3)
+//!   b.encode(px, w, h, ch, fmt, opts_json, icc, req) -> (bytes, encoder, used_json)   JPEG / AVIF / lossy
+//!     WebP (B4); b.save(px, w, h, ch, src, fmt, opts_json, icc) -> path written; b.preview_begin(req)
+//!   encode_png / encode_webp / encode_jpeg_pillow / yuv444p10 / avif_mux / out_path /
+//!     encoder_opts   the encoders' parts (tests)
 //!   commands() -> [names this build runs]; table() -> [(name, wave, what)]; features(); version()
 //! Errors: RuntimeError("<kind>: <message>"); kind "unknown" = not in this build (the shell runs its own).
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -30,13 +34,14 @@ struct PyBackend {
 #[pymethods]
 impl PyBackend {
     #[new]
-    #[pyo3(signature = (settings, presets, heif_dir=None))]
-    fn new(settings: String, presets: String, heif_dir: Option<String>) -> Self {
+    #[pyo3(signature = (settings, presets, heif_dir=None, encoders_dir=None))]
+    fn new(settings: String, presets: String, heif_dir: Option<String>, encoders_dir: Option<String>) -> Self {
         PyBackend {
             b: backend::Backend::new(backend::Config {
                 settings: settings.into(),
                 presets: presets.into(),
                 heif_dir: heif_dir.map(Into::into),
+                encoders_dir: encoders_dir.map(Into::into),
             }),
         }
     }
@@ -88,6 +93,31 @@ impl PyBackend {
         self.b.put_preview(rgba.to_vec())
     }
 
+    /// JPEG / AVIF / lossy WebP (B4): (bytes, encoder name, settings used as JSON). `req`: the encoded
+    /// compare's request id (cancellable: RuntimeError "cancelled: ..."), None for Process. RuntimeError
+    /// "unknown: ..." for an AVIF encoder not in Rust yet.
+    #[pyo3(signature = (px, w, h, ch, fmt, opts_json, icc=None, req=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn encode<'py>(&self, py: Python<'py>, px: &[u8], w: usize, h: usize, ch: usize, fmt: &str, opts_json: &str, icc: Option<&[u8]>, req: Option<i64>) -> PyResult<(Bound<'py, PyBytes>, &'static str, String)> {
+        let (img, opts) = (px_in(px, w, h, ch)?, json_in(opts_json)?);
+        let r = py.detach(|| self.b.encode_lossy(img, fmt, &opts, icc, req)).map_err(perr)?;
+        Ok((PyBytes::new(py, &r.data), r.encoder, r.used.to_string()))
+    }
+
+    /// Encode and write next to `src` (B4; output.py save_image): the path written.
+    #[pyo3(signature = (px, w, h, ch, src, fmt, opts_json, icc=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn save(&self, py: Python<'_>, px: &[u8], w: usize, h: usize, ch: usize, src: &str, fmt: &str, opts_json: &str, icc: Option<&[u8]>) -> PyResult<String> {
+        let (img, opts) = (px_in(px, w, h, ch)?, json_in(opts_json)?);
+        let r = py.detach(|| self.b.save(img, src, fmt, icc, &opts)).map_err(perr)?;
+        Ok(r.display().to_string())
+    }
+
+    /// A new encoded-compare request: encoder runs of older ones are killed (proc.py preview_begin).
+    fn preview_begin(&self, req: i64) {
+        self.b.preview_begin(req)
+    }
+
     /// Run one command: `args_json` = the UI's positional arguments as a JSON array. Without the GIL.
     fn call(&self, py: Python<'_>, name: &str, args_json: &str) -> PyResult<String> {
         let args: Vec<serde_json::Value> =
@@ -102,6 +132,10 @@ type Raw<'py> = (Bound<'py, PyBytes>, usize, usize, usize);
 fn params(json: &str) -> PyResult<backend::fit::StageParams> {
     let v: serde_json::Value = serde_json::from_str(json).map_err(|e| PyValueError::new_err(format!("params: {e}")))?;
     Ok(backend::fit::StageParams::from_json(&v))
+}
+
+fn json_in(s: &str) -> PyResult<serde_json::Value> {
+    serde_json::from_str(s).map_err(|e| PyValueError::new_err(format!("options: {e}")))
 }
 
 fn px_in(px: &[u8], w: usize, h: usize, ch: usize) -> PyResult<backend::px::View<'_>> {
@@ -165,17 +199,77 @@ fn preset_size(ar: &str, res: i64) -> (usize, usize) {
     backend::fit::preset_size(ar, res)
 }
 
+/// PNG as Pillow's save(compress_level=9, optimize=True) (B4).
+#[pyfunction]
+#[pyo3(signature = (px, w, h, ch, icc=None))]
+fn encode_png<'py>(py: Python<'py>, px: &[u8], w: usize, h: usize, ch: usize, icc: Option<&[u8]>) -> PyResult<Bound<'py, PyBytes>> {
+    let img = px_in(px, w, h, ch)?;
+    let r = py.detach(|| backend::encode::encode_png(img, icc)).map_err(perr)?;
+    Ok(PyBytes::new(py, &r))
+}
+
+/// WebP as Pillow's save(lossless=, quality=, method=, exact=) (B4).
+#[pyfunction]
+#[pyo3(signature = (px, w, h, ch, lossless, quality, method, exact, icc=None))]
+#[allow(clippy::too_many_arguments)]
+fn encode_webp<'py>(py: Python<'py>, px: &[u8], w: usize, h: usize, ch: usize, lossless: bool, quality: f32, method: i32, exact: bool, icc: Option<&[u8]>) -> PyResult<Bound<'py, PyBytes>> {
+    let img = px_in(px, w, h, ch)?;
+    let r = py.detach(|| backend::encode::encode_webp(img, lossless, quality, method, exact, icc)).map_err(perr)?;
+    Ok(PyBytes::new(py, &r))
+}
+
+/// JPEG as Pillow's save(quality=, optimize=True, progressive=True) (B4; jpeg.py's fallback); RGBA is
+/// flattened onto white first, as jpeg.py does.
+#[pyfunction]
+#[pyo3(signature = (px, w, h, ch, quality, icc=None))]
+fn encode_jpeg_pillow<'py>(py: Python<'py>, px: &[u8], w: usize, h: usize, ch: usize, quality: i32, icc: Option<&[u8]>) -> PyResult<Bound<'py, PyBytes>> {
+    let img = px_in(px, w, h, ch)?;
+    let r = py.detach(|| backend::encode::encode_jpeg_turbo(&backend::encode::flatten_rgb(img), w, h, quality, icc)).map_err(perr)?;
+    Ok(PyBytes::new(py, &r))
+}
+
+/// avif.py rgb_to_yuv444p10 (B4): planar 10-bit Y, Cb, Cr.
+#[pyfunction]
+fn yuv444p10<'py>(py: Python<'py>, px: &[u8], w: usize, h: usize, ch: usize) -> PyResult<Bound<'py, PyBytes>> {
+    let img = px_in(px, w, h, ch)?;
+    let r = py.detach(|| backend::avif::rgb_to_yuv444p10(img.data, ch));
+    Ok(PyBytes::new(py, &r))
+}
+
+/// avif.py mux_avif (B4): an AV1 OBU stream (or IVF) -> AVIF file.
+#[pyfunction]
+#[pyo3(signature = (stream, w, h, icc=None, nclx=(1, 13, 1, 1)))]
+fn avif_mux<'py>(py: Python<'py>, stream: &[u8], w: u32, h: u32, icc: Option<&[u8]>, nclx: (u16, u16, u16, u8)) -> PyResult<Bound<'py, PyBytes>> {
+    let s = backend::avif::ivf_payload(stream).map_err(perr)?;
+    Ok(PyBytes::new(py, &backend::avif::mux(s, w, h, icc, nclx).map_err(perr)?))
+}
+
+/// The settings used for `fmt` (B4): jpeg_opts / avif_opts / webp_opts of the Python, as JSON.
+#[pyfunction]
+fn encoder_opts(fmt: &str, opts_json: &str) -> PyResult<String> {
+    Ok(backend::encode::normalised(fmt, &json_in(opts_json)?).map_err(perr)?.to_string())
+}
+
+/// output.py _out_path (B4).
+#[pyfunction]
+fn out_path(src: &str, w: usize, h: usize, ext: &str) -> String {
+    backend::encode::out_path(src, w, h, ext).display().to_string()
+}
+
 #[pyfunction]
 fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-/// Optional parts this build has ("jpeg-simd": libjpeg-turbo's SIMD code).
+/// Optional parts this build has ("jpeg-simd": libjpeg-turbo's SIMD code, "rav1e-asm": rav1e's assembly).
 #[pyfunction]
 fn features() -> Vec<&'static str> {
     let mut v = vec![];
     if cfg!(feature = "jpeg-simd") {
         v.push("jpeg-simd");
+    }
+    if cfg!(feature = "simd") {
+        v.push("rav1e-asm");
     }
     v
 }
@@ -206,5 +300,12 @@ fn fae_backend(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gray_edge, m)?)?;
     m.add_function(wrap_pyfunction!(mpix_size, m)?)?;
     m.add_function(wrap_pyfunction!(preset_size, m)?)?;
+    m.add_function(wrap_pyfunction!(encode_png, m)?)?;
+    m.add_function(wrap_pyfunction!(encode_webp, m)?)?;
+    m.add_function(wrap_pyfunction!(encode_jpeg_pillow, m)?)?;
+    m.add_function(wrap_pyfunction!(yuv444p10, m)?)?;
+    m.add_function(wrap_pyfunction!(avif_mux, m)?)?;
+    m.add_function(wrap_pyfunction!(out_path, m)?)?;
+    m.add_function(wrap_pyfunction!(encoder_opts, m)?)?;
     Ok(())
 }

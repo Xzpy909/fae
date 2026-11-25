@@ -464,14 +464,20 @@ pub fn encode_rav1e(px: &[u8], w: usize, h: usize, c: usize, quality: i64, speed
     let yuv = rgb_to_yuv444p10(px, c);
     let s: Vec<u16> = yuv.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
     let n = w * h;
-    let color = rav1e_encode(w, h, &[&s[..n], &s[n..2 * n], &s[2 * n..]], quality_to_quantizer(q), speed)?;
+    let planes = [&s[..n], &s[n..2 * n], &s[2 * n..]];
     if c != 4 {
+        let color = rav1e_encode(w, h, &planes, quality_to_quantizer(q), speed)?;
         return mux(&color, w as u32, h as u32, icc, (1, 13, 1, 1));
     }
     let a: Vec<u16> = px.chunks_exact(4).map(|p| ((p[3] as u16) << 2) | (p[3] as u16 >> 6)).collect();
     let aq = ((q + 100.0) / 2.0).min(q + q / 4.0 + 2.0);
-    let alpha = rav1e_encode(w, h, &[&a], quality_to_quantizer(aq), speed)?;
-    mux_alpha(&color, &alpha, w as u32, h as u32, icc, (1, 13, 1, 1))
+    // colour and alpha side by side: each fills the cores the other leaves idle (its last tiles, its
+    // frame-level steps)
+    let (color, alpha) = rayon::join(
+        || rav1e_encode(w, h, &planes, quality_to_quantizer(q), speed),
+        || rav1e_encode(w, h, &[&a], quality_to_quantizer(aq), speed),
+    );
+    mux_alpha(&color?, &alpha?, w as u32, h as u32, icc, (1, 13, 1, 1))
 }
 
 /// av1C of a stream: its 4 config bytes + the sequence header OBU; and the item data (no TD / padding).

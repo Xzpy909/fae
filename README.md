@@ -274,6 +274,7 @@ ui/
     │                  # curves, controls, files, tools, presets, instances, chain-presets, process, winchrome, init, crop (loaded in that order)
     └── film/          # one file per Film Effect preset (33×33×33 colour table)
 core/                  # Rust core: fastedit-core (math), fastedit-py (Python), fastedit-wasm
+core/backend/          # Rust back end (fae_backend; rav1e from github.com/Nukvah/rav1e-fae)
 tests/parity/          # bit-exactness tests of both core builds against stored goldens
 tests/bench/           # timings
 encoders/              # cjpegli.exe, SvtAv1EncApp.exe (from the release)

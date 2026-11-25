@@ -173,6 +173,11 @@ dependency removed.
   byte-identical. Grids and premultiplied alpha answer "unknown:" and still go to Pillow. `encoder_info`
   is a command. The `simd` feature (build_backend.bat with nasm) also builds rav1e's asm; rav1d's asm
   is off (it doesn't link into the extension).
+- rav1e speed on big images (owner's choice: patch rav1e rather than an AVIF grid): after its tiles,
+  rav1e ran CDEF, loop restoration and the deblocking-level search over the whole frame on one thread;
+  with 24 threads that was most of a 50 MP encode (speeds 3–8 all ≈ 7.5 s). rav1e 0.8.1 with those three steps in
+  parallel lives in github.com/Nukvah/rav1e-fae (upstream crate as the first commit, then the patch; notes
+  in its FAE-PATCH.md), pulled in by `[patch.crates-io]` pinned to a commit, output byte-identical; colour and alpha encode side by side.
 - Kept until the owner's check, then removed (B4 clean-up): jpeg.py, avif.py, output.py's
   `encode_lossy_py` / `save_image_py`, proc.py's encoder runner, engine.py's `decode_pillow` /
   `make_thumb_pillow` and `give_source` (these three stay as the fallback for the AVIFs Rust doesn't open).

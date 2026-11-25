@@ -15,3 +15,8 @@ edition = "2021"
 opt-level = 3
 lto = "fat"
 codegen-units = 1
+
+# rav1e 0.8.1 with fae's patch (github.com/Nukvah/rav1e-fae, FAE-PATCH.md there): its frame-wide loop
+# filter steps run in parallel, same output. Pinned to a commit; to update, change rev.
+[patch.crates-io]
+rav1e = { git = "https://github.com/Nukvah/rav1e-fae", rev = "5b9ef70dec6bd5e2273e5ea886b5ebd70d140a7f" }

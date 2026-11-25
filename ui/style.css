@@ -643,6 +643,8 @@ input[type=range]:hover::-webkit-slider-thumb { background: #fff; transform: sca
   font-size: 12.5px; max-width: 70vw; }
 #toast.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
 #toast.err { border-color: rgba(255,107,107,.6); }
+/* an animated emoji at the start of a message (ui/emoji, Noto, CC BY 4.0) */
+.emo { width: 20px; height: 20px; margin: -2px 7px -2px 0; vertical-align: -5px; }
 #toast a { color: var(--accent); cursor: pointer; margin-left: 10px; text-decoration: none; }
 
 /* ---------- crop mode ---------- */

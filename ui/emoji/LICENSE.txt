@@ -1,0 +1,5 @@
+Animated emoji from Noto Emoji Animation by Google (fonts.google.com/noto/specimen/Noto+Color+Emoji,
+"Animated emoji"), licensed under CC BY 4.0: https://creativecommons.org/licenses/by/4.0/
+Scaled down to 72 px for the app.
+
+party-popper.webp   U+1F389 party popper

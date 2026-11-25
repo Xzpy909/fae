@@ -1,8 +1,8 @@
 # Rust back end: plan
 
 Status: **B0, B1, B2, B3 done** (on main; geometry.py, colour.py, the Python stage and OpenCV removed).
-**B4 in progress** (fae_backend 0.5.0): all encoders and AVIF decoding in Rust (rav1e / rav1d), waiting for
-the owner's check on Windows; the Python versions stay until then. Moves the Python back
+**B4 in progress** (fae_backend 0.5.0): all encoders and AVIF decoding in Rust (rav1e / rav1d), checked by the
+owner on Windows; left: the B4 clean-up (the Python versions listed under B4). Moves the Python back
 end (`fastedit/`) into Rust, wave by wave, so the app keeps working after every wave and a later switch from
 pywebview to **Tauri** is a small last step instead of a rewrite. Not a goal in itself: no visible change to
 the editor; the gains are a smaller, faster-starting app (no NumPy / OpenCV / Pillow at run time), one

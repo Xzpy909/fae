@@ -34,7 +34,7 @@ function updateSizeChip() {
   el.classList.toggle('show', !!on);
   if (!on) return;
   const ready = cmpReady(), stale = c.busy || !ready || c.key !== jpegKey();
-  el.innerHTML = ready
+  el.innerHTML = ready && !stale     // a change since the shown result: say so until the new encode is in
     ? `<b>${fmtBytes(c.bytes)}</b> <span class="muted">&middot; ${I.w}×${I.h} &middot; ${(c.bytes * 8 / (I.w * I.h)).toFixed(2)} bpp${c.ms != null ? ` &middot; ${fmtTime(c.ms)}` : ''}</span>`
     : '<span class="muted">encoding…</span>';
   el.classList.toggle('stale', stale);

@@ -605,7 +605,6 @@ input[type=range]:hover::-webkit-slider-thumb { background: #fff; transform: sca
   font-weight: 500; color: var(--text); }
 .ex-foot { justify-content: space-between; }
 .ex-foot #outInfo { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); }
-.ex-foot .check { flex: none; }
 .enc-cmp { flex: none; width: 34px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 8px;
   background: rgba(255, 255, 255, .04); border-color: rgba(255, 255, 255, .12); color: var(--text); }
 .enc-cmp svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }

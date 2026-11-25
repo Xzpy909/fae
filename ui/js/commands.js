@@ -79,10 +79,9 @@ const Cmd = (() => {
   }
 
   /* ---------- prefs behind some commands ---------- */
-  function setAdvance(on) { S.prefs.advance = !!on; $('#advanceChk').checked = !!on; savePrefsSoon(); Settings.sync(); }
+  function setAdvance(on) { S.prefs.advance = !!on; savePrefsSoon(); Settings.sync(); }
   function syncDock() { document.body.classList.toggle('no-dock', S.prefs.dock === false); }
   function setDock(on) { S.prefs.dock = !!on; syncDock(); savePrefsSoon(); Settings.sync(); }
-  $('#advanceChk').addEventListener('change', () => Settings.sync());
 
   /* ---------- one dropdown, shared by the menus, the zoom levels and Settings ---------- */
   const Pop = (() => {

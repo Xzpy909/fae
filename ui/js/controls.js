@@ -286,7 +286,6 @@ const EncPop = (() => {
 $('#prioSel').addEventListener('change', e => { S.stage.prio = e.target.value; valueChanged('stage'); commit(); });
 $('#wpOn').addEventListener('change', e => { S.stage.wp_on = e.target.checked; valueChanged('stage'); commit(); syncPanel(); });
 $('#geOn').addEventListener('change', e => { S.stage.ge_on = e.target.checked; valueChanged('stage'); commit(); syncPanel(); });
-$('#advanceChk').addEventListener('change', e => { S.prefs.advance = e.target.checked; savePrefsSoon(); });
 
 /* ---------- resize: Preset / Target Mpix / Custom ---------- */
 const AR_PRESETS = ['16:9', '21:9', '4:3', '3:2', '1:1', '4:5', '9:16'];
@@ -364,7 +363,6 @@ function syncPanel() {
   $('#prioSel').value = S.stage.prio;
   $('#wpOn').checked = S.stage.wp_on;
   $('#geOn').checked = S.stage.ge_on;
-  $('#advanceChk').checked = !!S.prefs.advance;
   syncEnabled();
   updateToolUI();
   updateUndoUI();

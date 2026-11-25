@@ -162,6 +162,8 @@ fn mime(path: &Path) -> &'static str {
         Some("css") => "text/css; charset=utf-8",
         Some("svg") => "image/svg+xml",
         Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("json") => "application/json",
         Some("wasm") => "application/wasm",
         _ => "application/octet-stream",
     }

@@ -22,6 +22,8 @@ call core\gpu\build_gpu.bat || echo GPU core not built: the live preview will us
 
 echo === Fae.exe (Tauri) ===
 set FEAT=
+rem nasm's installer does not always put it on PATH (winget installs it per user): look in its usual folders too
+where nasm >nul 2>nul || for %%d in ("%ProgramFiles%\NASM" "%LOCALAPPDATA%\bin\NASM" "%LOCALAPPDATA%\Programs\NASM") do if exist "%%~d\nasm.exe" set "PATH=%%~d;%PATH%"
 where nasm >nul 2>nul && set FEAT=--features simd
 if "%FEAT%"=="" echo nasm not found: JPEG decoding and rav1e without SIMD (same pixels, slower). Get it with: winget install nasm
 pushd core\backend

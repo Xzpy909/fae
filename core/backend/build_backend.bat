@@ -22,6 +22,8 @@ if exist target\wheels rmdir /s /q target\wheels
 rem libjpeg-turbo's SIMD code and rav1e's assembly need nasm to build: same pixels, about 40 %% faster on big
 rem JPEGs, AVIF through rav1e (alpha / the aom choice) several times faster
 set FEAT=
+rem nasm's installer does not always put it on PATH (winget installs it per user): look in its usual folders too
+where nasm >nul 2>nul || for %%d in ("%ProgramFiles%\NASM" "%LOCALAPPDATA%\bin\NASM" "%LOCALAPPDATA%\Programs\NASM") do if exist "%%~d\nasm.exe" set "PATH=%%~d;%PATH%"
 where nasm >nul 2>nul && set FEAT=--features simd
 if "%FEAT%"=="" echo nasm not found: JPEG decoding and rav1e without SIMD (same pixels, slower). Get it with: winget install nasm
 pushd fae-backend-py

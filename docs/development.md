@@ -40,6 +40,9 @@ dist\Fae\Fae.exe --no-gpu             # live preview and Process without the GPU
 core\backend\target\release\Fae.exe   # a build also runs from the repository: its ui\ and settings
 ```
 
+The splash window shows `ui/splash.jpg`, a new picture each release (any size; it is cropped to a square,
+its centre-right kept). An optional `ui/splash.json`, `{"credit": "Artwork: Mirelle"}`, adds a credit line.
+
 Settings are saved to `fae_settings.json` next to `Fae.exe`, your presets to `fae_presets.json`. Not yet: the
 few AVIF files the Rust decoder can't open (grid images, premultiplied alpha).
 

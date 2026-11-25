@@ -5,7 +5,9 @@
 //!   UI files, /preview/<token>, /thumb; the same headers, cross-origin isolation included);
 //! - the commands: one Tauri command, `call(name, args)`, runs the back end's command table; the shell's own
 //!   commands (window buttons, dialogs, Ctrl+V, reveal in Explorer, Process with its progress) are here;
-//! - the shell's calls into the page go through the globals bridge.js defines (window.app.addPaths, …).
+//! - the shell's calls into the page go through the globals bridge.js defines (window.app.addPaths, …);
+//! - the splash window (ui/splash.html, a new picture each release: ui/splash.jpg) while the main window
+//!   loads hidden; startup.js shows the main window when the app can be used.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod paths;
@@ -52,6 +54,20 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![shell::call])
         .setup(move |app| {
+            // the splash: for the app's page, not the check pages
+            let splash = !opts.selftest && dirs.ui().join("splash.html").is_file();
+            if splash {
+                let url = page_url(&format!("splash.html?v={}", env!("CARGO_PKG_VERSION")))?;
+                let s = WebviewWindowBuilder::new(app, "splash", WebviewUrl::CustomProtocol(url))
+                    .title("Fae")
+                    .inner_size(640.0, 400.0)
+                    .resizable(false)
+                    .decorations(false)
+                    .center()
+                    .background_color(tauri::window::Color(0x1c, 0x1c, 0x1f, 0xff))
+                    .build()?;
+                sh.set_splash(s);
+            }
             let url = page_url(&opts.page)?;
             let w = WebviewWindowBuilder::new(app, "main", WebviewUrl::CustomProtocol(url))
                 .title("Fae")
@@ -59,14 +75,25 @@ fn main() {
                 .min_inner_size(1240.0, 680.0)
                 .decorations(!sh.frameless())
                 .background_color(tauri::window::Color(0x23, 0x23, 0x26, 0xff))
+                .visible(!splash)
                 .build()?;
             if opts.debug {
                 w.open_devtools();
             }
             sh.set_window(app.get_webview_window("main").expect("the main window"));
+            if splash {
+                // if the page never says it is ready (a script error), show it anyway
+                let sh = sh.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(30));
+                    sh.reveal_main();
+                });
+            } else {
+                sh.reveal_main();
+            }
             Ok(())
         })
-        .on_window_event(move |_w, ev| events.window_event(ev))
+        .on_window_event(move |w, ev| events.window_event(w.label(), ev))
         .run(tauri::generate_context!())
         .expect("Fae: the window could not start");
 }

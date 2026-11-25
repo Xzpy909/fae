@@ -1,5 +1,11 @@
 'use strict';
-/* Start-up: the loading screen (#splash) and a timing line.
+/* Start-up: the loading screen and a timing line.
+
+   Fae.exe opens a small splash window (splash.html) and loads this page in the main window hidden. The
+   bar and its line go to the splash window (the shell's splash_progress); once the app can be used the
+   main window is shown and the splash window closes (splash_done), and #splash is a plain cover until
+   the main window's first frames. Without a
+   splash window (an older shell, a page opened another way) #splash covers this window instead.
 
    The splash covers the window from the first paint until the app can be used: init.js has asked
    Python for everything it needs (Boot.mark('init')), the GPU core has started or is known to be
@@ -20,12 +26,28 @@ const Boot = (() => {
   } catch (_) {}
   const mark = name => marks.push([name, now()]);
   const note = text => notes.push(text);           // extra detail for the timing line
+  const shell = (name, ...args) => {
+    try {
+      return typeof Bridge !== 'undefined' && Bridge.available() ? Bridge.api()[name](...args).catch(() => false)
+        : Promise.resolve(false);
+    }
+    catch (_) { return Promise.resolve(false); }
+  };
+  // is there a splash window: asked once, with its first line, after bridge.js has loaded
+  let external;
+  const hasSplash = () => external || (external = shell('splash_progress', 0, 'Starting…').then(on => {
+    if (on) document.getElementById('splash')?.classList.add('external');
+    return on;
+  }));
+
   // the bar: done of total (the GPU core's shaders)
   function progress(done, total) {
+    const line = `Preparing the GPU · ${done} / ${total}`;
+    hasSplash().then(on => on && shell('splash_progress', done / total, line));
     const el = document.querySelector('#splash');
     if (!el) return;
     el.querySelector('.bar i').style.width = (100 * done / total).toFixed(1) + '%';
-    el.querySelector('span').textContent = `Preparing the GPU · ${done} / ${total}`;
+    el.querySelector('span').textContent = line;
   }
 
   // two frames in a row within 50 ms of each other (or give up after 15 s)
@@ -50,11 +72,17 @@ const Boot = (() => {
   const initDone = new Promise(res => { inited = res; });
 
   async function run() {
+    hasSplash();
     await Promise.all([
       initDone,
       typeof GV !== 'undefined' ? GV.started.then(() => mark(GV.ready() ? 'gpu ready' : 'gpu off')) : null,
       typeof WP !== 'undefined' ? until(() => WP.ready() || WP.failed()).then(() => mark('cpu worker')) : null,
     ]);
+    if (await hasSplash()) {
+      // the hidden window draws nothing: show it, then wait for its frames under the plain cover
+      shell('splash_progress', 1, 'Opening…');
+      await shell('splash_done');
+    }
     await settled();
     mark('shown');
     const el = document.getElementById('splash');

@@ -39,7 +39,7 @@ def make_thumb_pillow(path: str) -> bytes:
 # ---- app.py's HTTP handler before B6 (do_GET), as a function: (status, content type, cacheable, body) ----
 MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
         ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png",
-        ".wasm": "application/wasm"}
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".json": "application/json", ".wasm": "application/wasm"}
 
 
 def serve(target: str, ui_dir: str, preview, thumb):

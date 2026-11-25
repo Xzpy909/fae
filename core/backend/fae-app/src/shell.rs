@@ -1,19 +1,25 @@
 //! The shell's side of the commands (the pywebview shell's api.py and winchrome.py until B7): the window buttons,
 //! the dialogs, Ctrl+V, reveal in Explorer, Process with its progress; everything else goes to the back
 //! end's command table. And the window's events the page hears about (drag-drop, maximized / restored).
+//! The splash window: shown while the main window loads hidden; startup.js reports its progress here and
+//! says when to show the main window.
 
 use backend::{app, job_error, Backend};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
-use tauri::{DragDropEvent, WebviewWindow, WindowEvent};
+use std::sync::{Arc, Mutex, OnceLock};
+use tauri::{DragDropEvent, Manager, WebviewWindow, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 use tauri_runtime::ResizeDirection;
 
 pub struct Shell {
     b: Arc<Backend>,
     window: OnceLock<WebviewWindow>,
+    /// the splash window, until the main window is shown
+    splash: Mutex<Option<WebviewWindow>>,
+    /// the main window has been shown (after the splash, or at once without one)
+    revealed: AtomicBool,
     frameless: bool,
     paste_dir: PathBuf,
     maximized: AtomicBool,
@@ -32,6 +38,8 @@ impl Shell {
         Shell {
             b,
             window: OnceLock::new(),
+            splash: Mutex::new(None),
+            revealed: AtomicBool::new(false),
             // the unified header: on Windows the UI's top bar is the title bar
             frameless: cfg!(windows) && !opts.native_frame && !opts.selftest,
             paste_dir,
@@ -46,6 +54,27 @@ impl Shell {
     pub fn set_window(&self, w: WebviewWindow) {
         self.maximized.store(w.is_maximized().unwrap_or(false), Ordering::Relaxed);
         let _ = self.window.set(w);
+    }
+
+    pub fn set_splash(&self, w: WebviewWindow) {
+        *self.splash.lock().unwrap() = Some(w);
+    }
+
+    /// Show the main window and close the splash (startup.js when the app can be used, or the fallback in
+    /// main.rs if the page never says so). Whether there was a splash.
+    pub fn reveal_main(&self) -> bool {
+        if self.revealed.swap(true, Ordering::SeqCst) {
+            return false;
+        }
+        let splash = self.splash.lock().unwrap().take();
+        if let Some(w) = self.window.get() {
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+        if let Some(s) = &splash {
+            let _ = s.close();
+        }
+        splash.is_some()
     }
 
     fn win(&self) -> Result<&WebviewWindow, String> {
@@ -85,6 +114,17 @@ impl Shell {
             }
             "win_minimize" => w()?.minimize().map(|_| Value::Null).map_err(err),
             "win_close" => w()?.close().map(|_| Value::Null).map_err(err),
+            // ---- the splash window (startup.js) ----
+            // the bar (0..1) and its line; whether there is a splash window
+            "splash_progress" => {
+                let frac = arg(0).as_f64().unwrap_or(0.0);
+                let guard = self.splash.lock().unwrap();
+                if let Some(s) = guard.as_ref() {
+                    let _ = s.eval(&format!("window.splashProgress && window.splashProgress({frac},{})", json!(text(1))));
+                }
+                Ok(Value::Bool(guard.is_some()))
+            }
+            "splash_done" => Ok(Value::Bool(self.reveal_main())),
             // ---- files ----
             "pick_files" => {
                 let exts: Vec<&str> = app::IMAGE_EXTS.iter().map(|e| e.trim_start_matches('.')).collect();
@@ -156,7 +196,18 @@ impl Shell {
 
     /// The window's events the page hears about (bridge.js): a file drag over the window (its overlay),
     /// the files dropped, maximized / restored (the maximize button's icon).
-    pub fn window_event(&self, ev: &WindowEvent) {
+    pub fn window_event(&self, label: &str, ev: &WindowEvent) {
+        if label == "splash" {
+            // the splash closed by hand before the app was shown: quit, as the window's close button would
+            if let WindowEvent::Destroyed = ev {
+                if !self.revealed.load(Ordering::SeqCst) {
+                    if let Some(w) = self.window.get() {
+                        w.app_handle().exit(0);
+                    }
+                }
+            }
+            return;
+        }
         match ev {
             WindowEvent::DragDrop(DragDropEvent::Enter { .. }) => self.js("window.app.dragState && window.app.dragState('enter')"),
             WindowEvent::DragDrop(DragDropEvent::Leave) => self.js("window.app.dragState && window.app.dragState('leave')"),

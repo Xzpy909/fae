@@ -96,7 +96,7 @@ const BatchApply = (() => {
     renderList();
     const what = mode === 'preset' ? `Preset <b>${esc(preset.name)}</b> applied` : 'Edits pasted';
     const n = idx.length;
-    toast(`<img class="emo" src="emoji/party-popper.webp" alt="🎉">${what} to ${n} image${n > 1 ? 's' : ''}` + (skipped ? `<br>Crop skipped on ${skipped}: different or unknown image size` : ''));
+    toast(`${what} to ${n} image${n > 1 ? 's' : ''}` + (skipped ? `<br>Crop skipped on ${skipped}: different or unknown image size` : ''));
   }
   const ready = () => mode === 'preset' ? !!preset : !!S.clipboard;
 

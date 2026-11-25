@@ -77,7 +77,7 @@ async function processAll() {
   const ok = res.filter(r => r.ok).length, bad = res.length - ok;
   res.forEach(r => { const f = S.files.find(x => x.path === r.path); if (f && r.ok) { f.done = true; f.out = r.out; } });
   renderList();
-  toast(`Processed ${ok} image(s)` + (bad ? `, <span style="color:var(--red)">${bad} failed</span>` : '') + skippedNote(res), bad > 0,
+  toast((ok ? '<img class="emo" src="emoji/party-popper.webp" alt="🎉">' : '') + `Processed ${ok} image(s)` + (bad ? `, <span style="color:var(--red)">${bad} failed</span>` : '') + skippedNote(res), bad > 0,
     ok ? res.find(r => r.ok).out : null);
 }
 Bridge.on('processProgress', (i, n) => {

@@ -5,6 +5,7 @@ rem   python tests\stage\stage_check.py --impl rust   the stage (decode, ...) in
 rem   python tests\backend\commands_check.py   the commands moved so far, against their Python behaviour
 rem   python tests\backend\encoders_check.py   the encoders (B4), against the Python ones
 rem   python tests\backend\process_check.py   Process and the encoded compare (B5), against the Python path
+rem   python tests\backend\app_check.py   file lists and the local HTTP server (B6), against the Python versions
 rem It links the CPU core (core\fastedit-core) and the GPU core (core\gpu\fae-gpu) as crates: Process and the
 rem encoded compare run in it; their own build scripts are still needed for the live preview's WebAssembly.
 setlocal

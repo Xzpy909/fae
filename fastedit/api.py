@@ -8,15 +8,14 @@ import sys
 import time
 from .config import IMAGE_EXTS, PASTE_DIR
 from . import backend
-from .engine import collect
 
 
 class Api:
     def __init__(self, initial_paths=None):
         self._window = None
         self._chrome = None          # winchrome.Chrome when the window is frameless (Windows); private: not exposed to JS
-        self._initial = collect(initial_paths or [])
-        self._b = backend.shared()      # the Rust back end (private: not exposed to JS; app.py serves its previews)
+        self._b = backend.shared()      # the Rust back end (private: not exposed to JS; it also serves the UI)
+        self._b.set_initial(initial_paths or [])
 
     def set_window(self, w):
         self._window = w
@@ -55,10 +54,10 @@ class Api:
     def save_presets(self, data):
         return self._b.call("save_presets", data)
 
+    # ---- files (Rust back end, fae-backend app.rs, B6; the dialogs and the clipboard stay here) ----
     def initial_files(self):
-        return self._initial
+        return self._b.call("initial_files")
 
-    # ---- files ------------------------------------------------------------
     def _dialog(self, kind, multiple=False):
         import webview
         fd = getattr(webview, "FileDialog", None)
@@ -71,14 +70,14 @@ class Api:
 
     def pick_files(self):
         res = self._dialog("open", True)
-        return collect(list(res or []))
+        return self._b.collect(list(res or []))
 
     def pick_folder(self):
         res = self._dialog("folder")
-        return collect(list(res or []))
+        return self._b.collect(list(res or []))
 
     def expand_paths(self, paths):
-        return collect(paths)
+        return self._b.call("expand_paths", paths or [])
 
     def paste_clipboard(self):
         """Ctrl+V: the images on the clipboard. Files copied in Explorer -> those images (folders expanded);
@@ -90,7 +89,7 @@ class Api:
         except Exception as ex:
             return {"ok": False, "error": f"Clipboard: {type(ex).__name__}: {ex}"}
         if isinstance(clip, list):
-            paths = collect(clip)
+            paths = self._b.collect([str(p) for p in clip])
             if not paths:
                 return {"ok": False, "error": "No images among the copied files"}
             return {"ok": True, "paths": paths, "saved": None}

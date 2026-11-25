@@ -15,6 +15,8 @@ the stage tests hold its results): the same answers (sizes, scale, alpha, ...), 
 B4: encoder_info. The encoders themselves: tests/backend/encoders_check.py.
 
 B5: lossy_preview, lossy_cancel, process, core_info: tests/backend/process_check.py.
+
+B6: initial_files, expand_paths (and the local HTTP server): tests/backend/app_check.py.
 """
 from __future__ import annotations
 
@@ -248,10 +250,10 @@ def main() -> int:
     info = backend.shared().call("encoder_info")
     check(f"encoder_info {info}", info == {"jpegli": jpegli_available(), "avif": True, "svt": svt_available()})
     try:
-        b.call("expand_paths", [])          # B6
-        check("a command not moved yet raises", False)
+        b.call("reveal", "x.png")           # the shell's (Explorer), stays in Python
+        check("a command the back end doesn't run raises", False)
     except RuntimeError as ex:
-        check(f"a command not moved yet raises ({ex})", str(ex).startswith("unknown:"))
+        check(f"a command the back end doesn't run raises ({ex})", str(ex).startswith("unknown:"))
     print("ALL OK" if not fails else f"{len(fails)} FAILED")
     return 1 if fails else 0
 

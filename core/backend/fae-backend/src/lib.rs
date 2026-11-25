@@ -15,6 +15,7 @@
 //! - long work (Process, encoded compare, B4 / B5): cancellation by a request id the UI already sends,
 //!   progress through a callback the shell supplies (pywebview: evaluate_js, Tauri: an event).
 
+pub mod app;
 pub mod avif;
 pub mod avifdec;
 pub mod colour;
@@ -50,6 +51,8 @@ pub struct Config {
     /// the GPU core is off for the session (--no-gpu / FAE_NO_GPU; B5): Process and the encoded compare
     /// render on the CPU core
     pub no_gpu: bool,
+    /// the UI's folder (index.html, js/, …) the HTTP handlers serve (B6); None: only /preview and /thumb
+    pub ui_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,8 +132,8 @@ pub const COMMANDS: &[(&str, Wave, &str)] = &[
 ];
 
 /// The waves done in this build. B1 (decoding) and B2 (geometry, resize, thumbnails) have no command of
-/// their own: load_stage (B3) runs them. The shell still asks for thumbnails itself until B6.
-const DONE: &[Wave] = &[Wave::B0, Wave::B1, Wave::B2, Wave::B3, Wave::B4, Wave::B5];
+/// their own: load_stage (B3) runs them; the thumbnails are served by the HTTP handlers (B6, app.rs).
+const DONE: &[Wave] = &[Wave::B0, Wave::B1, Wave::B2, Wave::B3, Wave::B4, Wave::B5, Wave::B6];
 
 pub struct Backend {
     cfg: Config,
@@ -146,6 +149,10 @@ pub struct Backend {
     lossy: std::sync::Mutex<Option<(String, Lossy)>>,
     /// the shell's decoder for what the back end can't open (AVIF grids, premultiplied alpha: Pillow)
     fallback: Option<Fallback>,
+    /// the file list's thumbnails (B6)
+    thumbs: app::Thumbs,
+    /// the images given on the command line, collected (B6)
+    initial: std::sync::Mutex<Vec<String>>,
 }
 
 /// The shell's own decoder: (path) → upright RGB / RGBA + ICC profile, for the files the back end
@@ -188,6 +195,8 @@ impl Backend {
             cores: render::Cores::new(no_gpu),
             lossy: std::sync::Mutex::new(None),
             fallback: None,
+            thumbs: app::Thumbs::default(),
+            initial: std::sync::Mutex::new(vec![]),
         }
     }
 
@@ -287,6 +296,12 @@ impl Backend {
     /// Encode and write next to `src` as `<name>_<w>x<h>.<ext>` (B4; output.py `save_image`).
     pub fn save(&self, img: px::View, src: &str, fmt: &str, icc: Option<&[u8]>, opts: &Value) -> Result<PathBuf, Error> {
         encode::save(img, src, fmt, icc, opts, &self.encoders(), &self.runner)
+    }
+
+    /// The images given on the command line (files and folders): collected now, the UI asks for them
+    /// with `initial_files` (B6).
+    pub fn set_initial(&self, paths: &[String]) {
+        *self.initial.lock().unwrap() = app::collect(paths);
     }
 
     /// The CPU and GPU cores (B5).
@@ -412,6 +427,11 @@ impl Backend {
                 let a = args_n(name, args, 1)?;
                 Ok(Value::Bool(store::write_json(&self.cfg.presets, &a[0]).is_ok()))
             }
+            "initial_files" => Ok(serde_json::json!(*self.initial.lock().unwrap())),
+            "expand_paths" => {
+                let a = args_n(name, args, 1)?;
+                Ok(serde_json::json!(app::collect(&app::paths_of(&a[0]))))
+            }
             "load_stage" => self.stage.load_stage(args, &|p| self.source(p)),
             "load_source" => self.stage.load_source(args, &|p| self.source(p)),
             "sample" => Ok(self.stage.sample(args)),
@@ -461,7 +481,7 @@ mod tests {
     #[test]
     fn settings_and_presets() {
         let d = tmp("sp");
-        let b = Backend::new(Config { settings: d.join("s.json"), presets: d.join("p.json"), heif_dir: None, encoders_dir: None, no_gpu: true });
+        let b = Backend::new(Config { settings: d.join("s.json"), presets: d.join("p.json"), heif_dir: None, encoders_dir: None, no_gpu: true, ui_dir: None });
         assert_eq!(b.call("get_settings", &[]).unwrap(), json!({}));
         let s = json!({"fmt": "PNG", "secs": ["adjust", "f_sc"], "jpeg_d": 1.25, "name": "Mirelle ✓"});
         assert_eq!(b.call("save_settings", &[s.clone()]).unwrap(), json!(true));
@@ -501,8 +521,8 @@ mod tests {
     fn table() {
         assert_eq!(
             Backend::commands(),
-            vec!["get_settings", "save_settings", "get_presets", "save_presets", "load_stage", "load_source", "sample", "encoder_info",
-                 "lossy_preview", "lossy_cancel", "process", "core_info"]
+            vec!["get_settings", "save_settings", "get_presets", "save_presets", "initial_files", "expand_paths", "load_stage",
+                 "load_source", "sample", "encoder_info", "lossy_preview", "lossy_cancel", "process", "core_info"]
         );
         let mut names: Vec<_> = COMMANDS.iter().map(|c| c.0).collect();
         names.sort();

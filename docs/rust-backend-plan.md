@@ -4,7 +4,9 @@ Status: **B0, B1, B2, B3 done** (on main; geometry.py, colour.py, the Python sta
 **B4 done** (fae_backend 0.5.0): all encoders and AVIF decoding in Rust (rav1e / rav1d), checked by the owner
 on Windows. **B5 done** (fae_backend 0.6.0): Process and the encoded compare in Rust, the CPU and GPU cores
 linked into the back end, checked by the owner on Windows; the B4 / B5 clean-up done (the Python versions
-moved to tests/pyref, NumPy only for the tests). Next: B6. Moves the Python back
+moved to tests/pyref, NumPy only for the tests). **B6 done** (fae_backend 0.7.0): file lists and the local HTTP
+server in Rust, checked by the owner on Windows; the PyInstaller build went from about 300 MB to 140 MB
+unpacked (41 MB zipped). Next: B7 (Tauri), only when decided. Moves the Python back
 end (`fastedit/`) into Rust, wave by wave, so the app keeps working after every wave and a later switch from
 pywebview to **Tauri** is a small last step instead of a rewrite. Not a goal in itself: no visible change to
 the editor; the gains are a smaller, faster-starting app (no NumPy / OpenCV / Pillow at run time), one
@@ -60,7 +62,7 @@ language for the engine, and an easy Tauri switch later.
 | The edit (Process) | **Rust (B5)**: render.rs (the edit's JSON → steps, one GPU device, CPU core fallback, skipped kit filters), lib.rs `process` | core.py `render` on fae_gpu, fastedit_core |
 | Encoders | **Rust (B4)**: encode.rs (PNG, WebP, JPEG via cjpegli.exe), avif.rs (SvtAv1EncApp.exe + the muxer, rav1e for alpha / the "aom" choice), run.rs | output.py, jpeg.py, avif.py, proc.py (now tests/pyref), Pillow, subprocess |
 | Encoded compare | **Rust (B5)**: lib.rs `lossy_preview` (render, encode, decode back, size, cache, cancellation) | api.py `lossy_preview`, proc.py, Pillow |
-| App plumbing | settings / presets in Rust (B0); the rest: api.py (files, dialogs, reveal), app.py (local HTTP server: UI, /preview tokens, /thumb), winchrome.py (frameless window), drag-drop — **B6** | pywebview, http.server |
+| App plumbing | settings / presets (B0), file lists and the local HTTP server (UI, /preview tokens, /thumb) in Rust (B6, app.rs); in Python: pywebview, winchrome.py (frameless window), dialogs, reveal, Ctrl+V's clipboard, drag-drop paths | pywebview, Pillow (fallback decoder, clipboard) |
 
 The edit math (CPU core, GPU core) and the whole UI are already Rust / web: they don't move.
 
@@ -223,7 +225,24 @@ dependency removed.
 - Settings and presets files, file / folder collection, the HTTP handlers (UI, /preview, /thumb) in Rust.
 - api.py = a forwarder over the command table; app.py = start the window. What Python still does at run time:
   pywebview, winchrome.py (frameless window), dialogs, reveal in Explorer, drag-drop paths.
-- PyInstaller build size and start-up time measured before / after.
+- PyInstaller build size and start-up time measured before / after: about 300 MB → 140 MB unpacked, 41 MB
+  zipped (NumPy and the Python cores out since B5, the Python server and thumbnails out with B6).
+- Done (fae_backend 0.7.0): `app.rs`. `collect` is engine.py's (os.walk order: names sorted, folders
+  before going down, links to folders listed but not followed; the same extensions in any case);
+  `initial_files` (the command-line paths given with `set_initial`) and `expand_paths` are commands, and
+  Backend.collect serves the dialogs, Ctrl+V's copied files and drag-drop. The server is a small HTTP/1.1
+  one on 127.0.0.1 (a thread per connection, GET only, `Connection: close`): the UI files (nothing outside
+  the UI folder, also when the path is %-encoded), `/preview/<token>`, `/thumb?p=` (the B2 thumbnail,
+  cached by path and modified time, at most two made at once; a file Rust can't open goes through the
+  shell's decoder, then the same Rust thumbnail), with app.py's headers (Cache-Control, the cross-origin
+  isolation ones unless FASTEDIT_COI=0). engine.py keeps only Pillow's decode (the fallback);
+  collect / make_thumb_pillow / the old handler moved to tests/pyref/app.py.
+  `tests/backend/app_check.py`: the same lists as collect() (nested folders, case, links, non-ASCII,
+  missing paths), the same answers as the old handler (every UI file, 404s, paths leaving the UI folder,
+  previews, thumbnails with spaces / + / & / non-ASCII in the path, a changed file, a failing one), the
+  real server's headers, POST refused, 120 requests at once.
+  Left in Python on purpose: config.py's paths and the adoption of the old settings folder (runs once,
+  before the back end starts), the dialogs, reveal, the clipboard (Pillow's ImageGrab), winchrome.py.
 
 ### B7 — Tauri (later, only when decided; 2–3 sessions)
 - Tauri shell: the command table as commands, the HTTP handlers as a custom protocol (with the cross-origin

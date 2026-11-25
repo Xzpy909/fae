@@ -173,6 +173,7 @@ python tests/stage/stage_check.py        # decode, geometry, resize, colour bala
 python tests/backend/commands_check.py   # the commands moved so far vs their Python behaviour
 python tests/backend/encoders_check.py   # the encoders and the AVIF decoder vs Pillow / the Python versions
 python tests/backend/process_check.py    # Process and the encoded compare vs the Python path (tests/pyref)
+python tests/backend/app_check.py        # file lists and the local HTTP server vs the Python versions (tests/pyref)
 python tests/stage/stage_bench.py        # timing of the stage in Rust (Pillow next to it where it still does the job)
 ```
 
@@ -262,10 +263,11 @@ python fae.py --test-filters        # the kit's hidden test filters in the Filte
 fae.py   # entry point
 fastedit/              # Python back end
 ├── config.py          # paths, defaults, per-image stage parameters
-├── backend.py         # the Rust back end (fae_backend): the stage, encoders, Process, compare, settings, presets
-├── engine.py          # Pillow decode for the AVIFs Rust doesn't open, file lists
-├── api.py             # JS API used by the UI
-└── app.py             # local HTTP server, window, drag and drop
+├── backend.py         # the Rust back end (fae_backend): the stage, encoders, Process, compare, settings, presets,
+│                      #   file lists, the local HTTP server (UI, previews, thumbnails)
+├── engine.py          # Pillow decode for the files Rust doesn't open (AVIF grids, premultiplied alpha)
+├── api.py             # JS API used by the UI (forwards to the back end; dialogs, clipboard, reveal)
+└── app.py             # window, drag and drop
 ui/
 ├── index.html
 ├── style.css
@@ -276,7 +278,7 @@ core/                  # Rust core: fastedit-core (math), fastedit-py (Python), 
 core/backend/          # Rust back end (fae_backend; rav1e from github.com/Nukvah/rav1e-fae)
 tests/parity/          # bit-exactness tests of both core builds against stored goldens
 tests/bench/           # timings
-tests/pyref/           # the Python versions the Rust back end replaced (core.py, encoders): the tests' reference
+tests/pyref/           # the Python versions the Rust back end replaced (core.py, encoders, file lists, server): the tests' reference
 encoders/              # cjpegli.exe, SvtAv1EncApp.exe (from the release)
 run.bat
 requirements.txt

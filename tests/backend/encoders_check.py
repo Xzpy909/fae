@@ -320,7 +320,8 @@ def check_rav1e(cases, b):
 
 def check_avif_decode(b, encoded, own: bool):
     """Opening AVIF in Rust (rav1d) against Pillow: pixels, ICC, thumbnails."""
-    from fastedit.engine import decode_pillow, make_thumb_pillow
+    from fastedit.engine import decode_pillow
+    from pyref.app import make_thumb_pillow
     d = tempfile.mkdtemp(prefix="fae_avif_")
     files = []
     for n, data in encoded:

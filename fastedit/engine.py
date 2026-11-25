@@ -1,15 +1,11 @@
-"""Opening images with Pillow (the formats the Rust back end doesn't decode yet: AVIF until B4), file
-lists and thumbnails. The stage itself (decode, geometry, resize, colour balance, its cache and the
-previews) runs in the Rust back end since B3 (fae-backend stage.rs)."""
+"""Opening images with Pillow: the back end's fallback for the files it can't open itself (AVIF grids,
+premultiplied alpha; backend.py _pillow_source). Everything else (the stage, file lists, thumbnails)
+runs in the Rust back end (fae-backend stage.rs since B3, app.rs since B6)."""
 from __future__ import annotations
 
-import io
 import os
-import threading
-from collections import OrderedDict
 from PIL import Image, ImageOps, UnidentifiedImageError
-from .config import IMAGE_EXTS, PLUGIN_HINT, THUMB_SIZE
-from . import backend
+from .config import PLUGIN_HINT
 
 
 # ---------------------------------------------------------------------------
@@ -44,65 +40,9 @@ def prepare(img: Image.Image) -> Image.Image:
 
 
 def decode_pillow(path: str) -> tuple[tuple, bytes | None]:
-    """Pillow's decode, for the formats the Rust back end doesn't open yet (AVIF until B4): ((pixels, w,
-    h, channels): upright RGB / RGBA, its ICC profile)."""
+    """Pillow's decode, for the files the Rust back end can't open: ((pixels, w, h, channels): upright
+    RGB / RGBA, its ICC profile)."""
     with open_image(path) as im:
         im.load()
         img = prepare(im)
         return (img.tobytes(), img.width, img.height, len(img.getbands())), im.info.get("icc_profile")
-
-
-def collect(paths) -> list[str]:
-    files = []
-    for p in paths or []:
-        if not p:
-            continue
-        if os.path.isdir(p):
-            for root, dirs, names in os.walk(p):
-                dirs.sort()
-                for n in sorted(names):
-                    if os.path.splitext(n)[1].lower() in IMAGE_EXTS:
-                        files.append(os.path.join(root, n))
-        elif os.path.isfile(p) and os.path.splitext(p)[1].lower() in IMAGE_EXTS:
-            files.append(p)
-    return files
-
-
-
-_THUMB_SEM = threading.Semaphore(2)
-_THUMBS: "OrderedDict[tuple, bytes]" = OrderedDict()
-
-
-def make_thumb(path: str) -> bytes:
-    try:
-        key = (os.path.normcase(os.path.abspath(path)), os.path.getmtime(path))
-    except OSError:
-        key = None
-    if key in _THUMBS:
-        _THUMBS.move_to_end(key)
-        return _THUMBS[key]
-    with _THUMB_SEM:
-        data = _make_thumb(path)
-    if key is not None:
-        _THUMBS[key] = data
-        while len(_THUMBS) > 1000:
-            _THUMBS.popitem(last=False)
-    return data
-
-
-def _make_thumb(path: str) -> bytes:
-    """The Rust back end's thumbnail (B2: the same pixels as Pillow's below), Pillow for the formats not
-    moved yet (AVIF)."""
-    data = backend.shared().thumb(path, THUMB_SIZE * 2)
-    return data if data is not None else make_thumb_pillow(path)
-
-
-def make_thumb_pillow(path: str) -> bytes:
-    """Pillow's thumbnail (AVIF until B4; the stage tests' reference)."""
-    with open_image(path) as im:
-        im.draft("RGB", (THUMB_SIZE * 2, THUMB_SIZE * 2))
-        im = ImageOps.exif_transpose(im).convert("RGB")
-        im.thumbnail((THUMB_SIZE * 2, THUMB_SIZE * 2), Image.Resampling.BILINEAR)
-        buf = io.BytesIO()
-        im.save(buf, "JPEG", quality=82)
-        return buf.getvalue()

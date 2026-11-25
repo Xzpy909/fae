@@ -6,7 +6,8 @@ on Windows. **B5 done** (fae_backend 0.6.0): Process and the encoded compare in 
 linked into the back end, checked by the owner on Windows; the B4 / B5 clean-up done (the Python versions
 moved to tests/pyref, NumPy only for the tests). **B6 done** (fae_backend 0.7.0): file lists and the local HTTP
 server in Rust, checked by the owner on Windows; the PyInstaller build went from about 300 MB to 140 MB
-unpacked (41 MB zipped). Next: B7 (Tauri), only when decided. Moves the Python back
+unpacked (41 MB zipped). **B7 (Tauri) part 1 in progress**: Fae.exe next to the pywebview app, waiting for
+the owner's check on Windows. Moves the Python back
 end (`fastedit/`) into Rust, wave by wave, so the app keeps working after every wave and a later switch from
 pywebview to **Tauri** is a small last step instead of a rewrite. Not a goal in itself: no visible change to
 the editor; the gains are a smaller, faster-starting app (no NumPy / OpenCV / Pillow at run time), one
@@ -249,6 +250,25 @@ dependency removed.
   headers), frameless window + header buttons, drag-drop, dialogs, installer, maybe auto-update.
 - `bridge.js` rewritten for Tauri; winchrome.py, app.py, api.py and pywebview gone. Tests stay in Python
   through fae_backend.
+- Part 1 (decided by the owner; fae-app in the back end's workspace, not a default member, so `cargo test`
+  and the Python extension's build don't build Tauri): `core/backend/fae-app`, Fae.exe, Tauri 2, **next to**
+  the pywebview app (both run from the same ui/; bridge.js picks the shell). One Tauri command,
+  `call(name, args)`: the back end's command table, plus the shell's own commands (window buttons as
+  winchrome.py did them: Windows' own move / resize loops through start_dragging / start_resize_dragging;
+  the dialogs through tauri-plugin-dialog; Ctrl+V through arboard: copied files, or a copied image saved as
+  PNG with the back end's encoder; reveal; Process with its progress). The page is served on the `fae`
+  protocol (http://fae.localhost/ on Windows) by Backend::serve, with the B6 server's headers, so the page,
+  /preview and /thumb keep one origin and the cross-origin isolation. The shell calls into the page through
+  bridge.js's globals (eval), as pywebview did; file drags are the window's own (the page sees no drag
+  events), so the shell tells the page when one enters / leaves / drops (`dragState`). Paths as config.py
+  had them, next to Fae.exe (a build run from the repository uses the repository's folder); libheif copied
+  from pillow-heif into heif\ by build_app.bat; the C runtime linked in. `cargo test -p fae-app`: the
+  command line, the folders, the pasted image's file. Checked on Linux (WebKitGTK under Xvfb): the page,
+  the commands, the thumbnails and the previews on the protocol.
+  Not in part 1: the AVIF files the Rust decoder leaves to the shell (grid images, premultiplied alpha;
+  the Python shell had Pillow for them), an installer (`cargo tauri build` / NSIS), auto-update.
+- Part 2 (after the owner's check): fastedit/ (app.py, api.py, winchrome.py, the Python shell), pywebview,
+  build.bat (PyInstaller) and requirements.txt's run-time part go; the tests keep fae_backend.
 
 ## 5. Risks
 

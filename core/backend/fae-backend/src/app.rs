@@ -195,6 +195,29 @@ pub struct Response {
     pub body: Arc<Vec<u8>>,
 }
 
+impl Response {
+    /// A plain-text answer (404s, errors).
+    pub fn text(status: u16, msg: &str) -> Response {
+        text(status, msg)
+    }
+
+    /// The headers app.py's handler sent (Content-Length aside): the type, Cache-Control (an hour for
+    /// thumbnails, nothing else kept), and with `coi` the cross-origin isolation ones that let the page use
+    /// SharedArrayBuffer (the threaded WebAssembly preview). The local server and the Tauri shell's
+    /// protocol both send these.
+    pub fn headers(&self, coi: bool) -> Vec<(&'static str, &'static str)> {
+        let mut h = vec![("Content-Type", self.ctype), ("Cache-Control", if self.cache { "max-age=3600" } else { "no-store" })];
+        if coi {
+            h.extend([
+                ("Cross-Origin-Opener-Policy", "same-origin"),
+                ("Cross-Origin-Embedder-Policy", "require-corp"),
+                ("Cross-Origin-Resource-Policy", "same-origin"),
+            ]);
+        }
+        h
+    }
+}
+
 fn text(status: u16, msg: &str) -> Response {
     Response { status, ctype: "text/plain", cache: false, body: Arc::new(msg.as_bytes().to_vec()) }
 }
@@ -281,17 +304,9 @@ fn handle(b: &Backend, mut s: TcpStream, coi: bool) -> std::io::Result<()> {
     let mut it = line.split(' ');
     let (method, target) = (it.next().unwrap_or(""), it.next().unwrap_or("/"));
     let r = if method == "GET" { b.serve(target) } else { text(501, "only GET") };
-    let mut h = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: {}\r\nConnection: close\r\n",
-        r.status,
-        status_text(r.status),
-        r.ctype,
-        r.body.len(),
-        if r.cache { "max-age=3600" } else { "no-store" }
-    );
-    if coi {
-        // cross-origin isolation: SharedArrayBuffer for the threaded WebAssembly preview
-        h.push_str("Cross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nCross-Origin-Resource-Policy: same-origin\r\n");
+    let mut h = format!("HTTP/1.1 {} {}\r\nContent-Length: {}\r\nConnection: close\r\n", r.status, status_text(r.status), r.body.len());
+    for (k, v) in r.headers(coi) {
+        h.push_str(&format!("{k}: {v}\r\n"));
     }
     h.push_str("\r\n");
     s.write_all(h.as_bytes())?;

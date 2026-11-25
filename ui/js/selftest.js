@@ -200,8 +200,9 @@ async function main() {
     pw.terminate();
   }
 
+  await check('App shell', () => ['info', Bridge.available() ? (Bridge.shell === 'tauri' ? 'Tauri (Fae.exe)' : 'pywebview (fae.py)') : 'none']);
   let coreInfo = null;
-  await check('Python core', () => new Promise((resolve) => {
+  await check('Back end, CPU core', () => new Promise((resolve) => {
     const run = async () => {
       try {
         const r = coreInfo = await Bridge.api().core_info();
@@ -216,7 +217,7 @@ async function main() {
   // Process on the GPU core (gpu-core plan G5): which device, and the same edit as the CPU core
   await check('Process engine', async () => {
     const G = coreInfo && coreInfo.gpu;
-    if (!G) return ['warn', 'no answer from the Python core'];
+    if (!G) return ['warn', 'no answer from the back end'];
     if (!G.ok) return ['warn', `CPU core (GPU core: ${G.error})`];
     const d = G.max_diff != null ? `; vs the CPU core: max ${G.max_diff}, mean ${G.mean_diff}` : '';
     return [G.same === false ? 'bad' : 'ok', `GPU core fae_gpu ${G.version} on ${G.name} (${G.backend})${d}`];

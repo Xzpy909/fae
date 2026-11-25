@@ -1,0 +1,33 @@
+[package]
+name = "fae-app"
+version.workspace = true
+edition.workspace = true
+description = "Fae: the Tauri shell around the Rust back end (B7, docs/rust-backend-plan.md)"
+
+[[bin]]
+name = "Fae"
+path = "src/main.rs"
+
+[features]
+default = ["custom-protocol"]
+# Tauri's production mode (no dev server): the window loads the fae:// protocol this shell serves
+custom-protocol = ["tauri/custom-protocol"]
+# libjpeg-turbo's SIMD + rav1e's assembly (needs nasm), as build_backend.bat
+simd = ["backend/simd"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+backend = { package = "fae-backend", path = "../fae-backend" }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+# devtools: --debug opens the web inspector in a release build too
+tauri = { version = "2", features = ["devtools"] }
+# the window's resize loop direction (winchrome.js's edge strips)
+tauri-runtime = "2"
+# the file / folder dialogs (used from Rust only, so no permissions for the page)
+tauri-plugin-dialog = "2"
+# Ctrl+V: the files copied in Explorer, or a copied image
+arboard = "3"
+# the pasted image's file name (local time)
+chrono = { version = "0.4", default-features = false, features = ["clock"] }

@@ -1,25 +1,33 @@
 'use strict';
 /* The bridge to the app shell (docs/rust-backend-plan.md): the only file that knows what runs the page.
-   Today the shell is pywebview: its js_api (fastedit/api.py, forwarding to the Rust back end) and the
-   local HTTP server (fastedit/app.py: /preview/<token>, /thumb). A Tauri shell would replace this file
-   only: invoke() for the commands, its custom protocol for the URLs, its events for the shell's calls.
+   Two shells: Tauri (Fae.exe, core/backend/fae-app: one command, call(name, args), and the page on its
+   fae protocol) and pywebview (python fae.py: its js_api, fastedit/api.py, and the local HTTP server).
+   Both serve /preview/<token> and /thumb on the page's own origin.
    Loaded first; everything else uses api() (state.js), Bridge.previewUrl / thumbUrl, Bridge.ready, Bridge.on.
 
    UI -> back end: Bridge.api().<command>(...args) -> Promise (the command table: core/backend fae-backend
-     lib.rs COMMANDS).
-   Shell -> UI: the shell calls the globals below (pywebview: window.evaluate_js); they hand on to the
+     lib.rs COMMANDS, and the shell's own: window buttons, dialogs, Ctrl+V, reveal).
+   Shell -> UI: the shell calls the globals below (Tauri: eval, pywebview: evaluate_js); they hand on to the
      handlers registered with Bridge.on(name, fn):
        window.app.addPaths(paths)            'addPaths'          files dropped on the window
+       window.app.dragState(state)           'dragState'         Tauri: a file drag 'enter's / 'leave's the
+                                                                 window, or is 'drop'ped (its overlay)
        window.app.winState(maximized)        'winState'          the window was maximized / restored
        window.onProcessProgress(i, n, r)     'processProgress'   a Process batch finished image i of n */
 const Bridge = (() => {
   const handlers = {};
   const emit = (name, ...args) => { for (const fn of handlers[name] || []) fn(...args); };
-  window.app = { addPaths: p => emit('addPaths', p), winState: m => emit('winState', m) };
+  window.app = { addPaths: p => emit('addPaths', p), dragState: s => emit('dragState', s), winState: m => emit('winState', m) };
   window.onProcessProgress = (i, n, r) => emit('processProgress', i, n, r);
-  const has = () => !!(window.pywebview && window.pywebview.api);
+  // Tauri: every api().<name>(...args) is the shell's command call(name, args)
+  const tauri = window.__TAURI_INTERNALS__;
+  const tauriApi = tauri && new Proxy({}, {
+    get: (_, name) => name === 'then' ? undefined : (...args) => tauri.invoke('call', { name, args }),
+  });
+  const has = () => !!(tauri || (window.pywebview && window.pywebview.api));
   return {
-    api: () => window.pywebview.api,
+    shell: tauri ? 'tauri' : 'pywebview',
+    api: () => tauriApi || window.pywebview.api,
     // is the back end there (false on a page opened outside the app)
     available: has,
     // run fn once the back end can be called

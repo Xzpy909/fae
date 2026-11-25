@@ -3,9 +3,12 @@
 # Its own workspace, like the GPU core's: the CPU core's Cargo.lock and pinned WASM build stay untouched.
 #   fae-backend     : the library (every command; no Python in it)
 #   fae-backend-py  : Python extension `fae_backend` (pywebview's api.py forwards to it; the tests use it)
+#   fae-app         : the Tauri shell, Fae.exe (B7; build_app.bat). Not a default member: `cargo test` and the
+#                     Python extension's build don't need Tauri (cargo build -p fae-app does).
 [workspace]
 resolver = "2"
-members = ["fae-backend", "fae-backend-py"]
+members = ["fae-backend", "fae-backend-py", "fae-app"]
+default-members = ["fae-backend", "fae-backend-py"]
 
 [workspace.package]
 version = "0.7.0"

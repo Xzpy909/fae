@@ -115,6 +115,20 @@ python fae.py --native-frame  # normal Windows title bar instead of the app's ow
 python fae.py --no-gpu    # live preview and Process without the GPU core
 ```
 
+### Fae.exe (Tauri, no Python)
+
+The same app in a Tauri window instead of pywebview (`core/backend/fae-app`; plan wave B7, being tested):
+
+```
+build_app.bat                         # -> dist\Fae-app\Fae.exe (with ui\, encoders\, heif\ next to it)
+dist\Fae-app\Fae.exe [images or folders...]
+core\backend\target\release\Fae.exe   # also runs from the repository: its ui\ and settings
+```
+
+The same switches as `fae.py` (`--debug`, `--selftest`, `--native-frame`, `--no-gpu`, `--test-filters`). It needs
+the WebView2 runtime (part of Windows 10 / 11). Not yet: the few AVIF files the Rust decoder leaves to Pillow
+(grid images, premultiplied alpha) don't open in it.
+
 ## Rust core
 
 All edit math runs in one Rust crate (`core/`), built twice: linked into the Rust back end (Process, lossy
@@ -276,11 +290,14 @@ ui/
     └── film/          # one file per Film Effect preset (33×33×33 colour table)
 core/                  # Rust core: fastedit-core (math), fastedit-py (Python), fastedit-wasm
 core/backend/          # Rust back end (fae_backend; rav1e from github.com/Nukvah/rav1e-fae)
+core/backend/fae-app/  # Fae.exe: the Tauri shell (window, the fae protocol for the page, dialogs, drag-drop, Ctrl+V)
 tests/parity/          # bit-exactness tests of both core builds against stored goldens
 tests/bench/           # timings
 tests/pyref/           # the Python versions the Rust back end replaced (core.py, encoders, file lists, server): the tests' reference
 encoders/              # cjpegli.exe, SvtAv1EncApp.exe (from the release)
 run.bat
+build.bat              # the pywebview build (PyInstaller)
+build_app.bat          # the Tauri build (Fae.exe)
 requirements.txt
 ```
 

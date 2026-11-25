@@ -1,6 +1,6 @@
 //! Python extension `fae_backend`: the Rust back end for the pywebview shell (fastedit/backend.py) and
 //! the tests. API:
-//!   b = Backend(settings="…/fae_settings.json", presets="…/fae_presets.json", heif_dir=, encoders_dir=,
+//!   b = Backend(settings="…/fae_settings.json", presets="…/fae_presets.json", heif_dir=, encoders_dir=, ui_dir=,
 //!               no_gpu=False, fallback=None)   fallback(path) -> (px, w, h, ch, icc): the shell's decoder
 //!               for the files Rust can't open (AVIF grids, premultiplied alpha)
 //!   b.call(name, args_json) -> result_json   one command of the table (JSON text both ways)
@@ -23,6 +23,8 @@
 //!     "process" | "core_info", …) as the UI calls them
 //!   b.render(px, w, h, edit_json, engine="auto") -> (RGB bytes, [kit filters left out])   the edit alone
 //!     on packed RGB (B5; engine "auto" | "cpu" | "gpu"); b.gpu_info() -> json; b.warm_gpu()
+//!   b.set_initial(paths); b.start_server(coi=True) -> port   the HTTP handlers (UI, /preview, /thumb; B6);
+//!     b.serve(target) -> (status, type, cacheable, body)   one request (tests)
 //!   commands() -> [names this build runs]; table() -> [(name, wave, what)]; features(); version()
 //! Errors: RuntimeError("<kind>: <message>"); kind "unknown" = not in this build (the shell runs its own).
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -35,20 +37,22 @@ fn perr(e: backend::Error) -> PyErr {
 
 #[pyclass(name = "Backend")]
 struct PyBackend {
-    b: backend::Backend,
+    b: std::sync::Arc<backend::Backend>,
 }
 
 #[pymethods]
 impl PyBackend {
     #[new]
-    #[pyo3(signature = (settings, presets, heif_dir=None, encoders_dir=None, no_gpu=false, fallback=None))]
-    fn new(settings: String, presets: String, heif_dir: Option<String>, encoders_dir: Option<String>, no_gpu: bool, fallback: Option<Py<PyAny>>) -> Self {
+    #[pyo3(signature = (settings, presets, heif_dir=None, encoders_dir=None, no_gpu=false, fallback=None, ui_dir=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(settings: String, presets: String, heif_dir: Option<String>, encoders_dir: Option<String>, no_gpu: bool, fallback: Option<Py<PyAny>>, ui_dir: Option<String>) -> Self {
         let mut b = backend::Backend::new(backend::Config {
             settings: settings.into(),
             presets: presets.into(),
             heif_dir: heif_dir.map(Into::into),
             encoders_dir: encoders_dir.map(Into::into),
             no_gpu,
+            ui_dir: ui_dir.map(Into::into),
         });
         if let Some(f) = fallback {
             b = b.with_fallback(Box::new(move |path: &std::path::Path| {
@@ -60,7 +64,25 @@ impl PyBackend {
                 .map_err(|e| backend::Error::new(backend::ErrorKind::Failed, e.to_string()))
             }));
         }
-        PyBackend { b }
+        PyBackend { b: std::sync::Arc::new(b) }
+    }
+
+    /// The images given on the command line (files, folders): collected for `initial_files` (B6).
+    fn set_initial(&self, py: Python<'_>, paths: Vec<String>) {
+        py.detach(|| self.b.set_initial(&paths))
+    }
+
+    /// Serve the UI, /preview/<token> and /thumb on 127.0.0.1 (B6): the port. `coi`: the cross-origin
+    /// isolation headers.
+    #[pyo3(signature = (coi=true))]
+    fn start_server(&self, coi: bool) -> PyResult<u16> {
+        backend::app::start_server(self.b.clone(), coi).map_err(|e| PyRuntimeError::new_err(format!("HTTP server: {e}")))
+    }
+
+    /// One GET as the HTTP server answers it (tests): (status, content type, cacheable, body).
+    fn serve<'py>(&self, py: Python<'py>, target: &str) -> (u16, &'static str, bool, Bound<'py, PyBytes>) {
+        let r = py.detach(|| self.b.serve(target));
+        (r.status, r.ctype, r.cache, PyBytes::new(py, &r.body))
     }
 
     /// Process (B5): render, encode and save each job; the results as JSON. `progress(i, n, result_json)`

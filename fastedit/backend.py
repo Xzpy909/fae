@@ -1,7 +1,8 @@
 """The Rust back end (core/backend, built by core/backend/build_backend.bat; docs/rust-backend-plan.md).
 
 The work of fastedit/ moves into it wave by wave, behind one command table: api.py forwards the commands
-it runs (fae_backend.commands()) and keeps the rest in Python until their wave. Required, like the CPU
+it runs (fae_backend.commands()) and keeps the rest in Python until their wave. Since B6 it also serves
+the UI (start_server). Required, like the CPU
 core: without it the app shows how to build it (app.py) instead of starting.
 """
 from __future__ import annotations
@@ -12,7 +13,7 @@ import json
 import os
 import sys
 
-REQUIRED = (0, 6)           # extension version this file needs (bump with the API)
+REQUIRED = (0, 7)           # extension version this file needs (bump with the API)
 BUILD_HINT = r"run core\backend\build_backend.bat (needs Rust from https://rustup.rs)"
 
 try:
@@ -61,14 +62,32 @@ class Backend:
     """One back end for the app: call(name, *args) runs a command of the table (JSON values in and
     out, as the UI sends and receives them). RuntimeError when the command fails."""
 
-    def __init__(self, settings: str, presets: str, encoders: str | None = None, no_gpu: bool = False):
+    def __init__(self, settings: str, presets: str, encoders: str | None = None, no_gpu: bool = False,
+                 ui_dir: str | None = None):
         if _fb is None:
             raise RuntimeError(_ERR)
         self._b = _fb.Backend(settings=settings, presets=presets, heif_dir=heif_dir(), encoders_dir=encoders,
-                              no_gpu=no_gpu, fallback=_pillow_source)
+                              no_gpu=no_gpu, fallback=_pillow_source, ui_dir=ui_dir)
 
     def call(self, name: str, *args):
         return json.loads(self._b.call(name, json.dumps(list(args))))
+
+    def collect(self, paths) -> list:
+        """The images among `paths`, folders walked (B6, app.rs; the command expand_paths)."""
+        return self.call("expand_paths", [p for p in (paths or []) if p])
+
+    def set_initial(self, paths):
+        """The files given on the command line (B6): the command initial_files hands them to the UI."""
+        self._b.set_initial([str(p) for p in (paths or []) if p])
+
+    def start_server(self, coi: bool = True) -> int:
+        """The app's local HTTP server (B6, app.rs): UI files, /preview/<token>, /thumb?p=. Its port.
+        coi: the cross-origin isolation headers (SharedArrayBuffer for the threaded WebAssembly preview)."""
+        return self._b.start_server(coi)
+
+    def serve(self, target: str):
+        """What the server answers to GET `target` (tests): (status, content type, cacheable, body)."""
+        return self._b.serve(target)
 
     def process(self, jobs, fmt, opts, progress=None) -> list:
         """Process (B5): render, encode and save each job next to its source. progress(i, n, result) after
@@ -207,7 +226,7 @@ def shared() -> Backend:
     """The app's one back end (its stage cache and previews are shared by api.py and app.py)."""
     global _SHARED
     if _SHARED is None:
-        from .config import ENCODERS_DIR, PRESETS_PATH, SETTINGS_PATH
+        from .config import ENCODERS_DIR, PRESETS_PATH, SETTINGS_PATH, UI_DIR
         _SHARED = Backend(SETTINGS_PATH, PRESETS_PATH, ENCODERS_DIR,
-                          no_gpu="--no-gpu" in sys.argv or bool(os.environ.get("FAE_NO_GPU")))
+                          no_gpu="--no-gpu" in sys.argv or bool(os.environ.get("FAE_NO_GPU")), ui_dir=UI_DIR)
     return _SHARED

@@ -1,80 +1,18 @@
-"""Local HTTP server and program entry point."""
+"""Program entry point: the window. The local HTTP server it loads runs in the Rust back end (B6)."""
 from __future__ import annotations
 
 import json
 import os
 import sys
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, unquote, urlparse
-from .config import UI_DIR
-from .engine import collect, make_thumb
 from .api import Api
 from . import backend
 
 
-# ---------------------------------------------------------------------------
-# Local HTTP server: UI files, raw preview pixels, thumbnails
-# ---------------------------------------------------------------------------
-MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-        ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png",
-        ".wasm": "application/wasm"}
-
 # Cross-origin isolation: lets the page use SharedArrayBuffer, which the multithreaded WebAssembly
-# preview needs. Everything is served from this server, so nothing cross-origin gets blocked.
-# FASTEDIT_COI=0 turns it off (the self-test page then shows "not isolated").
+# preview needs. Everything is served from the back end's local server (UI files, preview pixels,
+# thumbnails: fae-backend app.rs, B6), so nothing cross-origin gets blocked. FASTEDIT_COI=0 turns it off
+# (the self-test page then shows "not isolated").
 COI = os.environ.get("FASTEDIT_COI", "1") != "0"
-
-
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self, *a):
-        pass
-
-    def _send(self, code, body: bytes, ctype: str, cache=False):
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "max-age=3600" if cache else "no-store")
-        if COI:
-            self.send_header("Cross-Origin-Opener-Policy", "same-origin")
-            self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
-            self.send_header("Cross-Origin-Resource-Policy", "same-origin")
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_GET(self):
-        u = urlparse(self.path)
-        p = unquote(u.path)
-        try:
-            if p.startswith("/preview/"):
-                data = backend.shared().preview(p[len("/preview/"):])
-                if data is None:
-                    return self._send(404, b"gone", "text/plain")
-                return self._send(200, data, "application/octet-stream")
-            if p == "/thumb":
-                path = parse_qs(u.query).get("p", [""])[0]
-                return self._send(200, make_thumb(path), "image/jpeg", cache=True)
-            rel = "index.html" if p in ("/", "") else p.lstrip("/")
-            full = os.path.normpath(os.path.join(UI_DIR, rel))
-            if not full.startswith(os.path.normpath(UI_DIR)) or not os.path.isfile(full):
-                return self._send(404, b"not found", "text/plain")
-            with open(full, "rb") as f:
-                body = f.read()
-            return self._send(200, body, MIME.get(os.path.splitext(full)[1], "application/octet-stream"))
-        except (BrokenPipeError, ConnectionResetError):
-            pass
-        except Exception as ex:
-            try:
-                self._send(500, str(ex).encode(), "text/plain")
-            except Exception:
-                pass
-
-
-def start_server() -> int:
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    srv.daemon_threads = True
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    return srv.server_address[1]
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +46,7 @@ def main():
         return
     api = Api(args)
     backend.shared().warm_gpu()                    # the GPU core's shaders, in the background
-    port = start_server()
+    port = backend.shared().start_server(COI)
     # unified header: on Windows the window has no frame and the UI's top bar is the title bar
     # (fastedit/winchrome.py); --native-frame keeps the normal Windows frame
     from .winchrome import IS_WIN, Chrome
@@ -132,7 +70,7 @@ def main():
         def on_drop(e):
             files = (e.get("dataTransfer") or {}).get("files") or []
             paths = [f.get("pywebviewFullPath") for f in files if f.get("pywebviewFullPath")]
-            found = collect(paths)
+            found = backend.shared().collect(paths)
             if found:
                 window.evaluate_js(f"window.app && window.app.addPaths({json.dumps(found)})")
 

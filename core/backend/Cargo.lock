@@ -393,7 +393,7 @@ checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
 name = "fae-backend"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "fae-gpu",
  "fastedit-core",
@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "fae-backend-py"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "fae-backend",
  "pyo3",

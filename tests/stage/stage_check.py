@@ -50,6 +50,7 @@ WORK = os.path.join(HERE, ".work")
 OWN_DIR = os.path.join(ROOT, "tests", "parity", "images")
 OWN_RESULTS = os.path.join(WORK, "own_results.zip")
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tests"))           # pyref: the Python versions the back end replaced
 
 MAX_LEVELS = 2
 MAX_MEAN = 0.05
@@ -307,8 +308,9 @@ class PythonImpl:
         raise NotMoved("the stage: Python version removed in B3")
 
     def thumb(self, path):
-        # Pillow itself (engine.make_thumb uses the Rust back end since B2): the reference
-        return np.asarray(Image.open(io.BytesIO(self.engine.make_thumb_pillow(path))).convert("RGB"))
+        # Pillow itself (the thumbnails come from the Rust back end since B2): the reference
+        from pyref.app import make_thumb_pillow
+        return np.asarray(Image.open(io.BytesIO(make_thumb_pillow(path))).convert("RGB"))
 
     def sizes(self):
         raise NotMoved("the size maths: Python version removed in B3")

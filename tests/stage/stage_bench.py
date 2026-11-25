@@ -21,6 +21,7 @@ from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tests"))           # pyref: the Python versions the back end replaced
 
 
 def best(f, n=3):
@@ -37,8 +38,10 @@ def main() -> int:
     ap.add_argument("--mp", type=float, default=42.2)
     args = ap.parse_args()
     import fae_backend as fb
-    from fastedit import engine
+    from fastedit import backend
     from fastedit.api import Api
+    from pyref import app as pyapp
+    b = backend.shared()
     w = int(round((args.mp * 1e6 * 3 / 2) ** 0.5))
     h = int(round(w * 2 / 3))
     a = np.random.default_rng(1).integers(0, 256, (h, w, 3), dtype=np.uint8)
@@ -65,8 +68,8 @@ def main() -> int:
         for fmt in ("jpg", "png"):
             p = os.path.join(d, "big." + fmt)
             im.save(p, quality=90) if fmt == "jpg" else im.save(p, compress_level=1)
-            tp = best(lambda: engine.make_thumb_pillow(p))
-            tr = best(lambda: engine._make_thumb(p))
+            tp = best(lambda: pyapp.make_thumb_pillow(p))
+            tr = best(lambda: b.thumb(p, 224))
             print(f"  {'thumbnail ' + fmt:18s} rust {tr:7.0f} ms   pillow {tp:7.0f} ms")
         p = os.path.join(d, "big.png")
         api = Api()

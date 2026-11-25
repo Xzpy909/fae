@@ -603,6 +603,8 @@ input[type=range]:hover::-webkit-slider-thumb { background: #fff; transform: sca
   display: flex; justify-content: center; align-items: center; gap: 10px; }
 .ex-all { height: 42px; padding: 0 14px; border-radius: 9px; background: rgba(255, 255, 255, .04); border-color: rgba(255, 255, 255, .12);
   font-weight: 500; color: var(--text); }
+.ex-all.cancel { border-color: rgba(255, 110, 110, .45); color: #ffb4b4; }
+.ex-all.cancel:disabled { opacity: .6; }
 .ex-foot { justify-content: space-between; }
 .ex-foot #outInfo { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); }
 .enc-cmp { flex: none; width: 34px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 8px;

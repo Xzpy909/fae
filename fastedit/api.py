@@ -163,6 +163,10 @@ class Api:
         except Exception as ex:
             return {"ok": False, "req_id": req_id, "error": f"{type(ex).__name__}: {ex}"}
 
+    def process_cancel(self):
+        """Stop the running Process batch: the images not written yet answer {"ok": False, "cancelled": True}."""
+        return self._b.call("process_cancel")
+
     def process(self, jobs, fmt="WEBP", opts=None):
         def progress(i, n, r):
             if self._window is not None:

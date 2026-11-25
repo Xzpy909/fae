@@ -39,7 +39,7 @@ function skippedNote(res) {
 
 function setBusy(on, label) {
   S.busy = on;
-  $('#processBtn').disabled = on; $('#processAllBtn').disabled = on;
+  $('#processBtn').disabled = on; if (!batchOn) $('#processAllBtn').disabled = on;
   $('#processBtn').firstChild.textContent = on ? (label || 'Processing…') : 'Process';
 }
 
@@ -62,22 +62,46 @@ async function processCurrent() {
   } else toast('Process failed: ' + (r ? r.error : 'unknown'), true);
 }
 
+/* Process all: while it runs, its button cancels it (the image being written finishes, or its external
+   encoder is stopped; the rest are left as they were) */
+let batchOn = false;
+function setBatch(on) {
+  batchOn = on;
+  const b = $('#processAllBtn');
+  b.disabled = false;
+  b.classList.toggle('cancel', on);
+  b.textContent = on ? 'Cancel' : 'Process all';
+  b.title = on ? 'Stop Process all: the images not written yet are left as they are'
+    : 'Each image with its own edits; untouched images get the current Output / Color settings';
+}
+function cancelAll() {
+  if (!batchOn) return;
+  const b = $('#processAllBtn');
+  b.disabled = true; b.textContent = 'Cancelling…';
+  try { api().process_cancel(); } catch (_) {}
+}
+
 async function processAll() {
+  if (batchOn) { cancelAll(); return; }
   if (S.busy || !S.files.length) return;
   storeCurrent();
   const jobs = S.files.map((f, i) => jobFor(f, i === S.cur));
   setBusy(true, `Processing 0 / ${jobs.length}`);
+  setBatch(true);
   const bar = $('#progress');
   bar.classList.add('show'); bar.firstElementChild.style.width = '0%';
   let res;
   try { res = await api().process(jobs, S.prefs.fmt, encOpts()); }
   catch (e) { res = []; toast(String(e), true); }
+  setBatch(false);
   setBusy(false);
   setTimeout(() => bar.classList.remove('show'), 800);
-  const ok = res.filter(r => r.ok).length, bad = res.length - ok;
+  const ok = res.filter(r => r.ok).length, stopped = res.filter(r => r.cancelled).length, bad = res.length - ok - stopped;
   res.forEach(r => { const f = S.files.find(x => x.path === r.path); if (f && r.ok) { f.done = true; f.out = r.out; } });
   renderList();
-  toast((ok ? '<img class="emo" src="emoji/party-popper.webp" alt="🎉">' : '') + `Processed ${ok} image(s)` + (bad ? `, <span style="color:var(--red)">${bad} failed</span>` : '') + skippedNote(res), bad > 0,
+  toast((ok && !stopped ? '<img class="emo" src="emoji/party-popper.webp" alt="🎉">' : '') + `Processed ${ok} image(s)`
+    + (stopped ? `, cancelled: ${stopped} not processed` : '')
+    + (bad ? `, <span style="color:var(--red)">${bad} failed</span>` : '') + skippedNote(res), bad > 0,
     ok ? res.find(r => r.ok).out : null);
 }
 Bridge.on('processProgress', (i, n) => {

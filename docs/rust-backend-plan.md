@@ -204,7 +204,9 @@ dependency removed.
   it can't build only sends that image to the CPU core; `--no-gpu` / FAE_NO_GPU; the shaders warmed in the
   background at start (`warm_gpu`); `core_info` is core.py's self-test. lib.rs: `process` (progress
   callback after each image of a batch), `lossy_preview` (cache of the last encode, decode back with the
-  back end's own decoders, Pillow's preview resize as in B3, cancellation by request id), `lossy_cancel`.
+  back end's own decoders, Pillow's preview resize as in B3, cancellation by request id), `lossy_cancel`,
+  `process_cancel` (added after B6: stops a Process batch, killing its external encoder run; the images not
+  written answer `cancelled`).
   The shell's fallback decoder (`fallback=` of `fae_backend.Backend`: Pillow) opens what Rust can't (AVIF
   grids, premultiplied alpha) for the stage, Process and the compare alike. serde_json parses floats with
   `float_roundtrip` (the default parser was one unit in the last place off on some edit tables, so a

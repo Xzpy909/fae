@@ -258,6 +258,15 @@ button.primary:hover { background: var(--grad); filter: brightness(1.08) saturat
 .pill.on.active i { background: #fff; }
 .pill.bypass i { display: block; background: transparent; box-shadow: inset 0 0 0 1px var(--accent); opacity: .8; }
 .pill.on.bypass i { box-shadow: inset 0 0 0 1px #fff; }
+/* count badge (tools that stack: how many copies are in the chain). It takes the dot's corner and its
+   meaning: accent = doing something, outlined = switched off, plain = nothing yet */
+.pill .cnt { position: absolute; top: 2px; right: 3px; min-width: 15px; height: 15px; padding: 0 4px; box-sizing: border-box;
+  border-radius: 999px; font-size: 9.5px; font-weight: 600; line-height: 15px; text-align: center; font-style: normal;
+  color: #e8e8eb; background: rgba(255, 255, 255, .16); pointer-events: none; }
+.pill .cnt[hidden] { display: none; }
+.pill.has-cnt i { display: none; }
+.pill.active .cnt { color: #1c1c1f; background: var(--accent); }
+.pill.bypass .cnt { background: transparent; box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); }
 /* while the Filters popover is open, the tool pills stay sharp and clickable above its blur */
 #toolPills:has(#filtersPill.on) { z-index: 5; }
 /* Filters popover: centred over the image, the tile grid scrolls once there are many filters */

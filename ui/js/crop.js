@@ -116,6 +116,7 @@ const Crop = (() => {
     }
     S.files.forEach(x => { if (x !== f) delete x.src; });   // keep memory in check
     if (S.files[S.cur] !== f) return;
+    openSec('crop');                                     // from Image › Crop or C: its island opens too
     if (S.geom && S.geom.off) setSecOn('crop', true);     // editing the crop turns its island back on
     const G = S.geom || defaultGeom();
     C = {

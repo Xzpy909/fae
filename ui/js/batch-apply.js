@@ -70,7 +70,7 @@ const BatchApply = (() => {
     const base = stateOf(f);
     let st, cropSkipped = false;
     if (mode === 'preset') st = ChainPresets.appliedState(base, preset);
-    else ({ st, cropSkipped } = pasted(base, S.clipboard, f.src));
+    else ({ st, cropSkipped } = pasted(base, S.clipboard, f.size));
     const before = f.committed || key(base), now = key(st);
     if (now === before) return { cropSkipped };
     f.hist = f.hist || [];

@@ -29,6 +29,12 @@ function secState() {
   for (const x of chainOf(S.edit)) if (isExtra(x) && instActive(S.edit, x)) st[x.t] = true;
   return st;
 }
+// a dock button's count badge: shown from 2 (one open copy is just the button's "on" look)
+function setCount(p, n) {
+  const b = p.querySelector('.cnt'); if (!b) return;
+  b.hidden = n < 2; b.textContent = n;
+  p.classList.toggle('has-cnt', n >= 2);
+}
 function updatePills() {
   const st = secState();
   document.querySelectorAll('#toolPills .pill[data-sec]').forEach(p => {
@@ -37,12 +43,18 @@ function updatePills() {
       p.dataset.name = p.dataset.name || p.title;
       const n = (S.prefs.secs || []).includes(sec) ? instancesOf(S.edit, sec).length : 0;
       p.title = !n ? p.dataset.name : n >= MAX_INST ? `${p.dataset.name}: at most ${MAX_INST} in the chain` : `${p.dataset.name}: add another one`;
+      setCount(p, n);
+    } else {
+      p.dataset.name = p.dataset.name || p.title;
+      p.title = (S.prefs.secs || []).includes(sec) ? `${p.dataset.name}: click again to reset and close` : p.dataset.name;
     }
     p.classList.toggle('active', !!st[sec] && on);
     p.classList.toggle('bypass', !!st[sec] && !on);     // has values but its island is switched off
   });
   // the Filters pill shows a dot when any filter is in use
   $('#filtersPill').classList.toggle('active', FILTERS.some(f => st[f.sec] && secOn(f.sec)));
+  const open = new Set(S.prefs.secs || []);
+  setCount($('#filtersPill'), FILTERS.reduce((n, f) => n + (open.has(f.sec) ? instancesOf(S.edit, f.sec).length : 0), 0));
   syncIslands();
   if (typeof FilterPop !== 'undefined') FilterPop.sync();
 }
@@ -549,24 +561,35 @@ const FilterPop = (() => {
   });
   return { open, close, isOpen, sync, add: addFilter };
 })();
+/* Opening a tool's island: it joins the chain at the end (if it does nothing yet) and comes up ready to use:
+   Resize switched on, Crop straight into crop mode (Crop.enter opens the island too, e.g. from Image › Crop). */
+function openSec(sec) {
+  const cur = S.prefs.secs || [];
+  if (cur.includes(sec)) return;
+  S.prefs.secs = [...cur, sec];
+  S.prefs.collapsed = (S.prefs.collapsed || []).filter(x => x !== sec);
+  placeIdle([sec]);
+  syncSections(); syncIslands(); updatePills(); savePrefsSoon();
+  if (sec === 'resize' && !secOn('resize')) setSecOn('resize', true);
+}
+/* Dock buttons. A stackable tool (Adjustments, Curves) adds another copy once it is open, like the Filters
+   tiles; its button shows how many copies there are. The single tools (Crop, Resize, Color balance,
+   Sharpen, Point correction) toggle: the second click is the island's X, reset and close (Ctrl+Z brings
+   the values back). */
 document.querySelectorAll('#toolPills .pill[data-sec]').forEach(p => {
   p.addEventListener('pointerdown', e => e.stopPropagation());     // don't start a pan / eyedropper sample
   p.addEventListener('click', e => {
     e.stopPropagation();
-    const sec = p.dataset.sec, cur = S.prefs.secs || [];
-    // a stackable tool that is open already (Adjustments, Curves): the button adds another copy, like
-    // the Filters tiles (a copy is removed with its X). The other tools open / close.
-    if (STACKABLE.includes(sec) && cur.includes(sec)) { if (typeof Inst !== 'undefined') Inst.add(sec); return; }
-    S.prefs.secs = cur.includes(sec) ? cur.filter(x => x !== sec) : [...cur, sec];
-    const opened = S.prefs.secs.includes(sec);
-    if (opened) {
-      S.prefs.collapsed = (S.prefs.collapsed || []).filter(x => x !== sec);
-      placeIdle([sec]);
-    }
-    syncSections(); syncIslands(); savePrefsSoon();
-    // opening Crop goes straight into crop mode
-    if (opened && sec === 'crop' && S.img && !S.cropMode && typeof Crop !== 'undefined') Crop.enter();
+    const sec = p.dataset.sec, open = (S.prefs.secs || []).includes(sec);
+    if (open && STACKABLE.includes(sec)) { if (typeof Inst !== 'undefined') Inst.add(sec); return; }
+    if (open) { deleteIsland(sec); return; }
+    openSec(sec);
+    if (sec === 'crop' && S.img && !S.cropMode && typeof Crop !== 'undefined') Crop.enter();
   });
+});
+// count badges on the dock buttons of the tools that stack (and on Filters: the filters in the chain)
+document.querySelectorAll('#toolPills .pill[data-sec], #filtersPill').forEach(p => {
+  if (p.id === 'filtersPill' || STACKABLE.includes(p.dataset.sec)) p.insertAdjacentHTML('beforeend', '<b class="cnt mono" hidden></b>');
 });
 $('#fileList').addEventListener('click', e => {
   const li = e.target.closest('li'); if (!li) return;

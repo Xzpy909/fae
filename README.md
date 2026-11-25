@@ -1,276 +1,41 @@
-# Fae
+<p align="center"><img src="ui/logo.svg" width="112" alt="Fae logo"></p>
 
-**Fast Image Editor.** A fast, keyboard-friendly desktop editor for batch-preparing images: crop and rotate, colour-correct with eyedroppers and curves, resize to 720p or a target megapixel count, then export to lossless WEBP/PNG or lossy JPEG (jpegli), AVIF (SVT-AV1) or WEBP. Lossy formats have a split-view preview, so you can judge the real encode at the chosen settings before saving.
+<h1 align="center">Fae</h1>
 
-Built with [Tauri](https://tauri.app/) and Rust: one `Fae.exe`, no Python at run time. The UI is HTML/JS; the edit math is a Rust core (linked into the app, and as WebAssembly for the live preview, see below); loading, geometry, resizing, colour balance, encoding and saving are a Rust back end (libwebp, libjpeg-turbo, rav1e, rav1d, and the cjpegli / SvtAv1EncApp encoders).
+<p align="center"><b>Fast Image Editor.</b> Batch-prepare images quickly, mostly from the keyboard.</p>
 
-## Preview
+![Fae](https://github.com/Xzpy909/fae/blob/main/preview%201.webp?raw=true)
 
-![img](https://github.com/Xzpy909/fae/blob/main/preview%201.webp?raw=true)
+<!-- more screenshots go here -->
 
-## Features
+## What it does
 
-**Workflow**
-- Drag and drop images or whole folders, or use **+ Files** / **+ Folder**
-- Every image keeps its own edits and undo history
-- Copy / paste edits between images
-- **Process** the current image, or **Process all**, where each image uses its own edits
-- Optionally jump to the next image after processing
-- Nothing is written until you press Process. Output goes next to the source as `name_WxH.ext` and never overwrites existing files
+- **Crop, rotate and straighten** with aspect presets and a crop that never leaves the image
+- **Colour**: black / gray / white eyedroppers, curves, automatic colour balance, Resolve-style adjustments, and filters (Film Effect, Super Contrast, Perceptual Saturation, Sharpen)
+- **Resize** to a preset (1080p, 720p, …), a target megapixel count or a custom size
+- **Export** to lossless WEBP / PNG or lossy JPEG (jpegli), AVIF (SVT-AV1) or WEBP, with a split view of the real encode before you save
+- **Batch**: every image keeps its own edits; copy edits between images, save whole edits as presets, then Process all
+- **Fast**: a Rust back end, the live preview on the GPU (WebGPU), a single `Fae.exe` with no Python at run time
 
-**Geometry**
-- Crop & rotate mode with 90° steps, fine angle ruler, horizontal flip and aspect presets (Free, Original, 1:1, 16:9, 9:16, 4:3, 3:2, …)
-- Bound-aware crop: the crop box can never leave the rotated image
-- Wheel zooms the crop toward the cursor; `Alt`/`Ctrl` + wheel rotates (fine angle)
-- **Straighten** (`S` or the ruler button): draw a line along a horizon, wall or edge; the image turns so the line becomes exactly level or upright, whichever is nearer
-- The view follows the crop: as the box gets smaller the camera zooms in and pans to keep its edges near the screen edges
+Full list of tools and keyboard shortcuts: [docs/features.md](docs/features.md).
 
-**Colour**
-- Black / neutral-gray / white point eyedroppers that stay active, so you can keep clicking to refine
-- Hold **Alt** for a clipping / threshold view (shadows, highlights or neutral candidates); scroll to move the threshold
-- Master + R/G/B curves (monotone cubic) with live input histogram
-- Output histogram with clipping percentages
-- Automatic colour balance: Percentile White-Patch and Gray-Edge, each with a strength control
-- **Adjustments** modelled on DaVinci Resolve's Primaries: Color Boost, Shadows, Highlights, Saturation, Temp, Tint, Contrast + Pivot and Mid/Detail, matched to Resolve's output within about half a level (0–255) on reference grades
-- **Filters** (the Filters button at the end of the tool buttons opens a searchable grid of filter tiles; a click adds the filter to the end of the chain, or drag a tile into the panel to put it where the drop line shows; a tile shows how many are in the chain and where, e.g. `×2 · #2, #4 in chain`): Perceptual Saturation filter with Saturation and Warmth matched to the reference filter within 1 level (0–255), Perceptual Saturation (marked ≈) as an **approximation** that pushes colours away from their surroundings but does not match the reference exactly, and Opacity to blend the result. Film Effect: film presets (colour tables fitted on reference renders; the Film field opens a list of the films on your image, hover previews, click picks) plus Brightness and Contrast. Super Contrast: Correct Color Cast and Correct Contrast matched to the reference within 1 level, Dynamic Contrast (marked ≈) as an approximation (local, contrast-limited equalization), and Opacity.
-- Jog-wheel controls: drag the wheel left/right (`Shift` fine, `Ctrl` coarse), double-click to reset. Every slider value can also be dragged left/right
-- **Title bar:** menu bar (File · Edit · Image · View · Help, every command with its shortcut) and the current file on the left; the view toolbar in the centre (Fit / 100% / zoom levels, compare, split view); search, undo / redo and Settings next to the window buttons
-- **Tool dock** floating at the bottom of the image shows or hides each tool's card; it can be turned off in Settings › Preferences (the tools stay in the Image menu and the search)
-- **Search** (loupe or `Ctrl+Space`): finds tools, filters, edit presets and every menu command
-- **Stack tools**: Adjustments, Curves and the filters can be in the chain more than once (up to 8 each), each copy with its own values, switch, place and optional label — Duplicate icon in the island's head or `Ctrl+D`; the Adjustments / Curves button adds another copy once the tool is open, like a Filters tile does for an open filter (or drag the tile into the panel); right-click an island's head for Duplicate / Rename / Move up / Move down / Reset / Remove (`F2`, `Del`). Copies show `[1]`, `[2]` in chain order. Every Adjustments copy has its own Mid/Detail
-- **Presets** on Adjustments, Curves, Perceptual Saturation, Super Contrast and Sharpen: the button in the tool's row shows the current preset (`Default`, a name, or `Custom`) and opens a list with thumbnails of the current image through each preset; hover previews it on the image, click applies it (one undo step); save the current values as a preset, rename or delete your own
-- **Edit presets** (Presets in the top bar): the whole edit in one preset — Resize, Color balance, Adjustments, Curves, the filters and Sharpen with their order and on / off state. Cards with a thumbnail of the current image through the preset and the tools it uses; hover previews (Resize and Color balance take effect on click), click applies (one undo step), ⋯ renames, updates with the current edits or deletes. Crop, point correction and the output format stay with the image
+## Getting started
 
-**Resize**
-- **Preset**: aspect ratio (16:9, 21:9, 4:3, 3:2, 1:1, 4:5, 9:16) × resolution (2160p, 1440p, 1080p, 720p, 480p, 360p; the p-number is the short side), cover-crop
-- **Target Mpix** with *Mpix priority*, *Balanced* or *Ratio error priority*
-- **Custom**: type in width × height, then *Crop in* (cover-crop) or *Stretch*
-- Warns when the resize would upscale
+1. Download the zip from [Releases](../../releases) and unpack it anywhere.
+2. Run `Fae.exe`, then drag in images or whole folders.
+3. Press `Ctrl+S` (or **Process**) to save. Output goes next to the source as `name_WxH.ext` and never overwrites a file.
 
-**Input formats**
+Needs Windows 10/11 (WebView2 is part of Windows). Settings and presets are saved next to `Fae.exe`.
 
-JPEG, PNG, WEBP, AVIF, BMP, GIF, TIFF, TGA, PPM/PGM, ICO, plus **HEIC/HEIF** and **JPEG XL** (load only).
-
-**Output formats**
-
-| Format | Encoder | Settings |
-|---|---|---|
-| WEBP | libwebp, `method=6` | Lossless, or Lossy + quality |
-| PNG | Pillow's filter choice, zlib level 9 | — |
-| JPEG | **jpegli** (`encoders/cjpegli.exe`), libjpeg-turbo fallback | Quality *or* Butteraugli distance |
-| AVIF | **SVT-AV1** (`encoders/SvtAv1EncApp.exe`), 10-bit 4:4:4, `--tune 3`; rav1e fallback | CRF (0.25 steps), preset 0–8 |
-
-- ICC profiles from the source are carried over
-- **Split-view compare** for lossy formats: drag the divider. Left is the lossless edit, right is the actual encode decoded back
-- The encoded file size and bits per pixel are shown at the image's bottom-right corner
-
-Pipeline order: `geometry → resize → White-Patch → Gray-Edge → point correction → curves → encode`
-
-## Requirements
-
-- Windows 10/11 with the WebView2 runtime (part of Windows; the bundled encoders are Windows builds)
-- To build: Rust from https://rustup.rs (MSVC build tools) and Python 3.10+ (the WebAssembly build script, and
-  pillow-heif's libheif for HEIC): `pip install -r requirements.txt`
-- The tests: `pip install -r tests/requirements.txt` (Pillow and NumPy, the references)
-
-HEIC / HEIF open through the libheif that comes with `pillow-heif` (`build.bat` copies it into `heif\` next to
-`Fae.exe`); JPEG XL, AVIF and the rest are built in.
-
-### Encoders
-
-The encoder binaries are **not in the repository**. They come with the [release](../../releases) zip. Put them in the `encoders/` folder:
+## Building
 
 ```
-encoders/
-├── cjpegli.exe        # jpegli, from libjxl
-└── SvtAv1EncApp.exe   # SVT-AV1 (SVT-AV1-HDR fork)
+pip install -r requirements.txt
+build.bat                  # -> dist\Fae\Fae.exe
 ```
 
-Both are optional:
-- Without `cjpegli.exe`, JPEG uses libjpeg-turbo, which has no distance mode.
-- Without `SvtAv1EncApp.exe`, AVIF uses rav1e (built in).
-
-The app shows which encoder is in use.
-
-## Building and running
-
-```
-build.bat                             # -> dist\Fae\Fae.exe (with ui\, encoders\, heif\ next to it); zip dist\Fae
-dist\Fae\Fae.exe [images or folders...]
-dist\Fae\Fae.exe --debug              # opens the web inspector
-dist\Fae\Fae.exe --selftest           # checks the window (cross-origin isolation, WASM, threads) and the cores
-dist\Fae\Fae.exe --native-frame       # normal Windows title bar instead of the app's own header
-dist\Fae\Fae.exe --no-gpu             # live preview and Process without the GPU core
-core\backend\target\release\Fae.exe   # a build also runs from the repository: its ui\ and settings
-```
-
-Settings are saved to `fae_settings.json` next to `Fae.exe`, your presets to `fae_presets.json`. Not yet: the
-few AVIF files the Rust decoder can't open (grid images, premultiplied alpha).
-
-## Rust core
-
-All edit math runs in one Rust crate (`core/`), built twice: linked into the Rust back end (Process, lossy
-compare preview; the Python extension `fastedit_core` is the tests' reference) and as WebAssembly (`ui/wasm/`, the live preview, multithreaded in
-its own worker: `ui/js/preview-worker.js`). The UI only computes the tables the sliders stand for
-(`ui/js/edit-math.js`); there is no NumPy or JS fallback, so the core has to be built:
-
-```
-core\build_core.bat        # needs Rust from https://rustup.rs (MSVC build tools)
-```
-
-`build.bat` runs it too. The Rust version is pinned in `core/rust-toolchain.toml` (the threaded
-WebAssembly build rebuilds Rust's standard library; the script adds the `rust-src` component itself).
-Without `ui/wasm/` the preview shows the unedited image and says so. `FASTEDIT_COI=0` turns off the cross-origin isolation headers the
-threaded WebAssembly needs.
-
-### Tests
-
-Both builds must give exactly the stored pixels and histograms (needs node). Run from the project
-folder:
-
-```
-python tests/parity/parity.py check --impl core   # Python extension
-python tests/parity/parity.py check --impl wasm   # WebAssembly (single-threaded in node)
-python tests/parity/parity.py record              # only after a deliberate change of the math
-python tests/bench/bench_python.py                # full-resolution timings
-Fae.exe --selftest                  # WebView2 checks + live-preview timings
-```
-
-Cases are random slider values run through the UI's own `computeEdit` / `jobFor`, stored in
-`tests/parity/cases.json.gz` by `record` so every machine checks the same inputs (`parity.py tables`
-shows whether this machine's JS computes the tables differently). The test images are synthetic.
-Own images can go into `tests/parity/images/` (not committed).
-
-### Rust back end
-
-The Python back end moved to Rust wave by wave (`core/backend/`, plan in `docs/rust-backend-plan.md`): one
-table of commands, run by the app (`core/backend/fae-app`, the Tauri shell: window, dialogs, drag-drop,
-Ctrl+V) and by the tests through the Python extension `fae_backend` (`tests/fastedit/`). `ui/js/bridge.js` is
-the only UI file that knows the shell. In Rust: settings, presets, opening images (with the same pixels
-Pillow gave, AVIF through rav1d; HEIC through the libheif that comes with pillow-heif; with
-[nasm](https://nasm.us) installed, the builds use libjpeg-turbo's faster SIMD code), crop / rotate / flip,
-resizing, the file-list thumbnails, White-Patch / Gray-Edge and the whole stage with its cache and previews
-(Pillow's, OpenCV's and NumPy's maths ported, multi-threaded), the encoders (PNG, WebP, JPEG, AVIF through
-SvtAv1EncApp or rav1e, saving), Process and the encoded compare (the back end links the CPU core and the GPU
-core as crates), file lists and serving the page. Before a part moved, its Python results were stored as
-goldens; the Rust version must match them (exactly, or within the tolerance rule for the parts that
-re-implement OpenCV maths). The Python versions it replaced stay in `tests/pyref/` as the references:
-
-```
-core\backend\build_backend.bat           # Python extension fae_backend, for the tests
-cd core\backend && cargo test && cargo test -p fae-app
-python tests/stage/stage_check.py        # decode, geometry, resize, colour balance, the stage vs the goldens
-                                         #   (--impl python: Pillow's decode / thumbnails; --own: own photos too)
-python tests/backend/commands_check.py   # the commands vs their Python behaviour
-python tests/backend/encoders_check.py   # the encoders and the AVIF decoder vs Pillow / the Python versions
-python tests/backend/process_check.py    # Process and the encoded compare vs the Python path (tests/pyref)
-python tests/backend/app_check.py        # file lists and the local HTTP server vs the Python versions (tests/pyref)
-python tests/stage/stage_bench.py        # timing of the stage in Rust (Pillow next to it where it still does the job)
-```
-
-Plan, status and how the waves were done: `docs/rust-backend-plan.md`.
-
-### GPU core (in progress)
-
-The edit math is moving to the GPU (wgpu + WGSL shaders, `core/gpu/`), in waves. The GPU core runs
-every tool (Point correction, Adjustments with Mid/Detail, Curves, Perceptual Saturation, Film Effect,
-Super Contrast, Sharpen) and counts the histograms. The live preview uses it whenever WebGPU is
-available (`ui/js/gpu-view.js`; the status bar says which core draws): it renders the image at full
-resolution and draws it at exactly the screen's pixels on every change, pan and zoom, and the
-histograms follow a dragged slider. Without a GPU the CPU core renders a copy of at most 2560 px on
-the long side (zooming in shows it scaled up); crop mode and the preset thumbnails always use the
-CPU core (small images). The GPU core compiles all its shaders once at start-up, behind the loading screen
-(`ui/js/startup.js`; `Fae.exe --debug` logs how long each start-up step took). Process (and the encoded compare preview) renders on the GPU core too
-(built into the Rust back end) when there is a device; otherwise, with `--no-gpu`, for an image too big for the GPU, or after a GPU error,
-the CPU core renders it, with the same result within the tolerance rule. The GPU computes in f32 (the CPU core in f64): 99.99 % of the
-values match exactly, the rest are 1 level off with rare outliers (`tests/gpu/tolerance.py` explains
-the rule).
-
-New filters are made with the filter kit (`docs/filter-kit.md`): a descriptor and a shader in
-`core/gpu/fae-gpu/filters/`; the island, the Filters tile, the chain, presets, the preview and Process
-follow from them. Kit filters run on the GPU only: without one they are skipped, and the status bar
-and Process say so.
-
-```
-core\gpu\build_gpu.bat             # Python extension fae_gpu + WebAssembly in ui/gpu/
-python tests/gpu/tolerance.py       # GPU vs CPU core on the parity cases + Sharpen cases (--trace: where outliers
-                                    #   start, --steps: how often each step on its own differs)
-python tests/gpu/bench_native.py    # speed, DirectX 12 and Vulkan (--warp: software renderer)
-python tests/gpu/process_check.py   # Process on the GPU vs the CPU core, own photos at full size
-Fae.exe --gpu-spike                 # WebGPU in the app window: limits, speed of the WebAssembly build
-Fae.exe --no-gpu                    # live preview and Process on the CPU core only
-python tests/gpu/fx_check.py        # the filter kit's filters against their stored results (--record ID)
-Fae.exe --test-filters              # the kit's hidden test filters in the Filters list
-```
-
-## Keyboard shortcuts
-
-| Key | Action |
-|---|---|
-| `Ctrl+S` / `Enter` | Process current image |
-| `Ctrl+O` | Add files |
-| `Ctrl+Space` | Search tools, presets and commands |
-| `Ctrl+,` | Settings |
-| `↑` / `↓`, `PgUp` / `PgDn` | Previous / next image |
-| `Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z` | Undo / redo |
-| `Ctrl+V` | Open the images on the clipboard: copied files, or a copied image (saved as PNG in `Pictures\Fae\Pasted` first) |
-| `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy / paste edits |
-| `B` / `G` / `W` | Black / gray / white eyedropper |
-| `Esc` | Drop the eyedropper |
-| `Alt` (hold) | Clipping / threshold view; scroll adjusts the threshold (Shift = ×5) |
-| `\` (hold) | Before view (point correction and curves off) |
-| `C` | Crop & rotate mode |
-| `0` / `1` | Fit / actual pixels |
-| `+` / `-`, mouse wheel | Zoom |
-| `Space` + drag, middle drag | Pan |
-| Double-click image | Toggle fit / 1:1 |
-
-**Crop mode**
-
-| Key | Action |
-|---|---|
-| `Enter` / `C` | Apply |
-| `Esc` | Cancel |
-| `[` / `]` | Rotate 90° left / right |
-| `,` / `.` | Fine angle ±0.1° (Shift = ±1°) |
-| `H` | Flip horizontal |
-| `S` | Straighten: draw a line along something that should be level or upright (Shift while drawing = steadier aim, Esc = cancel) |
-| `R` | Reset |
-| Mouse wheel | Zoom the crop in / out toward the cursor (Shift = finer) |
-| `Alt` / `Ctrl` + wheel | Fine angle ±0.1° (Shift = ±1°) |
-| Arrow keys | Nudge crop (Shift = 10 px) |
-
-**Curves and sliders:** click to add a point, drag to move it, double-click it or drag it out of the box to remove it. Double-click a slider to reset it. A slider's value sits at the end of its track as plain text: click it to type, drag it or scroll over it to step (Shift = ×10).
-
-## Notes on encoding
-
-- **JPEG (jpegli)**: the image is handed to `cjpegli` as a PNG with its ICC profile. Transparent images are flattened onto white.
-- **AVIF (SVT-AV1)**: RGB is converted to 10-bit full-range BT.709 YUV 4:4:4 and encoded as a still picture with `--avif 1 --tune 3`. The AV1 bitstream is then wrapped into an `.avif` container by the app itself, so no `avifenc` is needed. The file is tagged as sRGB / full range, plus ICC if present. Images with alpha are encoded with rav1e (alpha as a second 10-bit image in the file).
-- **WEBP lossless** uses `quality=100, method=6, exact=True` (maximum effort).
-
-## Project layout
-
-```
-ui/                    # the app's page
-├── index.html
-├── style.css
-└── js/                # bridge (the shell), state, film-tables, film/*, edit-math, wasm-preview, render, compare, stage,
-    │                  # view, gpu-view, curves, controls, files, tools, presets, instances, chain-presets, process,
-    │                  # winchrome, init, crop
-    └── film/          # one file per Film Effect preset (33×33×33 colour table)
-core/                  # Rust core: fastedit-core (math), fastedit-py (Python, the tests), fastedit-wasm (live preview)
-core/gpu/              # GPU core: fae-gpu (wgpu + WGSL), its Python extension and WebAssembly build
-core/backend/          # Rust back end: fae-backend (every command; rav1e from github.com/Nukvah/rav1e-fae),
-                       #   fae-backend-py (Python extension fae_backend, the tests)
-core/backend/fae-app/  # Fae.exe: the Tauri shell (window, the fae protocol for the page, dialogs, drag-drop, Ctrl+V)
-tests/fastedit/        # the back end from Python (paths, Pillow's decode as its fallback) for the tests
-tests/pyref/           # the Python versions the Rust back end replaced: the tests' references
-tests/parity/          # bit-exactness tests of both core builds against stored goldens
-tests/stage/, tests/backend/, tests/gpu/, tests/bench/
-encoders/              # cjpegli.exe, SvtAv1EncApp.exe (from the release)
-build.bat              # dist\Fae\Fae.exe
-requirements.txt       # building and the tests (the app needs no Python)
-```
+Needs Rust from https://rustup.rs (MSVC build tools) and Python 3.10+. Encoders, command-line options,
+tests and how the cores work: [docs/development.md](docs/development.md).
 
 ## Trademarks
 

@@ -243,7 +243,7 @@ const Cmd = (() => {
     document.body.appendChild(wrap);
     const inp = wrap.querySelector('.cpal-in'), list = wrap.querySelector('.cpal-list'), btn = $('#searchBtn');
     let rows = [], sel = 0;
-    const isOpen = () => wrap.classList.contains('show');
+    const isOpen = () => Caustics.shown(wrap);
 
     function entries() {
       const out = [];
@@ -302,11 +302,11 @@ const Cmd = (() => {
       Pop.close();
       if (typeof FilterPop !== 'undefined' && FilterPop.isOpen()) FilterPop.close();
       BatchApply.close();
-      wrap.classList.add('show'); btn.classList.add('on');
+      Caustics.show(wrap); btn.classList.add('on');
       inp.value = ''; render();
       inp.focus();
     }
-    function close() { if (!isOpen()) return; wrap.classList.remove('show'); btn.classList.remove('on'); inp.blur(); }
+    function close() { if (!isOpen()) return; Caustics.hide(wrap); btn.classList.remove('on'); inp.blur(); }
     function choose(i) { const e = rows[i]; if (!e || !can(e.c)) return; close(); run(e.c); }
     inp.addEventListener('input', render);
     inp.addEventListener('keydown', e => {

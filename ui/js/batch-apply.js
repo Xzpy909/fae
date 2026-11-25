@@ -1,9 +1,12 @@
 'use strict';
 /* Edit › Apply preset to… and Edit › Paste edits to…: one edit preset, or the copied edits, onto many
    images of the list at once. A window like the search and Filters (dark veil with the water caustics,
-   the same frosted box): every image of the list as a card (thumbnail, file name), "Search images" top
-   right. A card's Apply pill applies to that image alone; a click on the card selects it, and once one is
-   selected the head shows Select all / Deselect / Apply to N.
+   the same frosted box). Apply preset to… first shows Select preset: the presets as the Edit presets cards
+   (thumbnail of the current image through each, name, tools), with a search; a click on one goes on to the
+   images. Paste edits to… starts at the images.
+   Images: every image of the list as a card (thumbnail, file name), "Search images" top right. A card's
+   Apply pill applies to that image alone; a click on the card selects it, and once one is selected the
+   head shows Select all / Deselect / Apply to N. Ctrl+A selects all, also from the search field.
    Each image gets the change as one undo step of its own (its history goes with it, like an edit made by
    hand); the current image goes through ChainPresets.apply / pasteEdits, exactly as if done there.
    Pasted edits: the crop carries over only to images of the same source size, as with Paste edits (an
@@ -27,18 +30,21 @@ const BatchApply = (() => {
         <button class="isl-x bp-close" title="Close (Esc)"><svg class="xbtn" viewBox="0 0 20 20"><circle class="c" cx="10" cy="10" r="9.5"/><path class="x" d="M7 7l6 6M13 7l-6 6"/></svg></button>
       </div>
       <div class="bp-src"></div>
+      <div class="cp-grid bp-presets"></div>
       <div class="fp-tiles bp-cards"></div>
-      <div class="fp-empty bp-empty">No images match</div>
-      <div class="fp-foot bp-foot">Click a card to select it · Apply on a card does that image only · Ctrl+A selects all · each image keeps its own undo</div>
+      <div class="fp-empty bp-empty"></div>
+      <div class="fp-foot bp-foot"></div>
     </div>`;
   document.body.appendChild(wrap);
   window.addEventListener('DOMContentLoaded', () => Caustics.attach(wrap.querySelector('.cpal-veil'), { overlay: true }));
   const $$ = s => wrap.querySelector(s);
-  const grid = $$('.bp-cards'), search = $$('.fp-search'), src = $$('.bp-src');
+  const grid = $$('.bp-cards'), pgrid = $$('.bp-presets'), search = $$('.fp-search'), src = $$('.bp-src');
 
   let mode = null, preset = null;          // 'preset' | 'paste'; the preset chosen
+  let step = 'images';                     // 'preset' (Select preset) | 'images'
+  let lastClick = -1;                      // the last card clicked (Shift+click: a range)
   const sel = new Set(), done = new Set();  // file paths: selected, applied while the window is open
-  const isOpen = () => wrap.classList.contains('show');
+  const isOpen = () => Caustics.shown(wrap);
 
   /* ---------- applying ---------- */
   // another image's state as it would show when opened (untouched: fresh edits, the current output settings)
@@ -96,8 +102,8 @@ const BatchApply = (() => {
 
   /* ---------- the window ---------- */
   function head() {
-    const n = sel.size;
-    $$('.bp-title').textContent = mode === 'preset' ? 'Apply preset to' : 'Paste edits to';
+    const n = step === 'images' ? sel.size : 0;
+    $$('.bp-title').textContent = step === 'preset' ? 'Select preset' : mode === 'preset' ? 'Apply preset to' : 'Paste edits to';
     const cnt = $$('.bp-count');
     cnt.textContent = n ? `${n} selected` : ''; cnt.classList.toggle('show', n > 0);
     $$('.bp-acts').classList.toggle('show', n > 0);
@@ -106,10 +112,10 @@ const BatchApply = (() => {
     $$('[data-a="all"]').disabled = visible().every(c => sel.has(c.dataset.p));
   }
   function source() {
-    if (mode === 'preset') {
-      const l = ChainPresets.presets();
-      src.innerHTML = '<span class="bp-lab">Preset</span>' + l.map((p, i) =>
-        `<button class="bp-btn bp-chip${p === preset ? ' on' : ''}" data-i="${i}">${esc(p.name)}</button>`).join('');
+    if (step === 'preset') src.innerHTML = '';
+    else if (mode === 'preset') {
+      src.innerHTML = `<span class="bp-lab">Preset</span><span class="bp-from">${esc(preset.name)}</span>`
+        + '<button class="bp-btn bp-change" title="Back to Select preset">Change</button>';
     } else {
       const c = S.clipboard;
       src.innerHTML = c ? `<span class="bp-lab">Edits copied from</span><span class="bp-from">${esc(c.name || 'an image')}</span>`
@@ -128,7 +134,29 @@ const BatchApply = (() => {
     filter();
   }
   const visible = () => [...grid.querySelectorAll('.bp-card:not([hidden])')];
+  function presetCards() {
+    const q = search.value.trim().toLowerCase();
+    const l = ChainPresets.presets().filter(p => !q || p.name.toLowerCase().includes(q));
+    ChainPresets.cards(pgrid, l, p => { preset = p; S.prefs.batchPreset = p.name; savePrefsSoon(); go('images'); });
+    $$('.bp-empty').classList.toggle('show', !l.length);
+  }
+  // show a step: the search, the cards and the foot change with it
+  function go(s) {
+    step = s;
+    wrap.classList.toggle('pick', s === 'preset');
+    search.value = ''; lastClick = -1;
+    search.placeholder = s === 'preset' ? 'Search presets' : 'Search images';
+    search.setAttribute('aria-label', search.placeholder);
+    $$('.bp-empty').textContent = s === 'preset' ? 'No preset matches' : 'No images match';
+    $$('.bp-foot').textContent = s === 'preset' ? 'Click a preset to choose the images it goes to'
+      : 'Click a card to select it · Apply on a card does that image only · Ctrl+A selects all · each image keeps its own undo';
+    source();
+    if (s === 'preset') { grid.innerHTML = ''; presetCards(); head(); pgrid.scrollTop = 0; }
+    else { WP.clearThumbs(); pgrid.innerHTML = ''; cards(); grid.scrollTop = 0; }
+    search.focus({ preventScroll: true });
+  }
   function filter() {
+    if (step === 'preset') { presetCards(); return; }
     const q = search.value.trim().toLowerCase();
     let any = false;
     grid.querySelectorAll('.bp-card').forEach(c => {
@@ -143,35 +171,28 @@ const BatchApply = (() => {
     grid.querySelectorAll('.bp-card').forEach(c => { c.querySelector('.fp-badge').hidden = !done.has(c.dataset.p); });
   }
 
-  // mode 'preset' (p = the preset, else the last one used) or 'paste'
+  // mode 'preset' (p = the preset: straight to the images; none: Select preset first) or 'paste'
   function open(m, p) {
     if (S.cropMode || !S.files.length) return;
     if (m === 'paste' && !S.clipboard) copyEdits();          // nothing copied yet: the current image's edits
     if (typeof Cmd !== 'undefined') { Cmd.closePop(); Cmd.Palette.close(); }
     if (typeof FilterPop !== 'undefined') FilterPop.close();
     if (ChainPresets.isOpen()) ChainPresets.close();
-    mode = m;
-    if (m === 'preset') {
-      const l = ChainPresets.presets();
-      preset = p || l.find(x => x.name === S.prefs.batchPreset) || l[0] || null;
-      if (!preset) { status('No edit presets yet: save one in Presets first'); return; }
-    }
+    if (m === 'preset' && !ChainPresets.presets().length) { status('No edit presets yet: save one in Presets first'); return; }
+    mode = m; preset = m === 'preset' ? p || null : null;
     sel.clear(); done.clear();
-    search.value = '';
-    source(); cards();
-    wrap.classList.add('show');
-    grid.scrollTop = 0;
-    search.focus({ preventScroll: true });
+    Caustics.show(wrap);
+    go(m === 'preset' && !preset ? 'preset' : 'images');
   }
-  function close() { if (!isOpen()) return; wrap.classList.remove('show'); search.blur(); grid.innerHTML = ''; }
+  function close() {
+    if (!isOpen()) return;
+    Caustics.hide(wrap); search.blur();
+    WP.clearThumbs();
+    setTimeout(() => { if (!isOpen()) { grid.innerHTML = ''; pgrid.innerHTML = ''; } }, 220);
+  }
 
-  src.addEventListener('click', e => {
-    const b = e.target.closest('.bp-chip'); if (!b) return;
-    preset = ChainPresets.presets()[+b.dataset.i];
-    S.prefs.batchPreset = preset.name; savePrefsSoon();
-    done.clear(); markDone();
-    source(); head();
-  });
+  // Change: back to Select preset (the selection stays for when a preset is picked again)
+  src.addEventListener('click', e => { if (e.target.closest('.bp-change')) { done.clear(); go('preset'); } });
   grid.addEventListener('click', e => {
     const c = e.target.closest('.bp-card'); if (!c) return;
     if (e.target.closest('.bp-apply')) { applyTo([c.dataset.p]); markDone(); return; }
@@ -184,7 +205,6 @@ const BatchApply = (() => {
     lastClick = at;
     head();
   });
-  let lastClick = -1;
   function selectAll(on) { for (const c of visible()) mark(c, on); lastClick = -1; head(); }
   $$('.bp-acts').addEventListener('click', e => {
     const a = e.target.closest('[data-a]'); if (!a) return;
@@ -205,10 +225,10 @@ const BatchApply = (() => {
   window.addEventListener('keydown', e => {
     if (!isOpen()) return;
     e.stopImmediatePropagation();
-    const typing = e.target === search;
     if (e.key === 'Escape') { e.preventDefault(); close(); }
-    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && !typing) { e.preventDefault(); selectAll(true); }
-    else if (e.key === 'Enter' && sel.size && !e.target.closest('button')) { e.preventDefault(); applyTo([...sel]); close(); }
+    // Ctrl+A: every image shown (the search's own text is not what it selects here)
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && step === 'images') { e.preventDefault(); selectAll(true); }
+    else if (e.key === 'Enter' && step === 'images' && sel.size && !e.target.closest('button')) { e.preventDefault(); applyTo([...sel]); close(); }
   }, true);
 
   return { open, close, isOpen };

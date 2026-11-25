@@ -159,20 +159,33 @@ const ChainPresets = (() => {
     });
   }
 
+  // a preset's card: thumbnail, name, its tools in order (more = with the ⋯ button)
+  const cardHtml = (p, i, more) => `
+      <div class="cp-card" data-i="${i}">
+        <div class="cp-thumbw"><canvas class="cp-thumb" width="${TW}" height="${TH}"></canvas>
+          ${more ? `<button class="cp-more" title="More">${DOTS}</button>` : ''}</div>
+        <div class="cp-row"><span class="cp-name">${esc(p.name)}</span><span class="cp-meta">Yours</span></div>
+        <div class="cp-strip">${toolsOf(p).map(s => `<span class="cp-tool" title="${esc(NAME[typeOf(s)])}${(p.lbl || {})[s] ? ' · ' + esc(p.lbl[s]) : ''}${p.off.includes(s) ? ' (off)' : ''}"`
+          + `${p.off.includes(s) ? ' data-off' : ''}><svg viewBox="0 0 24 24">${ICON[typeOf(s)]}</svg></span>`).join('<i>›</i>') || '<span class="cp-none">No tools</span>'}</div>
+      </div>`;
+  // the same cards in another window (Apply preset to…: Select preset); a click picks the preset
+  function cards(el, items, pick) {
+    WP.clearThumbs();
+    el.innerHTML = items.map((p, i) => cardHtml(p, i, false)).join('');
+    el.querySelectorAll('.cp-card').forEach(card => {
+      const p = items[+card.dataset.i];
+      drawThumb(card.querySelector('canvas'), p);
+      card.addEventListener('click', () => pick(p));
+    });
+  }
+
   function render() {
     WP.clearThumbs();
     const q = search.value.trim().toLowerCase(), l = list();
     const shown = l.map((p, i) => ({ p, i })).filter(({ p }) => !q || p.name.toLowerCase().includes(q));
     if (!l.length) { grid.innerHTML = '<div class="cp-empty">No edit presets yet. Save current edits to make one.</div>'; return; }
     if (!shown.length) { grid.innerHTML = '<div class="cp-empty">No preset matches the search.</div>'; return; }
-    grid.innerHTML = shown.map(({ p, i }) => `
-      <div class="cp-card" data-i="${i}">
-        <div class="cp-thumbw"><canvas class="cp-thumb" width="${TW}" height="${TH}"></canvas>
-          <button class="cp-more" title="More">${DOTS}</button></div>
-        <div class="cp-row"><span class="cp-name">${esc(p.name)}</span><span class="cp-meta">Yours</span></div>
-        <div class="cp-strip">${toolsOf(p).map(s => `<span class="cp-tool" title="${esc(NAME[typeOf(s)])}${(p.lbl || {})[s] ? ' · ' + esc(p.lbl[s]) : ''}${p.off.includes(s) ? ' (off)' : ''}"`
-          + `${p.off.includes(s) ? ' data-off' : ''}><svg viewBox="0 0 24 24">${ICON[typeOf(s)]}</svg></span>`).join('<i>›</i>') || '<span class="cp-none">No tools</span>'}</div>
-      </div>`).join('');
+    grid.innerHTML = shown.map(({ p, i }) => cardHtml(p, i, true)).join('');
     grid.querySelectorAll('.cp-card').forEach(card => {
       const p = l[+card.dataset.i];
       drawThumb(card.querySelector('canvas'), p);
@@ -287,5 +300,5 @@ const ChainPresets = (() => {
   // a shortcut (undo, copy edits…) while a preset is previewed works on the real edit
   window.addEventListener('keydown', () => { if (saved) endPreview(); }, true);
 
-  return { open, close, isOpen: () => isOpen, list, presets, apply, appliedState, openTools };
+  return { open, close, isOpen: () => isOpen, list, presets, apply, appliedState, openTools, cards };
 })();

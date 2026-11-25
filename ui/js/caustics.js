@@ -5,8 +5,9 @@
    Caustics.attach(host, { overlay }) puts a canvas into `host` and animates it while `host` is shown:
    - the loading screen (#splash): drawn on the splash's own colour; this file loads right after #splash,
      before the other scripts, and the effect stops when startup.js removes the splash;
-   - the dark veils behind the search and the Filters popover (overlay: light only, the veil and the
-     image show through); attached once the page has loaded, running only while they are open.
+   - the dark veils behind the search, the Filters popover and Apply preset to… (overlay: light only, the
+     veil and the image show through); attached once the page has loaded, running only while they are open.
+   The waves ease in over 1 s once a window opens and out over .2 s when it closes (show / hide below).
 
    Nothing without a hardware WebGL context (failIfMajorPerformanceCaveat: software rendering would slow
    the app down) or when the shader doesn't compile. Reduced motion: one still frame. Tuned in a
@@ -124,11 +125,21 @@ void main() {
     start();
   }
 
+  // the windows with the waves (search, Filters, Apply preset to…): show at once, and hide after a .2 s
+  // fade of the veil and its waves (style.css .closing); showing again during the fade cancels it
+  function show(el) { clearTimeout(el._fxHide); el.classList.remove('closing'); el.classList.add('show'); }
+  function hide(el) {
+    if (!el.classList.contains('show') || el.classList.contains('closing')) return;
+    el.classList.add('closing');
+    el._fxHide = setTimeout(() => el.classList.remove('show', 'closing'), 200);
+  }
+  const shown = el => el.classList.contains('show') && !el.classList.contains('closing');
+
   // the dark veils behind the search and the Filters popover, once every script has built its part
   window.addEventListener('DOMContentLoaded', () => {
     attach(document.querySelector('#cmdPal .cpal-veil'), { overlay: true });
     attach(document.querySelector('#filterPop .fp-veil'), { overlay: true });
   });
   attach(document.getElementById('splash'));
-  return { attach };
+  return { attach, show, hide, shown };
 })();

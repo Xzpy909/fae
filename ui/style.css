@@ -68,7 +68,12 @@
 /* water caustics (caustics.js) behind the splash's logo and bar, and in the veils behind the search and
    Filters; fades in once its first frame is drawn, never takes a click (the veils close on one) */
 canvas.fx { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none;
-  transition: opacity .6s ease-out; }
+  transition: opacity 1s ease-in; }
+/* a window with the waves closing (Caustics.hide): its box goes at once, the veil and the waves fade out
+   in .2 s, then the window hides; clicks already go through to the app */
+#cmdPal.closing, #filterPop.closing, #batchPop.closing { pointer-events: none; }
+#cmdPal.closing > :not(.cpal-veil), #filterPop.closing > :not(.fp-veil), #batchPop.closing > :not(.cpal-veil) { display: none; }
+.closing > .cpal-veil, .closing > .fp-veil { opacity: 0; transition: opacity .2s ease-out; }
 canvas.fx.on { opacity: 1; }
 #splash > :not(canvas) { position: relative; }
 #splash img { width: 72px; height: 72px; }
@@ -631,7 +636,8 @@ input[type=range]:hover::-webkit-slider-thumb { background: #fff; transform: sca
 #stEngine.gpu::before { background: #5fd38d; box-shadow: 0 0 6px #5fd38d; }
 .chip { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin: 0 4px; border: 1px solid rgba(255,255,255,.25); }
 
-#toast { position: fixed; left: 50%; bottom: 44px; transform: translate(-50%, 20px); opacity: 0;
+/* at the top, under the title bar: clear of the tool dock and the export block, over the open windows */
+#toast { position: fixed; z-index: 200; left: 50%; top: 52px; transform: translate(-50%, -14px); opacity: 0;
   background: #38383b; border: 1px solid var(--line2); border-radius: 8px; padding: 9px 14px;
   box-shadow: 0 10px 30px rgba(14, 14, 17, .5); transition: opacity .18s, transform .18s; pointer-events: none;
   font-size: 12.5px; max-width: 70vw; }
@@ -940,6 +946,10 @@ body.no-dock #toolPills { display: none; }
 .bp-from { color: var(--text); }
 .bp-note { color: var(--dim); }
 .bp-note::before { content: "·"; margin: 0 6px 0 2px; }
+/* Select preset (the first step of Apply preset to…): the Edit presets cards, more to a row */
+#batchPop .bp-presets { display: none; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); max-height: none; min-height: 0; }
+#batchPop.pick .bp-presets { display: grid; }
+#batchPop.pick .bp-cards { display: none; }
 .fp-tiles.bp-cards { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 10px; }
 .fp-tile.bp-card { height: auto; padding: 6px 6px 8px; cursor: pointer; min-width: 0; }
 .bp-thumb { aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; background: #1e1e21; box-shadow: 0 0 0 1px rgba(255, 255, 255, .08); }

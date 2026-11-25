@@ -406,7 +406,7 @@ const FilterPop = (() => {
       <span class="fp-badge mono" hidden></span><span class="fp-add">+ Add</span>
     </div>`).join('');
   $('#fpTiles').insertAdjacentHTML('afterend', '<div class="fp-foot">Click adds to the end of the chain · Drag a tile into the panel to place it</div>');
-  const isOpen = () => pop.classList.contains('show');
+  const isOpen = () => Caustics.shown(pop);
   // the order numbers of a filter's open islands (the numbers on their rows)
   const places = sec => [...panelScroll.querySelectorAll(`:scope > .card.sec.show[data-sec="${sec}"] .isl-num`)].map(n => n.textContent).filter(Boolean);
   function sync() {
@@ -442,10 +442,10 @@ const FilterPop = (() => {
   }
   function open() {
     if (S.cropMode) return;
-    pop.classList.add('show'); search.value = ''; filter(); grid.scrollTop = 0; sync();
+    Caustics.show(pop); search.value = ''; filter(); grid.scrollTop = 0; sync();
     search.focus({ preventScroll: true });
   }
-  function close() { if (!isOpen()) return; pop.classList.remove('show'); search.blur(); sync(); }
+  function close() { if (!isOpen()) return; Caustics.hide(pop); search.blur(); sync(); }
 
   // add filter sec: open its island the first time, else another instance. before = the island to put it
   // before (null = after the open islands, undefined = the end, as a click does)

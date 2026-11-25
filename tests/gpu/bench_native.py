@@ -21,12 +21,13 @@ import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tests"))           # pyref: the Python versions the back end replaced
 
 try:
     import fae_gpu
 except ImportError as ex:
     sys.exit(f"fae_gpu is not installed ({ex}): run core\\gpu\\build_gpu.bat")
-from fastedit import core  # noqa: E402
+from pyref import core  # noqa: E402
 sys.path.insert(0, os.path.join(ROOT, "tests", "parity"))
 import parity  # noqa: E402
 

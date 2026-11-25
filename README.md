@@ -76,7 +76,8 @@ Pipeline order: `geometry → resize → White-Patch → Gray-Edge → point cor
 pip install -r requirements.txt
 ```
 
-(`pywebview>=5.0`, `pillow>=11.2`, `numpy`, `pillow-heif`, `pillow-jxl-plugin`). Pillow 11.2 or newer is needed for AVIF files the Rust decoder doesn't open (grids).
+(`pywebview>=5.0`, `pillow>=11.2`, `pillow-heif`, `pillow-jxl-plugin`). Pillow 11.2 or newer is needed for AVIF files the Rust decoder doesn't open (grids).
+The tests need NumPy as well: `pip install -r tests/requirements.txt`.
 The Rust core and the Rust back end are required as well: build them once with `core\build_core.bat` and
 `core\backend\build_backend.bat` (see [Rust core](#rust-core)).
 
@@ -171,7 +172,7 @@ python tests/stage/stage_check.py        # decode, geometry, resize, colour bala
                                          #   (--impl python: Pillow's decode / thumbnails; --own: own photos too)
 python tests/backend/commands_check.py   # the commands moved so far vs their Python behaviour
 python tests/backend/encoders_check.py   # the encoders and the AVIF decoder vs Pillow / the Python versions
-python tests/backend/process_check.py    # Process and the encoded compare vs the Python path (core.py & co.)
+python tests/backend/process_check.py    # Process and the encoded compare vs the Python path (tests/pyref)
 python tests/stage/stage_bench.py        # timing of the stage in Rust (Pillow next to it where it still does the job)
 ```
 
@@ -263,8 +264,6 @@ fastedit/              # Python back end
 ├── config.py          # paths, defaults, per-image stage parameters
 ├── backend.py         # the Rust back end (fae_backend): the stage, encoders, Process, compare, settings, presets
 ├── engine.py          # Pillow decode for the AVIFs Rust doesn't open, file lists
-├── core.py            # Process on fae_gpu / fastedit_core (Python version, kept until B5 is checked)
-├── proc.py, output.py, jpeg.py, avif.py   # encoders (Python versions, kept until B5 is checked)
 ├── api.py             # JS API used by the UI
 └── app.py             # local HTTP server, window, drag and drop
 ui/
@@ -277,6 +276,7 @@ core/                  # Rust core: fastedit-core (math), fastedit-py (Python), 
 core/backend/          # Rust back end (fae_backend; rav1e from github.com/Nukvah/rav1e-fae)
 tests/parity/          # bit-exactness tests of both core builds against stored goldens
 tests/bench/           # timings
+tests/pyref/           # the Python versions the Rust back end replaced (core.py, encoders): the tests' reference
 encoders/              # cjpegli.exe, SvtAv1EncApp.exe (from the release)
 run.bat
 requirements.txt

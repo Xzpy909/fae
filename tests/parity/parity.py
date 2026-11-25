@@ -49,8 +49,9 @@ MANIFEST_LOCAL = os.path.join(WORK, "manifest.local.json")
 LOCAL_DIR = os.path.join(HERE, "images")
 LOCAL_MAX = 1600            # own images are scaled down to this long side
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tests"))           # pyref: the Python versions the back end replaced
 
-from fastedit import core  # noqa: E402
+from pyref import core  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

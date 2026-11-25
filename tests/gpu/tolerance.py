@@ -46,9 +46,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 WORK = os.path.join(HERE, ".work")
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tests"))           # pyref: the Python versions the back end replaced
 sys.path.insert(0, os.path.join(ROOT, "tests", "parity"))
 
-from fastedit import core  # noqa: E402
+from pyref import core  # noqa: E402
 import parity  # noqa: E402  (cases and test images)
 
 MAX_LEVELS = 2          # a pixel further off than this is an outlier

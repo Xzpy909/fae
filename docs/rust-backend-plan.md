@@ -2,9 +2,9 @@
 
 Status: **B0, B1, B2, B3 done** (on main; geometry.py, colour.py, the Python stage and OpenCV removed).
 **B4 done** (fae_backend 0.5.0): all encoders and AVIF decoding in Rust (rav1e / rav1d), checked by the owner
-on Windows; its clean-up goes with B5's (the same files). **B5 in progress** (fae_backend 0.6.0): Process and
-the encoded compare in Rust, the CPU and GPU cores linked into the back end; left: the owner's check, then
-the clean-up (listed under B5). Moves the Python back
+on Windows. **B5 done** (fae_backend 0.6.0): Process and the encoded compare in Rust, the CPU and GPU cores
+linked into the back end, checked by the owner on Windows; the B4 / B5 clean-up done (the Python versions
+moved to tests/pyref, NumPy only for the tests). Next: B6. Moves the Python back
 end (`fastedit/`) into Rust, wave by wave, so the app keeps working after every wave and a later switch from
 pywebview to **Tauri** is a small last step instead of a rewrite. Not a goal in itself: no visible change to
 the editor; the gains are a smaller, faster-starting app (no NumPy / OpenCV / Pillow at run time), one
@@ -58,7 +58,7 @@ language for the engine, and an easy Tauri switch later.
 | Color balance | **Rust (B3)**: colour.rs (White-Patch, Gray-Edge) | colour.py (removed in B3), NumPy, OpenCV |
 | The stage and its cache | **Rust (B3)**: stage.rs (entry cache, load_stage / load_source / sample, preview tokens) | engine.py `Engine`, `Entry` (removed in B3) |
 | The edit (Process) | **Rust (B5)**: render.rs (the edit's JSON → steps, one GPU device, CPU core fallback, skipped kit filters), lib.rs `process` | core.py `render` on fae_gpu, fastedit_core |
-| Encoders | output.py PNG / WebP, jpeg.py (cjpegli.exe), avif.py (SvtAv1EncApp.exe + own OBU parser / AVIF muxer; Pillow aom fallback, also for alpha) — **B4** | Pillow, subprocess |
+| Encoders | **Rust (B4)**: encode.rs (PNG, WebP, JPEG via cjpegli.exe), avif.rs (SvtAv1EncApp.exe + the muxer, rav1e for alpha / the "aom" choice), run.rs | output.py, jpeg.py, avif.py, proc.py (now tests/pyref), Pillow, subprocess |
 | Encoded compare | **Rust (B5)**: lib.rs `lossy_preview` (render, encode, decode back, size, cache, cancellation) | api.py `lossy_preview`, proc.py, Pillow |
 | App plumbing | settings / presets in Rust (B0); the rest: api.py (files, dialogs, reveal), app.py (local HTTP server: UI, /preview tokens, /thumb), winchrome.py (frameless window), drag-drop — **B6** | pywebview, http.server |
 
@@ -212,11 +212,12 @@ dependency removed.
   every parity case (+ Sharpen), the GPU core's identical to fae_gpu, the files Process writes byte for byte
   the same as the Python path's (RGB, RGBA, AVIF, rotated / resized / colour-balanced stages; every format;
   GPU on and off), the compare's answers and preview pixels the same, cancellation, the fallback decoder.
-- Kept until the owner's check, then removed (B5 clean-up, with B4's): core.py, output.py, jpeg.py, avif.py,
-  proc.py, the Python cores' use at run time; NumPy from requirements (tests only: a tests requirement);
-  Pillow stays only for engine.py's `decode_pillow` (the fallback decoder), its AVIF thumbnails and
-  Ctrl+V's clipboard image (B6 / later). encoders_check.py and process_check.py keep the Python versions
-  they compare with inside the tests, or drop them once the results are stored.
+- Clean-up (with B4's), after the owner's check: core.py, output.py, jpeg.py, avif.py and proc.py moved from
+  fastedit/ to **tests/pyref/** (the reference of the parity, GPU, encoder and process tests; the app
+  doesn't import them); `Cancelled` lives in backend.py; NumPy left requirements.txt (tests/requirements.txt
+  has it); tests/gpu/startup_time.py measures the back end's GPU core. Pillow stays at run time only for
+  engine.py's `decode_pillow` (the fallback decoder for AVIF grids / premultiplied alpha), the file list's
+  AVIF thumbnails and Ctrl+V's clipboard image (B6 / later).
 
 ### B6 — App plumbing (1 session)
 - Settings and presets files, file / folder collection, the HTTP handlers (UI, /preview, /thumb) in Rust.

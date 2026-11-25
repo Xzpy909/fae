@@ -36,15 +36,17 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tests"))           # pyref: the Python versions the back end replaced
 
 import numpy as np  # noqa: E402
 from PIL import Image, ImageCms  # noqa: E402
 
 import fae_backend as fb  # noqa: E402
-from fastedit import avif as A, backend, output  # noqa: E402
+from fastedit import backend  # noqa: E402
+from pyref import avif as A, output  # noqa: E402
 from fastedit.config import ENCODERS_DIR, IMAGE_EXTS  # noqa: E402
-from fastedit.jpeg import flatten_rgb, jpeg_opts, jpegli_available  # noqa: E402
-from fastedit.proc import Cancelled, _TL, preview_begin  # noqa: E402
+from pyref.jpeg import flatten_rgb, jpeg_opts, jpegli_available  # noqa: E402
+from pyref.proc import Cancelled, _TL, preview_begin  # noqa: E402
 
 INPUTS = os.path.join(ROOT, "tests", "stage", "inputs")
 OWN = os.path.join(ROOT, "tests", "parity", "images")
@@ -221,7 +223,7 @@ def check_fake_svt():
     b2 = _fake_backend()
     if b2 is None:
         return
-    import fastedit.avif as avif_mod
+    import pyref.avif as avif_mod
     img = Image.new("RGB", (40, 30), (200, 10, 50))
     old = avif_mod.SVTAV1
     avif_mod.SVTAV1 = os.path.join(_FAKE["dir"], "SvtAv1EncApp")

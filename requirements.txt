@@ -1,5 +1,4 @@
 pywebview>=5.0
 pillow>=11.2
-numpy
 pillow-heif
 pillow-jxl-plugin

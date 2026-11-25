@@ -131,7 +131,7 @@ class Backend:
 
     def encode(self, img, fmt: str, opts, icc: bytes | None = None, req: int | None = None):
         """JPEG / AVIF / lossy WebP in Rust (B4; output.py encode_lossy): (bytes, encoder, settings used).
-        `img`: a Pillow image (RGB / RGBA); `req`: the encoded compare's request (proc.Cancelled when a
+        `img`: a Pillow image (RGB / RGBA); `req`: the encoded compare's request (Cancelled when a
         newer one began). None when the encoder isn't in Rust yet (the caller uses its own)."""
         px, w, h, ch = _raw(img)
         try:
@@ -150,7 +150,7 @@ class Backend:
             return _encode_error(ex)
 
     def preview_begin(self, req: int):
-        """A new encoded-compare request: the encoder runs of older ones are killed (proc.preview_begin)."""
+        """A new encoded-compare request: the encoder runs of older ones are killed ."""
         self._b.preview_begin(int(req))
 
     @staticmethod
@@ -183,12 +183,15 @@ def _raw(img):
     return img.tobytes(), img.width, img.height, len(img.getbands())
 
 
+class Cancelled(Exception):
+    """An encoded-compare request was replaced by a newer one (Backend.encode with `req`)."""
+
+
 def _encode_error(ex: RuntimeError):
     msg = str(ex)
     if msg.startswith("unknown:"):
         return None
     if msg.startswith("cancelled:"):
-        from .proc import Cancelled
         raise Cancelled() from None
     raise RuntimeError(msg.split(": ", 1)[-1]) from None
 

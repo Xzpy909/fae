@@ -21,6 +21,7 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tests"))           # pyref: the Python versions the back end replaced
 sys.path.insert(0, os.path.join(ROOT, "tests", "parity"))
 
 import parity  # noqa: E402
@@ -44,7 +45,7 @@ def main():
     with open(os.path.join(HERE, "cases.json"), encoding="utf-8") as f:
         ids = json.load(f)
 
-    from fastedit import core
+    from pyref import core
     if not core.available():
         sys.exit(core.error())
     print(f"Rust core {core.info()}")

@@ -1,5 +1,5 @@
 """
-Fae (Fast Image Editor) - pywebview front end, numpy/OpenCV/Pillow back end.
+Fae (Fast Image Editor) - pywebview front end, Rust back end (core/backend, fae_backend).
 
 What it does (per image, nothing is written until you press Process):
     Output     : Resize - Preset (aspect + 2160p..360p, cover-crop), Target Mpix (with priority),
@@ -15,10 +15,10 @@ What it does (per image, nothing is written until you press Process):
 Pipeline order:
     resize -> White-Patch -> Gray-Edge -> point correction -> curves
 
-Code layout: fastedit/ (Python back end), ui/ (front end: index.html, style.css, js/).
+Code layout: fastedit/ (the pywebview shell around the Rust back end), ui/ (front end: index.html, style.css, js/).
 
 Requirements:
-    pip install pywebview pillow numpy
+    pip install -r requirements.txt, then core\build_core.bat and core\backend\build_backend.bat
     optional input formats: pip install pillow-heif (HEIC/HEIF)  pillow-jxl-plugin (JPEG XL)
 
 Run:

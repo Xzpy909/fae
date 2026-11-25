@@ -15,8 +15,7 @@ def _no_window() -> dict:
 
 
 # ---- live-preview encodes: low priority, and killed as soon as a newer preview is requested ----
-class Cancelled(Exception):
-    pass
+from fastedit.backend import Cancelled  # noqa: E402  (the back end raises the same one)
 
 
 _TL = threading.local()                    # .preview_req is set while a preview encode runs

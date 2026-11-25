@@ -5,7 +5,7 @@ import io
 import os
 import tempfile
 from PIL import Image
-from .config import CJPEGLI, JPEG_D_DEFAULT, JPEG_Q_DEFAULT
+from fastedit.config import CJPEGLI, JPEG_D_DEFAULT, JPEG_Q_DEFAULT
 from .proc import run_encoder
 
 

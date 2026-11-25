@@ -1,16 +1,15 @@
 """WEBP output, lossy-format dispatch and saving.
 
-B4 (docs/rust-backend-plan.md): encode_lossy and save_image run in the Rust back end; the Python versions
-(encode_lossy_py, save_image_py, with jpeg.py and avif.py) stay as the reference of
-tests/backend/encoders_check.py. B5: the app no longer uses this file (Process and the encoded compare run
-in the Rust back end); it goes in the B5 clean-up.
+The Python versions (encode_lossy_py, save_image_py, with jpeg.py and avif.py) are the reference of
+tests/backend/encoders_check.py; encode_lossy / save_image call the Rust back end (B4). Moved from
+fastedit/ to the tests in the B5 clean-up.
 """
 from __future__ import annotations
 
 import io
 import os
 from PIL import Image
-from .config import EXTS, FORMATS, WEBP_Q_DEFAULT
+from fastedit.config import EXTS, FORMATS, WEBP_Q_DEFAULT
 from .jpeg import encode_jpeg, jpeg_opts
 from .avif import _clampi, avif_opts, encode_avif
 
@@ -48,7 +47,7 @@ def is_lossy(fmt: str, opts: dict | None) -> bool:
 def encode_lossy(img: Image.Image, fmt: str, opts: dict | None, icc: bytes | None = None) -> tuple[bytes, str, dict]:
     """Returns (bytes, encoder name, normalised settings) for JPEG / AVIF / lossy WEBP: the Rust back end
     (B4), Python for what isn't in it yet."""
-    from . import backend
+    from fastedit import backend
     from .proc import _preview_req
     r = backend.shared().encode(img, norm_fmt(fmt), opts, icc, _preview_req())
     return r if r is not None else encode_lossy_py(img, fmt, opts, icc)
@@ -81,7 +80,7 @@ def _out_path(src_path: str, size: tuple[int, int], ext: str) -> str:
 def save_image(img: Image.Image, src_path: str, fmt: str = "WEBP", icc: bytes | None = None,
                opts: dict | None = None) -> str:
     """Encode and write next to the source: the Rust back end (B4), Python for what isn't in it yet."""
-    from . import backend
+    from fastedit import backend
     r = backend.shared().save(img, src_path, norm_fmt(fmt), icc, opts)
     return r if r is not None else save_image_py(img, src_path, fmt, icc, opts)
 

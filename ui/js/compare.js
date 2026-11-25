@@ -35,7 +35,7 @@ function updateSizeChip() {
   if (!on) return;
   const ready = cmpReady(), stale = c.busy || !ready || c.key !== jpegKey();
   el.innerHTML = ready && !stale     // a change since the shown result: say so until the new encode is in
-    ? `<b>${fmtBytes(c.bytes)}</b> <span class="muted">&middot; ${I.w}×${I.h} &middot; ${(c.bytes * 8 / (I.w * I.h)).toFixed(2)} bpp${c.ms != null ? ` &middot; ${fmtTime(c.ms)}` : ''}</span>`
+    ? `<b>${fmtBytes(c.bytes)}</b> <span class="muted">&middot; ${I.w}×${I.h}<br>${(c.bytes * 8 / (I.w * I.h)).toFixed(2)} bpp${c.ms != null ? ` &middot; ${fmtTime(c.ms)}` : ''}</span>`
     : '<span class="muted">encoding…</span>';
   el.classList.toggle('stale', stale);
   // pinned to the image's bottom-right corner, kept inside the viewport
@@ -43,10 +43,6 @@ function updateSizeChip() {
   const x = clamp(v.x + I.pw * v.z - m, 160, r.width - m);
   const y = clamp(v.y + I.ph * v.z - m, 40, r.height - m);
   el.style.left = x + 'px'; el.style.top = y + 'px';
-  // never under the tool dock: lifted above it when they'd meet
-  const tp = $('#toolPills'), cr = el.getBoundingClientRect(), pr = tp && tp.offsetParent ? tp.getBoundingClientRect() : null;
-  if (pr && cr.right > pr.left && cr.left < pr.right && cr.bottom > pr.top && cr.top < pr.bottom)
-    el.style.top = Math.max(cr.height, pr.top - r.top - 6) + 'px';
 }
 
 /* Two split views: the top bar's (original | edited, any format) and the export block's

@@ -1,6 +1,6 @@
 'use strict';
 /* Unified header: on Windows the window is frameless and the top bar is the title bar.
-   Python (fastedit/winchrome.py) does the window work natively; this file only says when:
+   The shell (Fae.exe, fae-app shell.rs) does the window work natively; this file only says when:
    - press on an empty part of the bar = Windows' own move loop (snap, drag down to restore),
      a quick second press there = maximize / restore;
    - press on an edge strip = Windows' own resize loop;

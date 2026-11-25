@@ -1,6 +1,6 @@
 @echo off
 rem Builds the Rust back end (docs/rust-backend-plan.md): Python extension fae_backend -> installed into
-rem the current Python (pip). Required by the app (fastedit\backend.py). Checks:
+rem the current Python (pip), for the tests (tests\fastedit\backend.py; Fae.exe links the library itself). Checks:
 rem   python tests\stage\stage_check.py --impl rust   the stage (decode, ...) in Rust vs the goldens
 rem   python tests\backend\commands_check.py   the commands moved so far, against their Python behaviour
 rem   python tests\backend\encoders_check.py   the encoders (B4), against the Python ones
@@ -32,8 +32,8 @@ set RUSTFLAGS=
 popd
 for %%f in (target\wheels\fae_backend-*.whl) do python -m pip install -q --force-reinstall --no-deps "%%f" || goto :fail
 python -c "import fae_backend as b; print('fae_backend', b.version(), '-', len(b.commands()), 'of', len(b.table()), 'commands in Rust')" || goto :fail
-python -c "import sys; sys.path.insert(0, r'..\..'); from fastedit import backend; i = backend.shared().call('core_info'); g = i['gpu']; print('CPU core', i['version'], '-', i['threads'], 'threads; GPU core:', (g['version'] + ' on ' + g['name'] + ' (' + g['backend'] + ')') if g['ok'] else g['error'])" || goto :fail
-python -c "import sys; sys.path.insert(0, r'..\..'); from fastedit import backend; import fae_backend as f; print('features:', f.features() or 'none'); b = backend.shared(); print('HEIC: libheif', b._b.heif_info()[1], 'from', b._b.heif_info()[0])" || echo HEIC: libheif not found - HEIC files can't be opened. It comes with pillow-heif: pip install pillow-heif
+python -c "import sys; sys.path.insert(0, r'..\..\tests'); from fastedit import backend; i = backend.shared().call('core_info'); g = i['gpu']; print('CPU core', i['version'], '-', i['threads'], 'threads; GPU core:', (g['version'] + ' on ' + g['name'] + ' (' + g['backend'] + ')') if g['ok'] else g['error'])" || goto :fail
+python -c "import sys; sys.path.insert(0, r'..\..\tests'); from fastedit import backend; import fae_backend as f; print('features:', f.features() or 'none'); b = backend.shared(); print('HEIC: libheif', b._b.heif_info()[1], 'from', b._b.heif_info()[0])" || echo HEIC: libheif not found - HEIC files can't be opened. It comes with pillow-heif: pip install pillow-heif
 
 echo.
 echo Rust back end built: Python extension fae_backend installed

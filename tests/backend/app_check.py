@@ -26,7 +26,7 @@ from urllib.parse import quote
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "tests"))           # pyref: the Python versions the back end replaced
+sys.path.insert(0, os.path.join(ROOT, "tests"))           # fastedit (the back end from Python), pyref (the Python versions it replaced)
 
 from PIL import Image  # noqa: E402
 
@@ -127,14 +127,14 @@ def check_serve(b, d):
     bad = [f for f in files if b.serve("/" + quote(f)) != ref.serve("/" + quote(f), UI_DIR, b.preview, ref_thumb)]
     check(f"every UI file ({len(files)}): same bytes and type", not bad, ", ".join(bad[:5]))
     targets = ["/", "", "/index.html", "/index.html?gpu=0", "/?gpu=0&fxtest=1", "/selftest.html", "/js/../index.html",
-               "/nope.js", "/js", "/../fastedit/app.py", "/js/../../fastedit/app.py", "/%2e%2e/fastedit/app.py",
-               "/..%2ffastedit%2fapp.py", "/%2E%2E%5Cfastedit%5Capp.py", "//etc/passwd", "/preview/" + "0" * 32,
+               "/nope.js", "/js", "/../README.md", "/js/../../README.md", "/%2e%2e/README.md",
+               "/..%2fREADME.md", "/%2E%2E%5CREADME.md", "//etc/passwd", "/preview/" + "0" * 32,
                "/preview/", "/thumb", "/thumb?p=", "/index.html#top"]
     for t in targets:
         got, want = b.serve(t), ref.serve(t, UI_DIR, b.preview, ref_thumb)
         same = got[:3] == want[:3] and (want[0] == 500 or got[3] == want[3])     # an error's text may differ
         check(f"GET {t or '(empty)'}: {want[0]} {want[1]}", same, "" if same else f"{got[:3]} != {want[:3]}")
-    for t in ("/../fastedit/app.py", "/%2e%2e/fastedit/app.py", "/..%2ffastedit%2fapp.py", "/%2E%2E%5Cfastedit%5Capp.py"):
+    for t in ("/../README.md", "/%2e%2e/README.md", "/..%2fREADME.md", "/%2E%2E%5CREADME.md"):
         check(f"nothing outside the UI folder: {t}", b.serve(t)[0] == 404)
     px = bytes(range(256)) * 4
     tok = b.put_preview(px)
@@ -212,8 +212,8 @@ def check_server(b, d):
     check("GET /preview/<token>: the pixels", st == 200 and body == b"\x01\x02\x03\x04" * 1000)
     st, h, body = get(port, "/nope.js")
     check(f"GET /nope.js: 404 ({body!r})", st == 404 and body == b"not found")
-    st, h, body = get(port, "/../fastedit/app.py")
-    check("GET /../fastedit/app.py: 404", st == 404)
+    st, h, body = get(port, "/../README.md")
+    check("GET /../README.md: 404", st == 404)
     st, h, body = get(port, "/", "POST")
     check(f"POST /: 501 ({body!r})", st == 501)
     js = [f for f in sorted(os.listdir(os.path.join(UI_DIR, "js"))) if f.endswith(".js")]

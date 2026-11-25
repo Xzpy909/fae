@@ -177,4 +177,4 @@ function fmtChanged() {
   line.addEventListener('dblclick', e => { e.stopPropagation(); S.cmp.x = 0.5; requestRender(); });
 })();
 
-/* Point correction + curves. Must match apply_edit() in fae.py. */
+/* Point correction + curves. Must match the CPU core (core/fastedit-core). */

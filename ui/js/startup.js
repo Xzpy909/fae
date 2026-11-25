@@ -7,7 +7,7 @@
    any more (two frames in a row on time). Its bar follows the GPU core compiling its shaders
    (gpu-view.js: all of them now, so none compiles later while the app is in use).
 
-   The timing line (console, `python fae.py --debug`): when each part was done, in ms since the page
+   The timing line (console, `Fae.exe --debug`): when each part was done, in ms since the page
    started, and the longest blocks of the page (long tasks), e.g.
      Start-up: window 440 · settings 450 · gpu device 500 · gpu shaders 2900 · ... · shown 3000 ms; blocked: 120 at 330, ...
 */

@@ -81,7 +81,7 @@ function addPaths(paths) {
 }
 
 /* Ctrl+V: images from the Windows clipboard (copied files, or a copied image the back end saves as PNG
-   first, api.py paste_clipboard); the first one is shown */
+   first: the shell's paste_clipboard, fae-app shell.rs); the first one is shown */
 async function pasteClipboard() {
   let r;
   try { r = await api().paste_clipboard(); } catch (e) { r = { ok: false, error: String(e) }; }

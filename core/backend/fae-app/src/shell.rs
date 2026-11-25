@@ -1,4 +1,4 @@
-//! The shell's side of the commands (fastedit/api.py and winchrome.py before B7): the window buttons,
+//! The shell's side of the commands (the pywebview shell's api.py and winchrome.py until B7): the window buttons,
 //! the dialogs, Ctrl+V, reveal in Explorer, Process with its progress; everything else goes to the back
 //! end's command table. And the window's events the page hears about (drag-drop, maximized / restored).
 

@@ -1,5 +1,5 @@
 //! Fae.exe: the Tauri shell around the Rust back end (B7, docs/rust-backend-plan.md). It does what the
-//! pywebview shell (fastedit/app.py, api.py, winchrome.py) did, nothing more:
+//! pywebview shell (app.py, api.py, winchrome.py until B7) did, nothing more:
 //! - the window (frameless on Windows: the UI's top bar is the title bar; --native-frame keeps the frame);
 //! - the page and its pixels: the `fae` protocol answers as the B6 local server did (Backend::serve: the
 //!   UI files, /preview/<token>, /thumb; the same headers, cross-origin isolation included);

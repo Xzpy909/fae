@@ -1,5 +1,5 @@
-//! Python extension `fae_backend`: the Rust back end for the pywebview shell (fastedit/backend.py) and
-//! the tests. API:
+//! Python extension `fae_backend`: the Rust back end for the tests (tests/fastedit/backend.py; the
+//! pywebview shell used it until B7). API:
 //!   b = Backend(settings="…/fae_settings.json", presets="…/fae_presets.json", heif_dir=, encoders_dir=, ui_dir=,
 //!               no_gpu=False, fallback=None)   fallback(path) -> (px, w, h, ch, icc): the shell's decoder
 //!               for the files Rust can't open (AVIF grids, premultiplied alpha)

@@ -2,7 +2,7 @@
 
 **Fast Image Editor.** A fast, keyboard-friendly desktop editor for batch-preparing images: crop and rotate, colour-correct with eyedroppers and curves, resize to 720p or a target megapixel count, then export to lossless WEBP/PNG or lossy JPEG (jpegli), AVIF (SVT-AV1) or WEBP. Lossy formats have a split-view preview, so you can judge the real encode at the chosen settings before saving.
 
-Built with Python + [pywebview](https://pywebview.flowrl.com/). The UI is HTML/JS; the edit math is a Rust core (Python extension + WebAssembly, see below); the stage (loading, geometry, resizing, colour balance) is a Rust back end; encoding is in the Rust back end too (libwebp, libjpeg-turbo, rav1e, and the cjpegli / SvtAv1EncApp encoders).
+Built with [Tauri](https://tauri.app/) and Rust: one `Fae.exe`, no Python at run time. The UI is HTML/JS; the edit math is a Rust core (linked into the app, and as WebAssembly for the live preview, see below); loading, geometry, resizing, colour balance, encoding and saving are a Rust back end (libwebp, libjpeg-turbo, rav1e, rav1d, and the cjpegli / SvtAv1EncApp encoders).
 
 ## Preview
 
@@ -68,20 +68,13 @@ Pipeline order: `geometry → resize → White-Patch → Gray-Edge → point cor
 
 ## Requirements
 
-- Windows 10/11 (the bundled encoders are Windows builds; the Python code itself is portable)
-- Python 3.10+
-- Python packages:
+- Windows 10/11 with the WebView2 runtime (part of Windows; the bundled encoders are Windows builds)
+- To build: Rust from https://rustup.rs (MSVC build tools) and Python 3.10+ (the WebAssembly build script, and
+  pillow-heif's libheif for HEIC): `pip install -r requirements.txt`
+- The tests: `pip install -r tests/requirements.txt` (Pillow and NumPy, the references)
 
-```
-pip install -r requirements.txt
-```
-
-(`pywebview>=5.0`, `pillow>=11.2`, `pillow-heif`, `pillow-jxl-plugin`). Pillow 11.2 or newer is needed for AVIF files the Rust decoder doesn't open (grids).
-The tests need NumPy as well: `pip install -r tests/requirements.txt`.
-The Rust core and the Rust back end are required as well: build them once with `core\build_core.bat` and
-`core\backend\build_backend.bat` (see [Rust core](#rust-core)).
-
-`pillow-heif` (HEIC/HEIF) and `pillow-jxl-plugin` (JPEG XL) are optional and only needed to **open** those formats. Without them, the app still runs, and opening such a file shows which package to install.
+HEIC / HEIF open through the libheif that comes with `pillow-heif` (`build.bat` copies it into `heif\` next to
+`Fae.exe`); JPEG XL, AVIF and the rest are built in.
 
 ### Encoders
 
@@ -99,35 +92,20 @@ Both are optional:
 
 The app shows which encoder is in use.
 
-## Running
+## Building and running
 
 ```
-run.bat [images or folders...]
+build.bat                             # -> dist\Fae\Fae.exe (with ui\, encoders\, heif\ next to it); zip dist\Fae
+dist\Fae\Fae.exe [images or folders...]
+dist\Fae\Fae.exe --debug              # opens the web inspector
+dist\Fae\Fae.exe --selftest           # checks the window (cross-origin isolation, WASM, threads) and the cores
+dist\Fae\Fae.exe --native-frame       # normal Windows title bar instead of the app's own header
+dist\Fae\Fae.exe --no-gpu             # live preview and Process without the GPU core
+core\backend\target\release\Fae.exe   # a build also runs from the repository: its ui\ and settings
 ```
 
-or
-
-```
-python fae.py [images or folders...]
-python fae.py --debug     # opens the web inspector
-python fae.py --selftest  # checks for the Rust core (WASM, threads, Python extension)
-python fae.py --native-frame  # normal Windows title bar instead of the app's own header
-python fae.py --no-gpu    # live preview and Process without the GPU core
-```
-
-### Fae.exe (Tauri, no Python)
-
-The same app in a Tauri window instead of pywebview (`core/backend/fae-app`; plan wave B7, being tested):
-
-```
-build_app.bat                         # -> dist\Fae-app\Fae.exe (with ui\, encoders\, heif\ next to it)
-dist\Fae-app\Fae.exe [images or folders...]
-core\backend\target\release\Fae.exe   # also runs from the repository: its ui\ and settings
-```
-
-The same switches as `fae.py` (`--debug`, `--selftest`, `--native-frame`, `--no-gpu`, `--test-filters`). It needs
-the WebView2 runtime (part of Windows 10 / 11). Not yet: the few AVIF files the Rust decoder leaves to Pillow
-(grid images, premultiplied alpha) don't open in it.
+Settings are saved to `fae_settings.json` next to `Fae.exe`, your presets to `fae_presets.json`. Not yet: the
+few AVIF files the Rust decoder can't open (grid images, premultiplied alpha).
 
 ## Rust core
 
@@ -142,8 +120,7 @@ core\build_core.bat        # needs Rust from https://rustup.rs (MSVC build tools
 
 `build.bat` runs it too. The Rust version is pinned in `core/rust-toolchain.toml` (the threaded
 WebAssembly build rebuilds Rust's standard library; the script adds the `rust-src` component itself).
-Without the back end the app shows how to build it; without `ui/wasm/` the preview shows the
-unedited image and says so. `FASTEDIT_COI=0` turns off the cross-origin isolation headers the
+Without `ui/wasm/` the preview shows the unedited image and says so. `FASTEDIT_COI=0` turns off the cross-origin isolation headers the
 threaded WebAssembly needs.
 
 ### Tests
@@ -156,7 +133,7 @@ python tests/parity/parity.py check --impl core   # Python extension
 python tests/parity/parity.py check --impl wasm   # WebAssembly (single-threaded in node)
 python tests/parity/parity.py record              # only after a deliberate change of the math
 python tests/bench/bench_python.py                # full-resolution timings
-python fae.py --selftest            # WebView2 checks + live-preview timings
+Fae.exe --selftest                  # WebView2 checks + live-preview timings
 ```
 
 Cases are random slider values run through the UI's own `computeEdit` / `jobFor`, stored in
@@ -164,34 +141,34 @@ Cases are random slider values run through the UI's own `computeEdit` / `jobFor`
 shows whether this machine's JS computes the tables differently). The test images are synthetic.
 Own images can go into `tests/parity/images/` (not committed).
 
-### Rust back end (in progress)
+### Rust back end
 
-The Python back end (`fastedit/`) moves to Rust wave by wave (`core/backend/`, Python extension
-`fae_backend`), behind one table of commands, so the app shell stays thin and could later be swapped
-(pywebview → Tauri) without touching the rest. `ui/js/bridge.js` is the only UI file that knows the
-shell. So far in Rust: settings, presets, opening images (with the same pixels Pillow gave, AVIF through
-rav1d; HEIC through the libheif that comes with pillow-heif; with [nasm](https://nasm.us)
-installed, `build_backend.bat` builds libjpeg-turbo's faster SIMD code), crop / rotate / flip,
-resizing, the file-list thumbnails, White-Patch / Gray-Edge and the whole stage with its cache and
-previews (Pillow's, OpenCV's and NumPy's maths ported, multi-threaded; OpenCV is no longer needed), and the
-encoders (PNG, WebP, JPEG, AVIF through SvtAv1EncApp or rav1e, saving), Process and the encoded compare
-(the back end links the CPU core and the GPU core as crates: one extension does all of it).
-Before a part moves, its Python results are stored as
+The Python back end moved to Rust wave by wave (`core/backend/`, plan in `docs/rust-backend-plan.md`): one
+table of commands, run by the app (`core/backend/fae-app`, the Tauri shell: window, dialogs, drag-drop,
+Ctrl+V) and by the tests through the Python extension `fae_backend` (`tests/fastedit/`). `ui/js/bridge.js` is
+the only UI file that knows the shell. In Rust: settings, presets, opening images (with the same pixels
+Pillow gave, AVIF through rav1d; HEIC through the libheif that comes with pillow-heif; with
+[nasm](https://nasm.us) installed, the builds use libjpeg-turbo's faster SIMD code), crop / rotate / flip,
+resizing, the file-list thumbnails, White-Patch / Gray-Edge and the whole stage with its cache and previews
+(Pillow's, OpenCV's and NumPy's maths ported, multi-threaded), the encoders (PNG, WebP, JPEG, AVIF through
+SvtAv1EncApp or rav1e, saving), Process and the encoded compare (the back end links the CPU core and the GPU
+core as crates), file lists and serving the page. Before a part moved, its Python results were stored as
 goldens; the Rust version must match them (exactly, or within the tolerance rule for the parts that
-re-implement OpenCV maths):
+re-implement OpenCV maths). The Python versions it replaced stay in `tests/pyref/` as the references:
 
 ```
-core\backend\build_backend.bat           # Python extension fae_backend (build.bat runs it too)
+core\backend\build_backend.bat           # Python extension fae_backend, for the tests
+cd core\backend && cargo test && cargo test -p fae-app
 python tests/stage/stage_check.py        # decode, geometry, resize, colour balance, the stage vs the goldens
                                          #   (--impl python: Pillow's decode / thumbnails; --own: own photos too)
-python tests/backend/commands_check.py   # the commands moved so far vs their Python behaviour
+python tests/backend/commands_check.py   # the commands vs their Python behaviour
 python tests/backend/encoders_check.py   # the encoders and the AVIF decoder vs Pillow / the Python versions
 python tests/backend/process_check.py    # Process and the encoded compare vs the Python path (tests/pyref)
 python tests/backend/app_check.py        # file lists and the local HTTP server vs the Python versions (tests/pyref)
 python tests/stage/stage_bench.py        # timing of the stage in Rust (Pillow next to it where it still does the job)
 ```
 
-Plan, status and how to work on a wave (build, tests, rules, where B3 starts): `docs/rust-backend-plan.md`.
+Plan, status and how the waves were done: `docs/rust-backend-plan.md`.
 
 ### GPU core (in progress)
 
@@ -203,7 +180,7 @@ resolution and draws it at exactly the screen's pixels on every change, pan and 
 histograms follow a dragged slider. Without a GPU the CPU core renders a copy of at most 2560 px on
 the long side (zooming in shows it scaled up); crop mode and the preset thumbnails always use the
 CPU core (small images). The GPU core compiles all its shaders once at start-up, behind the loading screen
-(`ui/js/startup.js`; `python fae.py --debug` logs how long each start-up step took). Process (and the encoded compare preview) renders on the GPU core too
+(`ui/js/startup.js`; `Fae.exe --debug` logs how long each start-up step took). Process (and the encoded compare preview) renders on the GPU core too
 (built into the Rust back end) when there is a device; otherwise, with `--no-gpu`, for an image too big for the GPU, or after a GPU error,
 the CPU core renders it, with the same result within the tolerance rule. The GPU computes in f32 (the CPU core in f64): 99.99 % of the
 values match exactly, the rest are 1 level off with rare outliers (`tests/gpu/tolerance.py` explains
@@ -220,10 +197,10 @@ python tests/gpu/tolerance.py       # GPU vs CPU core on the parity cases + Shar
                                     #   start, --steps: how often each step on its own differs)
 python tests/gpu/bench_native.py    # speed, DirectX 12 and Vulkan (--warp: software renderer)
 python tests/gpu/process_check.py   # Process on the GPU vs the CPU core, own photos at full size
-python fae.py --gpu-spike           # WebGPU in the app window: limits, speed of the WebAssembly build
-python fae.py --no-gpu              # live preview and Process on the CPU core only
+Fae.exe --gpu-spike                 # WebGPU in the app window: limits, speed of the WebAssembly build
+Fae.exe --no-gpu                    # live preview and Process on the CPU core only
 python tests/gpu/fx_check.py        # the filter kit's filters against their stored results (--record ID)
-python fae.py --test-filters        # the kit's hidden test filters in the Filters list
+Fae.exe --test-filters              # the kit's hidden test filters in the Filters list
 ```
 
 ## Keyboard shortcuts
@@ -274,34 +251,26 @@ python fae.py --test-filters        # the kit's hidden test filters in the Filte
 ## Project layout
 
 ```
-fae.py   # entry point
-fastedit/              # Python back end
-├── config.py          # paths, defaults, per-image stage parameters
-├── backend.py         # the Rust back end (fae_backend): the stage, encoders, Process, compare, settings, presets,
-│                      #   file lists, the local HTTP server (UI, previews, thumbnails)
-├── engine.py          # Pillow decode for the files Rust doesn't open (AVIF grids, premultiplied alpha)
-├── api.py             # JS API used by the UI (forwards to the back end; dialogs, clipboard, reveal)
-└── app.py             # window, drag and drop
-ui/
+ui/                    # the app's page
 ├── index.html
 ├── style.css
-└── js/                # state, film-tables, film/*, edit-math, wasm-preview, render, compare, stage, view, gpu-view,
-    │                  # curves, controls, files, tools, presets, instances, chain-presets, process, winchrome, init, crop (loaded in that order)
+└── js/                # bridge (the shell), state, film-tables, film/*, edit-math, wasm-preview, render, compare, stage,
+    │                  # view, gpu-view, curves, controls, files, tools, presets, instances, chain-presets, process,
+    │                  # winchrome, init, crop
     └── film/          # one file per Film Effect preset (33×33×33 colour table)
-core/                  # Rust core: fastedit-core (math), fastedit-py (Python), fastedit-wasm
-core/backend/          # Rust back end (fae_backend; rav1e from github.com/Nukvah/rav1e-fae)
+core/                  # Rust core: fastedit-core (math), fastedit-py (Python, the tests), fastedit-wasm (live preview)
+core/gpu/              # GPU core: fae-gpu (wgpu + WGSL), its Python extension and WebAssembly build
+core/backend/          # Rust back end: fae-backend (every command; rav1e from github.com/Nukvah/rav1e-fae),
+                       #   fae-backend-py (Python extension fae_backend, the tests)
 core/backend/fae-app/  # Fae.exe: the Tauri shell (window, the fae protocol for the page, dialogs, drag-drop, Ctrl+V)
+tests/fastedit/        # the back end from Python (paths, Pillow's decode as its fallback) for the tests
+tests/pyref/           # the Python versions the Rust back end replaced: the tests' references
 tests/parity/          # bit-exactness tests of both core builds against stored goldens
-tests/bench/           # timings
-tests/pyref/           # the Python versions the Rust back end replaced (core.py, encoders, file lists, server): the tests' reference
+tests/stage/, tests/backend/, tests/gpu/, tests/bench/
 encoders/              # cjpegli.exe, SvtAv1EncApp.exe (from the release)
-run.bat
-build.bat              # the pywebview build (PyInstaller)
-build_app.bat          # the Tauri build (Fae.exe)
-requirements.txt
+build.bat              # dist\Fae\Fae.exe
+requirements.txt       # building and the tests (the app needs no Python)
 ```
-
-Settings are saved to `fae_settings.json` next to the script, your presets to `fae_presets.json`.
 
 ## Trademarks
 

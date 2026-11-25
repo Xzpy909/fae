@@ -841,14 +841,14 @@ button.wide { width: 100%; display: flex; justify-content: center; align-items: 
   padding: 2px 6px; color: var(--text); font: 12px var(--font); }
 .isl-name:focus { outline: none; }
 .isl-dup svg { fill: none; }
-#islMenu { position: fixed; z-index: 60; display: none; min-width: 200px; padding: 4px; border-radius: 10px;
+#islMenu, #fileMenu { position: fixed; z-index: 60; display: none; min-width: 200px; padding: 4px; border-radius: 10px;
   background: rgba(44, 44, 47, .6); border: 1px solid rgba(255, 255, 255, .14); box-shadow: 0 12px 30px rgba(14, 14, 17, .55);   }
-#islMenu.show { display: flex; flex-direction: column; }
-#islMenu button { display: flex; justify-content: space-between; gap: 16px; text-align: left; background: none; border: none;
+#islMenu.show, #fileMenu.show { display: flex; flex-direction: column; }
+#islMenu button, #fileMenu button { display: flex; justify-content: space-between; gap: 16px; text-align: left; background: none; border: none;
   padding: 6px 10px; border-radius: 6px; font: 12.5px var(--font); color: var(--text); }
-#islMenu button:hover:not([disabled]) { background: rgba(255, 255, 255, .07); }
+#islMenu button:hover:not([disabled]), #fileMenu button:hover { background: rgba(255, 255, 255, .07); }
 #islMenu button[disabled] { color: var(--dim); cursor: default; }
-#islMenu button:active { transform: none; }
+#islMenu button:active, #fileMenu button:active { transform: none; }
 #islMenu .im-sep { height: 1px; margin: 4px 6px; background: rgba(255, 255, 255, .08); }
 /* Filters tiles: count badge, "+ Add" on hover, footer line, the dragged ghost (tools.js FilterPop) */
 .fp-badge { position: absolute; top: 10px; right: 10px; padding: 1px 7px; border-radius: 999px; font-size: 10.5px;
@@ -1059,12 +1059,12 @@ body.frameless #topbar { padding-right: 0; }
    whatever shows through the 90 % background is blurred, so it no longer reads as part of the box.
    (Screen veils and the markers drawn on the image stay clear; the dock's own buttons sit on the
    dock's frost, so they take none of their own.) */
-#hud, #modeChip, .pill, #toolPills, .fp-box, #chainPop, .cp-menu, .cpal-box, .tb-pop, #islMenu, .fp-ghost,
+#hud, #modeChip, .pill, #toolPills, .fp-box, #chainPop, .cp-menu, .cpal-box, .tb-pop, #islMenu, #fileMenu, .fp-ghost,
 .enc-pop, #presetPop, #presetChip, .cmp-label, #sizeChip, #cmpHandle, .glass-pill {
   -webkit-backdrop-filter: blur(20px) saturate(150%); backdrop-filter: blur(20px) saturate(150%); }
 #toolPills .pill { -webkit-backdrop-filter: none; backdrop-filter: none; }
 /* text on those frosted surfaces: the image shows through at 60 %, so the two grey text tones
    step up a notch there (same roles, just more contrast) */
-#hud, #modeChip, .pill, #toolPills, .fp-box, #chainPop, .cp-menu, .cpal-box, .tb-pop, #islMenu, .fp-ghost,
+#hud, #modeChip, .pill, #toolPills, .fp-box, #chainPop, .cp-menu, .cpal-box, .tb-pop, #islMenu, #fileMenu, .fp-ghost,
 .enc-pop, #presetPop, #presetChip, .cmp-label, #sizeChip, #cmpHandle, .glass-pill {
   --muted: #b8b8be; --dim: #96969d; }

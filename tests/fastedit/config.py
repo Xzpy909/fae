@@ -1,4 +1,4 @@
-"""Paths, defaults and the per-image stage parameters."""
+"""Paths, defaults and the per-image stage parameters (the tests; Fae.exe has its own: fae-app paths.rs)."""
 from __future__ import annotations
 
 import os
@@ -24,25 +24,12 @@ PLUGIN_HINT = {
     ".jxl": (HAS_JXL, "pillow-jxl-plugin"),
 }
 
-# Frozen (PyInstaller) build: settings + encoders/ live next to the .exe, ui/ is bundled inside.
-FROZEN = getattr(sys, "frozen", False)
-APP_DIR = os.path.dirname(os.path.abspath(sys.executable if FROZEN else os.path.dirname(__file__)))
-UI_DIR = os.path.join(getattr(sys, "_MEIPASS", APP_DIR), "ui")
+# the repository's folder, where a Fae.exe run from the repository keeps its settings too
+APP_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+UI_DIR = os.path.join(APP_DIR, "ui")
 SETTINGS_PATH = os.path.join(APP_DIR, "fae_settings.json")
 PRESETS_PATH = os.path.join(APP_DIR, "fae_presets.json")   # the user's tool presets
-# Settings from before the rename to Fae: adopt them once.
-_OLD_SETTINGS = os.path.join(APP_DIR, "fast_image_editor_settings.json")
-if not os.path.exists(SETTINGS_PATH) and os.path.exists(_OLD_SETTINGS):
-    try:
-        os.replace(_OLD_SETTINGS, SETTINGS_PATH)
-    except OSError:
-        pass
 ENCODERS_DIR = os.path.join(APP_DIR, "encoders")
-# Ctrl+V: an image copied to the clipboard (no file of its own) is saved here as PNG, then opened
-# (Process writes next to it). Pictures\Fae\Pasted; FAE_PASTE_DIR overrides.
-_PICTURES = os.path.join(os.path.expanduser("~"), "Pictures")
-PASTE_DIR = os.environ.get("FAE_PASTE_DIR") or os.path.join(_PICTURES if os.path.isdir(_PICTURES) else APP_DIR,
-                                                           "Fae", "Pasted")
 _EXE = ".exe" if sys.platform.startswith("win") else ""
 CJPEGLI = os.path.join(ENCODERS_DIR, "cjpegli" + _EXE)
 SVTAV1 = os.path.join(ENCODERS_DIR, "SvtAv1EncApp" + _EXE)

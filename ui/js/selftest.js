@@ -200,7 +200,6 @@ async function main() {
     pw.terminate();
   }
 
-  await check('App shell', () => ['info', Bridge.available() ? (Bridge.shell === 'tauri' ? 'Tauri (Fae.exe)' : 'pywebview (fae.py)') : 'none']);
   let coreInfo = null;
   await check('Back end, CPU core', () => new Promise((resolve) => {
     const run = async () => {

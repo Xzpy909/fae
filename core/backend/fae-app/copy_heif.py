@@ -1,15 +1,32 @@
-"""build_app.bat: copy libheif (+ libde265 and the other libraries next to it) from pillow-heif into the
+"""build.bat: copy libheif (+ libde265 and the other libraries next to it) from pillow-heif into the
 app's heif folder, where Fae.exe looks for them (HEIC). Nothing to copy: HEIC files can't be opened.
 
     python core/backend/fae-app/copy_heif.py <dest>
 """
+import importlib.util
 import os
 import shutil
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-sys.path.insert(0, ROOT)
-from fastedit.backend import heif_dir  # noqa: E402  (pillow-heif's libraries, as the pywebview shell finds them)
+
+def heif_dir():
+    """pillow-heif's libraries: Linux / macOS wheels keep them in site-packages/pillow_heif.libs, the
+    Windows wheel puts them straight into site-packages."""
+    try:
+        spec = importlib.util.find_spec("pillow_heif")
+    except (ImportError, ValueError):
+        return None
+    if not spec or not spec.origin:
+        return None
+    site = os.path.dirname(os.path.dirname(spec.origin))
+    for d in (os.path.join(site, "pillow_heif.libs"), site):
+        try:
+            if any(n.lower().startswith(("libheif", "heif")) for n in os.listdir(d)):
+                return d
+        except OSError:
+            pass
+    return None
+
 
 src, dest = heif_dir(), sys.argv[1]
 if not src:

@@ -3,8 +3,8 @@
 //! - [`collect`]: paths → the image files in them (folders walked in sorted order, as `os.walk`);
 //! - [`Thumbs`]: the file list's thumbnails, cached by path and modification time, two made at a time;
 //! - [`serve`]: the shell's HTTP requests → (status, headers, body): the UI files, `/preview/<token>`,
-//!   `/thumb?p=<path>`; [`start_server`] serves them on 127.0.0.1 (pywebview's window loads the UI from
-//!   it). Under Tauri the same `serve` becomes the custom protocol's handler.
+//!   `/thumb?p=<path>`: Fae.exe's `fae` protocol answers with it; [`start_server`] serves the same on
+//!   127.0.0.1 (the pywebview shell loaded the UI from it until B7; the tests still use it).
 
 use crate::Backend;
 use std::collections::{HashMap, VecDeque};

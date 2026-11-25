@@ -4,7 +4,7 @@
    rotation. The crop rectangle is axis-aligned in frame space ({x, y} = centre, w, h).
    A frame point p maps back to the source with R(-theta): that is what keeps the crop
    "bound aware" (every corner must land inside the source), and it is exactly what
-   apply_geometry() in fae.py does with cv2.warpAffine.
+   the back end's geometry step does (fae-backend geometry.rs).
    Transparent images have a "past the edges" switch (F, #cropFree; per image, geom.free, off by
    default): the box may then extend up to one image size beyond the edges, the added area is
    transparent (geometry.py crop_free). The default box and the aspect presets still fit inside. */

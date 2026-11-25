@@ -71,7 +71,7 @@ const FILTERS = [
 /* The filter kit's filters (docs/filter-kit.md): fx-filters.js is generated from
    core/gpu/fae-gpu/filters/<id>.json by the GPU core's build; each becomes a FILTERS entry with its
    island made from its fields (controls.js), runs on the GPU only (edit-math.js fxParams, the step
-   'fx') and is skipped without it. Hidden test filters only with ?fxtest=1 (fae.py --test-filters). */
+   'fx') and is skipped without it. Hidden test filters only with ?fxtest=1 (Fae.exe --test-filters). */
 const FX_TEST = new URLSearchParams(location.search).get('fxtest') === '1';
 const FX_LIST = (typeof FX_DEFS !== 'undefined' ? FX_DEFS : []).filter(d => !d.hidden || FX_TEST);
 const FX_BY_SEC = Object.fromEntries(FX_LIST.map(d => [d.sec, d]));

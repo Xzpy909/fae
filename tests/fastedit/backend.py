@@ -1,9 +1,6 @@
-"""The Rust back end (core/backend, built by core/backend/build_backend.bat; docs/rust-backend-plan.md).
-
-The work of fastedit/ moves into it wave by wave, behind one command table: api.py forwards the commands
-it runs (fae_backend.commands()) and keeps the rest in Python until their wave. Since B6 it also serves
-the UI (start_server). Required, like the CPU
-core: without it the app shows how to build it (app.py) instead of starting.
+"""The Rust back end as the tests reach it: the Python extension fae_backend (core/backend, built by
+core/backend/build_backend.bat; docs/rust-backend-plan.md), wrapped as the pywebview shell used it before
+B7. Fae.exe links the same library directly (core/backend/fae-app).
 """
 from __future__ import annotations
 
@@ -36,13 +33,11 @@ def error() -> str | None:
 
 
 def heif_dir() -> str | None:
-    """Where libheif (+ libde265) are, for HEIC: FAE_HEIF_DIR, a heif/ folder next to the app, or the
+    """Where libheif (+ libde265) are, for HEIC: FAE_HEIF_DIR, a heif/ folder in the repository, or the
     libraries pillow-heif ships: Linux / macOS wheels keep them in site-packages/pillow_heif.libs, the
-    Windows wheel puts them straight into site-packages (also inside a PyInstaller build)."""
+    Windows wheel puts them straight into site-packages."""
     from .config import APP_DIR
     cands = [os.environ.get("FAE_HEIF_DIR"), os.path.join(APP_DIR, "heif")]
-    if getattr(sys, "_MEIPASS", None):          # PyInstaller build: pillow-heif's DLLs in either place
-        cands += [os.path.join(sys._MEIPASS, "pillow_heif.libs"), sys._MEIPASS]
     try:
         spec = importlib.util.find_spec("pillow_heif")
         if spec and spec.origin:
@@ -223,7 +218,7 @@ _SHARED = None
 
 
 def shared() -> Backend:
-    """The app's one back end (its stage cache and previews are shared by api.py and app.py)."""
+    """One back end for a test run (the repository's settings, encoders and ui/)."""
     global _SHARED
     if _SHARED is None:
         from .config import ENCODERS_DIR, PRESETS_PATH, SETTINGS_PATH, UI_DIR

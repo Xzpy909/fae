@@ -42,7 +42,7 @@ pub struct FxDef {
     /// neighbourhood: the parameter that sets the blur (sigma = value x blur_scale px at 1440 px height)
     pub blur: Option<usize>,
     pub blur_scale: f64,
-    /// a test filter: not in the app's Filters list (fae.py --test-filters), not compiled at start-up
+    /// a test filter: not in the app's Filters list (Fae.exe --test-filters), not compiled at start-up
     pub hidden: bool,
 }
 

@@ -21,7 +21,7 @@ from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "tests"))           # pyref: the Python versions the back end replaced
+sys.path.insert(0, os.path.join(ROOT, "tests"))           # fastedit (the back end from Python), pyref (the Python versions it replaced)
 
 
 def best(f, n=3):
@@ -39,7 +39,6 @@ def main() -> int:
     args = ap.parse_args()
     import fae_backend as fb
     from fastedit import backend
-    from fastedit.api import Api
     from pyref import app as pyapp
     b = backend.shared()
     w = int(round((args.mp * 1e6 * 3 / 2) ** 0.5))
@@ -72,10 +71,9 @@ def main() -> int:
             tr = best(lambda: b.thumb(p, 224))
             print(f"  {'thumbnail ' + fmt:18s} rust {tr:7.0f} ms   pillow {tp:7.0f} ms")
         p = os.path.join(d, "big.png")
-        api = Api()
         for name, kw in (("load_stage", {}), ("load_stage 1080p+wp", dict(resize_on=True, preset_res=1080, wp_on=True))):
-            api.load_stage(p, kw, 1, 0)
-            print(f"  {name:18s} rust {best(lambda: api.load_stage(p, kw, 1, 0)):7.0f} ms")
+            b.call("load_stage", p, kw, 1, 0)
+            print(f"  {name:18s} rust {best(lambda: b.call('load_stage', p, kw, 1, 0)):7.0f} ms")
     return 0
 
 

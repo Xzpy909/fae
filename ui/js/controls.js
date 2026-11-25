@@ -291,7 +291,7 @@ $('#geOn').addEventListener('change', e => { S.stage.ge_on = e.target.checked; v
 const AR_PRESETS = ['16:9', '21:9', '4:3', '3:2', '1:1', '4:5', '9:16'];
 const RES_PRESETS = [2160, 1440, 1080, 720, 480, 360];
 const arRatio = k => { const [a, b] = String(k).split(':').map(Number); return a > 0 && b > 0 ? a / b : 16 / 9; };
-function presetDims(ar, res) {          // must match preset_size() in fae.py
+function presetDims(ar, res) {          // must match preset_size() in fae-backend fit.rs
   const r = arRatio(ar);
   return r >= 1 ? [Math.max(2, Math.round(res * r / 2) * 2), res] : [res, Math.max(2, Math.round(res / r / 2) * 2)];
 }

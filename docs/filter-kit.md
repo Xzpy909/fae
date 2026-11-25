@@ -48,7 +48,7 @@ worker, so they don't show kit filters either.
   never sees it.
 - `blur` (neighbourhood only): the field that sets the blur; sigma = value × `blur_scale` px at
   1440 px image height (so preview and Process agree at any size).
-- `hidden: true`: a test filter, only in the Filters list with `python fae.py --test-filters`.
+- `hidden: true`: a test filter, only in the Filters list with `Fae.exe --test-filters`.
 - `single: true`: not stackable (default: up to 8 instances, like the other filters).
 - `icon`: the inner SVG of the tile (24×24 viewBox, stroked like the others).
 

@@ -50,7 +50,7 @@ WORK = os.path.join(HERE, ".work")
 OWN_DIR = os.path.join(ROOT, "tests", "parity", "images")
 OWN_RESULTS = os.path.join(WORK, "own_results.zip")
 sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "tests"))           # pyref: the Python versions the back end replaced
+sys.path.insert(0, os.path.join(ROOT, "tests"))           # fastedit (the back end from Python), pyref (the Python versions it replaced)
 
 MAX_LEVELS = 2
 MAX_MEAN = 0.05

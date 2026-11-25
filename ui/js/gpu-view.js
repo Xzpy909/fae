@@ -7,7 +7,7 @@
    canvas from the GPU's pixels (show(I, E, false): the GPU computes, its canvas stays hidden).
    The GPU also counts the histograms (every frame, so they follow a dragged slider) and, once the
    edit settles, hands back the pixels (S.outData: RGB readout, loupe, the Alt views on the 2D
-   canvas). The CPU core isn't used for the live image at all. Off with ?gpu=0 (fae.py --no-gpu);
+   canvas). The CPU core isn't used for the live image at all. Off with ?gpu=0 (Fae.exe --no-gpu);
    without WebGPU or ui/gpu/ the CPU core draws a PREVIEW_MAX copy (wasm-preview.js). */
 const GV = (() => {
   const params = new URLSearchParams(location.search);

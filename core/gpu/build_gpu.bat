@@ -8,7 +8,7 @@ rem   python tests\gpu\tolerance.py       GPU vs CPU core on the parity cases
 rem   python tests\gpu\bench_native.py    speed (DX12 / Vulkan)
 rem   python tests\gpu\process_check.py   Process on the GPU vs the CPU core, own photos at full size
 rem   python tests\gpu\fx_check.py        the filter kit's filters against their stored results
-rem   python fae.py --gpu-spike           WebGPU in the app window, speed of the WebAssembly build
+rem   Fae.exe --gpu-spike                 WebGPU in the app window, speed of the WebAssembly build
 setlocal
 cd /d "%~dp0"
 

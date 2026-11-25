@@ -1,4 +1,4 @@
-//! The command line and the app's folders (fastedit/app.py main and fastedit/config.py before B7).
+//! The command line and the app's folders (the pywebview shell's app.py main and config.py until B7).
 
 use std::path::{Path, PathBuf};
 
@@ -61,9 +61,9 @@ impl Options {
     }
 }
 
-/// Where the app keeps things: next to Fae.exe (settings, presets, encoders\, heif\, ui\), as the
-/// PyInstaller build did. A build run from the repository (core\backend\target\release\Fae.exe) uses the
-/// repository's folder, as `python fae.py` did: its ui\, its settings.
+/// Where the app keeps things: next to Fae.exe (settings, presets, encoders\, heif\, ui\). A build run
+/// from the repository (core\backend\target\release\Fae.exe) uses the repository's folder: its ui\,
+/// its settings.
 pub struct Dirs {
     pub app: PathBuf,
 }
@@ -96,7 +96,7 @@ impl Dirs {
         self.app.join("encoders")
     }
 
-    /// libheif (+ libde265) for HEIC: FAE_HEIF_DIR or heif\ next to the app (build_app.bat copies the
+    /// libheif (+ libde265) for HEIC: FAE_HEIF_DIR or heif\ next to the app (build.bat copies the
     /// libraries pillow-heif ships there).
     pub fn heif(&self) -> Option<PathBuf> {
         let has = |d: &Path| {

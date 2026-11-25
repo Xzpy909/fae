@@ -1,19 +1,19 @@
-//! fae-backend: the app's back end in Rust (docs/rust-backend-plan.md). Wave by wave it takes over the
-//! work of `fastedit/` (Python); the shell around it (pywebview now, maybe Tauri later) only forwards.
+//! fae-backend: the app's back end in Rust (docs/rust-backend-plan.md). Wave by wave (B0–B6) it took over
+//! the work of the Python back end; the shell around it (Tauri, fae-app: Fae.exe) only forwards.
 //!
 //! ## The command table
 //! Every method the UI calls on the back end (`api().name(...)` in ui/js, through ui/js/bridge.js) is a
 //! **command**: a name, positional JSON arguments (as the UI passes them), a JSON result.
 //! [`Backend::call`] runs one; [`COMMANDS`] lists them all with the wave that moves each one here.
-//! Under pywebview, fastedit/api.py forwards the moved ones (`fae_backend.Backend.call`); under Tauri the
-//! same functions become `#[tauri::command]`s. Conventions, so the table maps 1:1 onto either shell:
+//! Fae.exe's one Tauri command runs them (`call(name, args)`, fae-app shell.rs); the tests reach the same
+//! through the Python extension (`fae_backend.Backend.call`). Conventions:
 //! - arguments positional, exactly as the UI sends them; results plain JSON (no Python objects);
 //! - pixels never travel as JSON: a command stores them and returns a token, the shell serves
 //!   `/preview/<token>` (later waves: [`Backend::take_preview`]-style accessors next to `call`);
 //! - errors: [`Error`] (the shell turns it into a rejected promise). Commands that never fail in the
 //!   UI's eyes (reading settings) keep that behaviour and return a neutral value instead;
 //! - long work (Process, encoded compare, B4 / B5): cancellation by a request id the UI already sends,
-//!   progress through a callback the shell supplies (pywebview: evaluate_js, Tauri: an event).
+//!   progress through a callback the shell supplies (Fae.exe: eval into the page).
 
 pub mod app;
 pub mod avif;
@@ -90,7 +90,7 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 /// Which wave moves a command to Rust (rust-backend-plan.md, section 4). `Shell` stays with the shell:
-/// window controls, dialogs, revealing a file (pywebview / Tauri do those).
+/// window controls, dialogs, revealing a file (fae-app does those).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Wave {
     B0,
@@ -340,7 +340,7 @@ impl Backend {
     }
 
     /// api.py `process`: render, encode and save each job next to its source. `progress(i, n, result)`
-    /// after each image of a batch of more than one (pywebview: window.onProcessProgress). The results:
+    /// after each image of a batch of more than one (the shell: window.onProcessProgress). The results:
     /// {"path", "ok": true, "out", "skipped"?: [kit filter ids left out]} or {"path", "ok": false, "error"}.
     /// process_cancel stops it: the image being encoded with an external encoder at once, otherwise once
     /// that image is done; each image not written then answers {"path", "ok": false, "cancelled": true}.

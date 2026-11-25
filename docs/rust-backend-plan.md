@@ -6,8 +6,9 @@ on Windows. **B5 done** (fae_backend 0.6.0): Process and the encoded compare in 
 linked into the back end, checked by the owner on Windows; the B4 / B5 clean-up done (the Python versions
 moved to tests/pyref, NumPy only for the tests). **B6 done** (fae_backend 0.7.0): file lists and the local HTTP
 server in Rust, checked by the owner on Windows; the PyInstaller build went from about 300 MB to 140 MB
-unpacked (41 MB zipped). **B7 (Tauri) part 1 in progress**: Fae.exe next to the pywebview app, waiting for
-the owner's check on Windows. Moves the Python back
+unpacked (41 MB zipped). **B7 (Tauri)**: part 1 done (Fae.exe next to the pywebview app, checked
+by the owner on Windows); part 2 in progress (the Python shell removed: Fae.exe is the app), waiting for the
+owner's check. Moves the Python back
 end (`fastedit/`) into Rust, wave by wave, so the app keeps working after every wave and a later switch from
 pywebview to **Tauri** is a small last step instead of a rewrite. Not a goal in itself: no visible change to
 the editor; the gains are a smaller, faster-starting app (no NumPy / OpenCV / Pillow at run time), one
@@ -269,8 +270,15 @@ dependency removed.
   the commands, the thumbnails and the previews on the protocol.
   Not in part 1: the AVIF files the Rust decoder leaves to the shell (grid images, premultiplied alpha;
   the Python shell had Pillow for them), an installer (`cargo tauri build` / NSIS), auto-update.
-- Part 2 (after the owner's check): fastedit/ (app.py, api.py, winchrome.py, the Python shell), pywebview,
-  build.bat (PyInstaller) and requirements.txt's run-time part go; the tests keep fae_backend.
+  Checked by the owner on Windows: cross-origin isolated, the window (move, snap, resize, buttons), dialogs,
+  drag-drop, Ctrl+V, Process all, Show in folder, HEIC.
+- Part 2: the Python shell is gone (fae.py, run.bat, fastedit/app.py, api.py, winchrome.py, pywebview, the
+  PyInstaller build.bat); build.bat builds Fae.exe into dist\Fae (what build_app.bat did). What the tests
+  still use moved to **tests/fastedit/** under the same package name (backend.py: fae_backend wrapped as the
+  shell used it, with Pillow's decode as its fallback; config.py: paths and the stage parameters; engine.py:
+  Pillow's decode), so the tests' imports stay as they were. bridge.js knows Tauri only. requirements.txt is
+  for the build (pillow-heif's libheif) and the tests. Still open: the AVIFs above (in the Rust decoder),
+  an installer, auto-update.
 
 ## 5. Risks
 

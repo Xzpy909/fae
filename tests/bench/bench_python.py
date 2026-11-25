@@ -2,7 +2,7 @@
 
   python tests/bench/bench_python.py                  # Rust core, 24 MP synthetic image
   python tests/bench/bench_python.py --mp 12 --image some.jpg
-(live-preview timings: the self-test page, fae.py --selftest)
+(live-preview timings: the self-test page, Fae.exe --selftest)
 
 Cases: tests/bench/cases.json (ids from the parity cases, so every filter is covered).
 Results also go to tests/parity/.work/bench_python.json (not committed).
@@ -21,7 +21,7 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "tests"))           # pyref: the Python versions the back end replaced
+sys.path.insert(0, os.path.join(ROOT, "tests"))           # fastedit (the back end from Python), pyref (the Python versions it replaced)
 sys.path.insert(0, os.path.join(ROOT, "tests", "parity"))
 
 import parity  # noqa: E402

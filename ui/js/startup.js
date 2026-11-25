@@ -68,6 +68,7 @@ const Boot = (() => {
     tick();
   });
 
+  const SPLASH_MIN_MS = 2000;
   let inited;
   const initDone = new Promise(res => { inited = res; });
 
@@ -79,8 +80,11 @@ const Boot = (() => {
       typeof WP !== 'undefined' ? until(() => WP.ready() || WP.failed()).then(() => mark('cpu worker')) : null,
     ]);
     if (await hasSplash()) {
-      // the hidden window draws nothing: show it, then wait for its frames under the plain cover
+      // the hidden window draws nothing: show it, then wait for its frames under the plain cover. The
+      // splash stays up at least SPLASH_MIN_MS from the start, so a fast start still shows its picture.
       shell('splash_progress', 1, 'Opening…');
+      const left = SPLASH_MIN_MS - performance.now();
+      if (left > 0) await new Promise(res => setTimeout(res, left));
       await shell('splash_done');
     }
     await settled();

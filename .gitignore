@@ -42,3 +42,6 @@ tests/parity/images/
 core/gpu/target/
 core/backend/target/
 ui/gpu/
+
+# Tauri build output (build_app.bat): generated permission schemas
+core/backend/fae-app/gen/

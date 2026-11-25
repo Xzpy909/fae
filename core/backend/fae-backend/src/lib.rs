@@ -169,7 +169,8 @@ struct Lossy {
 }
 
 /// What an error of a Process job / the encoded compare shows (api.py: "<Type>: <message>").
-fn job_error(e: &Error) -> String {
+/// An error as the UI shows it (Python's exception names, as api.py reported them).
+pub fn job_error(e: &Error) -> String {
     match e.kind {
         ErrorKind::Io => format!("OSError: {}", e.message),
         ErrorKind::BadArgs => format!("ValueError: {}", e.message),

@@ -657,9 +657,11 @@ async function pickFolder() { const p = await api().pick_folder(); if (p && p.le
 // adding files / folders: File menu, Ctrl+O, drag and drop (commands.js)
 $('#clearBtn').addEventListener('click', () => { S.files = []; S.cur = -1; clearView(); renderList(); updateInfo(); });
 
-// Python receives the real file paths from the native drop on #dropZone (see bind_drop in
-// fae.py). The zone is an empty full-window overlay shown only during a file
-// drag, so pywebview's event serialisation stays tiny.
+// The shell receives the real file paths and hands them on (bridge.js 'addPaths').
+// pywebview: from the native drop on #dropZone (bind_drop in fastedit/app.py), an empty full-window
+// overlay shown only during a file drag, so pywebview's event serialisation stays tiny.
+// Tauri: the window takes file drags itself (the page sees no drag events); it says when one enters,
+// leaves or drops (bridge.js 'dragState').
 let dragDepth = 0;
 const dropZone = $('#dropZone');
 const isFileDrag = e => !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files'));
@@ -672,6 +674,11 @@ window.addEventListener('dragenter', e => {
 window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('dragleave', () => { if (--dragDepth <= 0) dragEnd(); });
 window.addEventListener('drop', e => { e.preventDefault(); S.dropT = performance.now(); dragEnd(); });
+Bridge.on('dragState', st => {
+  if (st === 'enter') { vp.classList.add('dragover'); dropZone.classList.add('show'); return; }
+  if (st === 'drop') S.dropT = performance.now();
+  dragEnd();
+});
 
 /* View buttons: Compare (hold = original, like holding \) and the split-view toggle */
 (() => {

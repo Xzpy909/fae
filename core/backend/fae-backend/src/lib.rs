@@ -128,6 +128,7 @@ pub const COMMANDS: &[(&str, Wave, &str)] = &[
     ("lossy_preview", Wave::B5, "render, encode, decode back, size -> preview token"),
     ("lossy_cancel", Wave::B5, "cancel an encoded compare request"),
     ("process", Wave::B5, "render + encode + save a batch of images, with progress"),
+    ("process_cancel", Wave::B5, "cancel the running Process batch"),
     ("core_info", Wave::B5, "the cores' self-test (self-test page)"),
 ];
 
@@ -340,13 +341,21 @@ impl Backend {
     /// api.py `process`: render, encode and save each job next to its source. `progress(i, n, result)`
     /// after each image of a batch of more than one (pywebview: window.onProcessProgress). The results:
     /// {"path", "ok": true, "out", "skipped"?: [kit filter ids left out]} or {"path", "ok": false, "error"}.
+    /// process_cancel stops it: the image being encoded with an external encoder at once, otherwise once
+    /// that image is done; each image not written then answers {"path", "ok": false, "cancelled": true}.
     pub fn process(&self, jobs: &[Value], fmt: &str, opts: &Value, progress: &dyn Fn(usize, usize, &Value)) -> Vec<Value> {
+        self.runner.begin_process();
         let fmt = encode::norm_fmt(fmt);
         let n = jobs.len();
         let mut results = vec![];
         for (i, job) in jobs.iter().enumerate() {
             let path = job.get("path").cloned().unwrap_or(Value::Null);
+            if self.runner.check(None).is_err() {
+                results.push(serde_json::json!({"path": path, "ok": false, "cancelled": true}));
+                continue;
+            }
             let r = self.render_job(job).and_then(|(img, icc, skipped)| {
+                self.runner.check(None)?;
                 let src = path.as_str().unwrap_or_default();
                 let out = self.save(img.view(), src, fmt, icc.as_deref(), opts)?;
                 let mut r = serde_json::json!({"path": path, "ok": true, "out": out.display().to_string()});
@@ -355,7 +364,10 @@ impl Backend {
                 }
                 Ok(r)
             });
-            let r = r.unwrap_or_else(|e| serde_json::json!({"path": path, "ok": false, "error": job_error(&e)}));
+            let r = r.unwrap_or_else(|e| match e.kind {
+                ErrorKind::Cancelled => serde_json::json!({"path": path, "ok": false, "cancelled": true}),
+                _ => serde_json::json!({"path": path, "ok": false, "error": job_error(&e)}),
+            });
             if n > 1 {
                 progress(i + 1, n, &r);
             }
@@ -453,6 +465,10 @@ impl Backend {
                 let opts = a.get(2).cloned().unwrap_or(Value::Null);
                 Ok(Value::Array(self.process(&jobs, fmt, &opts, &|_, _, _| {})))
             }
+            "process_cancel" => {
+                self.runner.stop_process();
+                Ok(Value::Bool(true))
+            }
             "core_info" => Ok(self.cores.selftest()),
             "encoder_info" => {
                 let e = self.encoders();
@@ -510,6 +526,9 @@ mod tests {
         // an older request than the latest: cancelled
         assert_eq!(b.call("lossy_cancel", &[json!(9)]).unwrap(), json!(true));
         assert_eq!(b.call("lossy_preview", &[json!({"path": "x.png"}), json!("JPEG"), json!({}), json!(4)]).unwrap()["cancelled"], json!(true));
+        // a cancel between batches doesn't stop the next one
+        assert_eq!(b.call("process_cancel", &[]).unwrap(), json!(true));
+        assert_eq!(b.call("process", &[json!([{"path": "no/such/file.png"}])]).unwrap()[0].get("cancelled"), None);
         assert_eq!(b.call("core_info", &[]).unwrap()["ok"], json!(true));
         assert_eq!(b.call("sample", &[json!(0.5), json!(0.5)]).unwrap(), Value::Null);
         assert_eq!(b.call("load_stage", &[json!("no/such/file.png"), json!({}), json!(1)]).unwrap()["ok"], json!(false));
@@ -518,11 +537,37 @@ mod tests {
     }
 
     #[test]
+    fn process_cancel_mid_batch() {
+        let d = tmp("pc");
+        let b = Backend::new(Config { settings: d.join("s.json"), presets: d.join("p.json"), heif_dir: None, encoders_dir: None, no_gpu: true, ui_dir: None });
+        let img = px::Px::from_vec(8, 8, 3, (0..192).map(|i| i as u8).collect());
+        let jobs: Vec<Value> = (0..4)
+            .map(|i| {
+                let p = d.join(format!("starfall{i}.png"));
+                std::fs::write(&p, encode::encode_png(img.view(), None).unwrap()).unwrap();
+                json!({"path": p.display().to_string()})
+            })
+            .collect();
+        // cancelled after the second image: the first two written, the other two left
+        let r = b.process(&jobs, "PNG", &json!({}), &|i, _, _| {
+            if i == 2 {
+                b.call("process_cancel", &[]).unwrap();
+            }
+        });
+        let ok: Vec<_> = r.iter().map(|r| r["ok"] == json!(true)).collect();
+        assert_eq!(ok, [true, true, false, false]);
+        assert!(r[2..].iter().all(|r| r["cancelled"] == json!(true) && r.get("error").is_none()));
+        // the next batch runs whole
+        assert!(b.process(&jobs, "PNG", &json!({}), &|_, _, _| {}).iter().all(|r| r["ok"] == json!(true)));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn table() {
         assert_eq!(
             Backend::commands(),
             vec!["get_settings", "save_settings", "get_presets", "save_presets", "initial_files", "expand_paths", "load_stage",
-                 "load_source", "sample", "encoder_info", "lossy_preview", "lossy_cancel", "process", "core_info"]
+                 "load_source", "sample", "encoder_info", "lossy_preview", "lossy_cancel", "process", "process_cancel", "core_info"]
         );
         let mut names: Vec<_> = COMMANDS.iter().map(|c| c.0).collect();
         names.sort();

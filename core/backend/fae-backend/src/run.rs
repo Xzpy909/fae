@@ -1,10 +1,12 @@
 //! Running the external encoders (cjpegli, SvtAv1EncApp) (B4; proc.py): no console window, and for the
 //! encoded compare at below-normal priority and cancellable: a newer request kills the older one's process.
+//! Process is cancellable too: `stop_process` kills its encoder run and ends the batch.
 
 use crate::{Error, ErrorKind};
 use std::ffi::OsString;
 use std::io::Read;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -35,9 +37,11 @@ impl Output {
 }
 
 /// The encoded compare's requests: `latest` is the newest request id; runs of older ones stop.
+/// `stopped`: Process was cancelled (process_cancel); its runs stop until the next Process begins.
 #[derive(Default)]
 pub struct Runner {
     latest: Mutex<i64>,
+    stopped: AtomicBool,
 }
 
 pub fn cancelled() -> Error {
@@ -46,7 +50,18 @@ pub fn cancelled() -> Error {
 
 impl Runner {
     pub fn new() -> Runner {
-        Runner { latest: Mutex::new(-1) }
+        Runner { latest: Mutex::new(-1), stopped: AtomicBool::new(false) }
+    }
+
+    /// A Process batch begins: an earlier cancel no longer applies.
+    pub fn begin_process(&self) {
+        self.stopped.store(false, Ordering::SeqCst);
+    }
+
+    /// Cancel the running Process batch (process_cancel): its encoder run is killed, the batch ends
+    /// after the image it's on.
+    pub fn stop_process(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
     }
 
     /// A new encoded-compare request (proc.py `preview_begin`): runs of older requests are killed.
@@ -61,16 +76,18 @@ impl Runner {
         *self.latest.lock().unwrap()
     }
 
-    /// Err(Cancelled) when `req` (an encoded-compare request; None: Process) was replaced.
+    /// Err(Cancelled) when `req` (an encoded-compare request) was replaced, or (None: Process) when
+    /// Process was cancelled.
     pub fn check(&self, req: Option<i64>) -> Result<(), Error> {
         match req {
             Some(r) if r < self.latest() => Err(cancelled()),
+            None if self.stopped.load(Ordering::SeqCst) => Err(cancelled()),
             _ => Ok(()),
         }
     }
 
     /// Run `cmd` to its end (proc.py `run_encoder`). With `req`: below-normal priority, killed as soon as
-    /// a newer request begins (Err(Cancelled)).
+    /// a newer request begins (Err(Cancelled)); without: killed when Process is cancelled.
     pub fn run(&self, cmd: &[OsString], req: Option<i64>) -> Result<Output, Error> {
         self.check(req)?;
         let mut c = Command::new(&cmd[0]);
@@ -165,6 +182,17 @@ mod tests {
         assert_eq!(t.join().unwrap().err().unwrap().kind, ErrorKind::Cancelled);
         assert!(t0.elapsed() < Duration::from_secs(2));
         assert_eq!(r.run(&["true".into()], Some(5)).err().unwrap().kind, ErrorKind::Cancelled);
+        // Process (no request): stop_process kills its run; the next batch runs again
+        let r2 = r.clone();
+        let t = std::thread::spawn(move || r2.run(&["sleep".into(), "5".into()], None));
+        std::thread::sleep(Duration::from_millis(100));
+        let t0 = std::time::Instant::now();
+        r.stop_process();
+        assert_eq!(t.join().unwrap().err().unwrap().kind, ErrorKind::Cancelled);
+        assert!(t0.elapsed() < Duration::from_secs(2));
+        assert!(r.run(&["true".into()], Some(7)).is_ok()); // the encoded compare isn't stopped by it
+        r.begin_process();
+        assert!(r.run(&["true".into()], None).is_ok());
         let d = TempDir::new("fae_test_").unwrap();
         let p = d.0.clone();
         std::fs::write(p.join("x"), b"1").unwrap();

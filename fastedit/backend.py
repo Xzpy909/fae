@@ -12,7 +12,7 @@ import json
 import os
 import sys
 
-REQUIRED = (0, 5)           # extension version this file needs (bump with the API)
+REQUIRED = (0, 6)           # extension version this file needs (bump with the API)
 BUILD_HINT = r"run core\backend\build_backend.bat (needs Rust from https://rustup.rs)"
 
 try:
@@ -61,35 +61,44 @@ class Backend:
     """One back end for the app: call(name, *args) runs a command of the table (JSON values in and
     out, as the UI sends and receives them). RuntimeError when the command fails."""
 
-    def __init__(self, settings: str, presets: str, encoders: str | None = None):
+    def __init__(self, settings: str, presets: str, encoders: str | None = None, no_gpu: bool = False):
         if _fb is None:
             raise RuntimeError(_ERR)
-        self._b = _fb.Backend(settings=settings, presets=presets, heif_dir=heif_dir(), encoders_dir=encoders)
+        self._b = _fb.Backend(settings=settings, presets=presets, heif_dir=heif_dir(), encoders_dir=encoders,
+                              no_gpu=no_gpu, fallback=_pillow_source)
 
     def call(self, name: str, *args):
         return json.loads(self._b.call(name, json.dumps(list(args))))
 
-    def _with_source(self, path: str, run):
-        """run(); when the back end can't open `path` (a format not in Rust yet: AVIF until B4), open it
-        with Pillow, hand the pixels over (give_source) and run again."""
-        try:
-            return run()
-        except RuntimeError as ex:
-            if not str(ex).startswith("unknown:"):
-                raise
-        from .engine import decode_pillow
-        (px, w, h, ch), icc = decode_pillow(path)
-        self._b.give_source(path, px, w, h, ch, icc)
-        return run()
+    def process(self, jobs, fmt, opts, progress=None) -> list:
+        """Process (B5): render, encode and save each job next to its source. progress(i, n, result) after
+        each image of a batch of more than one."""
+        cb = None if progress is None else (lambda i, n, r: progress(i, n, json.loads(r)))
+        return json.loads(self._b.process(json.dumps(jobs or []), str(fmt or ""), json.dumps(opts or {}), cb))
+
+    def render(self, rgb: bytes, w: int, h: int, edit, engine: str = "auto"):
+        """The edit alone on packed RGB (B5; core.py render): (RGB bytes, [kit filters left out])."""
+        return self._b.render(rgb, w, h, json.dumps(edit), engine)
+
+    def gpu_info(self) -> dict:
+        """The GPU core's device: {"ok": True, "name", "backend", "max_pixels", ...} or {"ok": False, "error"}."""
+        return json.loads(self._b.gpu_info())
+
+    def gpu_release(self):
+        """Free the GPU memory of the last image."""
+        self._b.gpu_release()
+
+    def warm_gpu(self):
+        """Compile the GPU core's shaders in the background (app start)."""
+        self._b.warm_gpu()
 
     def stage_call(self, name: str, path: str, *args):
-        """load_stage / load_source (B3): the command, with Pillow opening the formats not in Rust yet."""
-        return self._with_source(path, lambda: self.call(name, path, *args))
+        """load_stage / load_source (B3). The files Rust can't open come from Pillow (_pillow_source)."""
+        return self.call(name, path, *args)
 
     def stage(self, path: str, P):
-        """The stage image at full resolution (B3; Process / the encoded compare until B5):
-        ((pixels, w, h, channels), icc)."""
-        px, w, h, ch, icc = self._with_source(path, lambda: self._b.stage(path, _params(P)))
+        """The stage image at full resolution (B3; the tests): ((pixels, w, h, channels), icc)."""
+        px, w, h, ch, icc = self._b.stage(path, _params(P))
         return (px, w, h, ch), icc
 
     def preview(self, token: str):
@@ -97,7 +106,7 @@ class Backend:
         return self._b.preview(token)
 
     def put_preview(self, rgba: bytes) -> str:
-        """Store preview pixels made in Python (the encoded compare until B5); their token."""
+        """Store preview pixels made in Python (tests); their token."""
         return self._b.put_preview(rgba)
 
     def decode(self, path: str):
@@ -160,6 +169,13 @@ class Backend:
         return _fb.fit_scale(size[0], size[1], _params(P))
 
 
+def _pillow_source(path: str):
+    """The back end's fallback for the files it can't open (AVIF grids, premultiplied alpha): Pillow."""
+    from .engine import decode_pillow
+    (px, w, h, ch), icc = decode_pillow(path)
+    return px, w, h, ch, icc
+
+
 def _raw(img):
     """A Pillow image as (pixels, w, h, channels), RGB or RGBA."""
     if img.mode not in ("RGB", "RGBA"):
@@ -189,5 +205,6 @@ def shared() -> Backend:
     global _SHARED
     if _SHARED is None:
         from .config import ENCODERS_DIR, PRESETS_PATH, SETTINGS_PATH
-        _SHARED = Backend(SETTINGS_PATH, PRESETS_PATH, ENCODERS_DIR)
+        _SHARED = Backend(SETTINGS_PATH, PRESETS_PATH, ENCODERS_DIR,
+                          no_gpu="--no-gpu" in sys.argv or bool(os.environ.get("FAE_NO_GPU")))
     return _SHARED

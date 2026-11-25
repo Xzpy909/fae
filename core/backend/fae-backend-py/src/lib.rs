@@ -1,6 +1,8 @@
 //! Python extension `fae_backend`: the Rust back end for the pywebview shell (fastedit/backend.py) and
 //! the tests. API:
-//!   b = Backend(settings="…/fae_settings.json", presets="…/fae_presets.json")
+//!   b = Backend(settings="…/fae_settings.json", presets="…/fae_presets.json", heif_dir=, encoders_dir=,
+//!               no_gpu=False, fallback=None)   fallback(path) -> (px, w, h, ch, icc): the shell's decoder
+//!               for the files Rust can't open (AVIF grids, premultiplied alpha)
 //!   b.call(name, args_json) -> result_json   one command of the table (JSON text both ways)
 //!   b.decode(path) -> (pixels, w, h, channels, icc, format)   open an image (B1); b.heif_info()
 //!   b.thumb(path, max) -> JPEG bytes   a file-list thumbnail (B2)
@@ -16,6 +18,11 @@
 //!     WebP (B4); b.save(px, w, h, ch, src, fmt, opts_json, icc) -> path written; b.preview_begin(req)
 //!   encode_png / encode_webp / encode_jpeg_pillow / yuv444p10 / avif_mux / out_path /
 //!     encoder_opts   the encoders' parts (tests)
+//!   b.process(jobs_json, fmt, opts_json, progress=None) -> results_json   Process (B5); progress(i, n,
+//!     result_json) after each image of a batch of more than one; b.call("lossy_preview" | "lossy_cancel" |
+//!     "process" | "core_info", …) as the UI calls them
+//!   b.render(px, w, h, edit_json, engine="auto") -> (RGB bytes, [kit filters left out])   the edit alone
+//!     on packed RGB (B5; engine "auto" | "cpu" | "gpu"); b.gpu_info() -> json; b.warm_gpu()
 //!   commands() -> [names this build runs]; table() -> [(name, wave, what)]; features(); version()
 //! Errors: RuntimeError("<kind>: <message>"); kind "unknown" = not in this build (the shell runs its own).
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -34,16 +41,77 @@ struct PyBackend {
 #[pymethods]
 impl PyBackend {
     #[new]
-    #[pyo3(signature = (settings, presets, heif_dir=None, encoders_dir=None))]
-    fn new(settings: String, presets: String, heif_dir: Option<String>, encoders_dir: Option<String>) -> Self {
-        PyBackend {
-            b: backend::Backend::new(backend::Config {
-                settings: settings.into(),
-                presets: presets.into(),
-                heif_dir: heif_dir.map(Into::into),
-                encoders_dir: encoders_dir.map(Into::into),
-            }),
+    #[pyo3(signature = (settings, presets, heif_dir=None, encoders_dir=None, no_gpu=false, fallback=None))]
+    fn new(settings: String, presets: String, heif_dir: Option<String>, encoders_dir: Option<String>, no_gpu: bool, fallback: Option<Py<PyAny>>) -> Self {
+        let mut b = backend::Backend::new(backend::Config {
+            settings: settings.into(),
+            presets: presets.into(),
+            heif_dir: heif_dir.map(Into::into),
+            encoders_dir: encoders_dir.map(Into::into),
+            no_gpu,
+        });
+        if let Some(f) = fallback {
+            b = b.with_fallback(Box::new(move |path: &std::path::Path| {
+                Python::attach(|py| -> PyResult<(backend::px::Px, Option<Vec<u8>>)> {
+                    let r = f.call1(py, (path.display().to_string(),))?;
+                    let (px, w, h, ch, icc): (Vec<u8>, usize, usize, usize, Option<Vec<u8>>) = r.extract(py)?;
+                    Ok((px_in(&px, w, h, ch)?.to_px(), icc))
+                })
+                .map_err(|e| backend::Error::new(backend::ErrorKind::Failed, e.to_string()))
+            }));
         }
+        PyBackend { b }
+    }
+
+    /// Process (B5): render, encode and save each job; the results as JSON. `progress(i, n, result_json)`
+    /// after each image of a batch of more than one (called with the GIL; its errors are ignored).
+    #[pyo3(signature = (jobs_json, fmt, opts_json, progress=None))]
+    fn process(&self, py: Python<'_>, jobs_json: &str, fmt: &str, opts_json: &str, progress: Option<Py<PyAny>>) -> PyResult<String> {
+        let jobs: Vec<serde_json::Value> = serde_json::from_str(jobs_json).map_err(|e| PyValueError::new_err(format!("jobs: {e}")))?;
+        let opts = json_in(opts_json)?;
+        let cb = |i: usize, n: usize, r: &serde_json::Value| {
+            if let Some(f) = &progress {
+                Python::attach(|py| {
+                    if let Err(e) = f.call1(py, (i, n, r.to_string())) {
+                        e.print(py);
+                    }
+                });
+            }
+        };
+        let r = py.detach(|| self.b.process(&jobs, fmt, &opts, &cb));
+        Ok(serde_json::Value::Array(r).to_string())
+    }
+
+    /// The edit alone on packed RGB (B5): (RGB bytes, [kit filter ids the CPU core left out]).
+    /// engine: "auto" (the GPU core when it can), "cpu", "gpu" (RuntimeError when it can't).
+    #[pyo3(signature = (px, w, h, edit_json, engine="auto"))]
+    fn render<'py>(&self, py: Python<'py>, px: &[u8], w: usize, h: usize, edit_json: &str, engine: &str) -> PyResult<(Bound<'py, PyBytes>, Vec<String>)> {
+        let img = px_in(px, w, h, 3)?;
+        let edit = backend::render::parse(&json_in(edit_json)?).map_err(perr)?;
+        let engine = match engine {
+            "auto" => backend::render::Engine::Auto,
+            "cpu" => backend::render::Engine::Cpu,
+            "gpu" => backend::render::Engine::Gpu,
+            e => return Err(PyValueError::new_err(format!("engine {e:?}: auto, cpu or gpu"))),
+        };
+        let mut skipped = vec![];
+        let out = py.detach(|| self.b.cores().render(img.data, w, h, &edit, engine, &mut skipped)).map_err(perr)?;
+        Ok((PyBytes::new(py, &out), skipped))
+    }
+
+    /// The GPU core's device (made on first use) as JSON: {"ok": true, "name", …} or {"ok": false, "error"}.
+    fn gpu_info(&self, py: Python<'_>) -> String {
+        py.detach(|| self.b.cores().gpu_info().to_string())
+    }
+
+    /// Free the GPU memory of the last image.
+    fn gpu_release(&self, py: Python<'_>) {
+        py.detach(|| self.b.cores().release())
+    }
+
+    /// Compile the GPU core's shaders in the background (app start).
+    fn warm_gpu(&self) {
+        self.b.warm_gpu()
     }
 
     /// Open an image (B1): (pixels: bytes, w, h, channels 3 | 4, icc: bytes | None, format). Upright,

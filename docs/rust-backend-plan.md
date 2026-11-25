@@ -1,8 +1,10 @@
 # Rust back end: plan
 
 Status: **B0, B1, B2, B3 done** (on main; geometry.py, colour.py, the Python stage and OpenCV removed).
-**B4 in progress** (fae_backend 0.5.0): all encoders and AVIF decoding in Rust (rav1e / rav1d), checked by the
-owner on Windows; left: the B4 clean-up (the Python versions listed under B4). Moves the Python back
+**B4 done** (fae_backend 0.5.0): all encoders and AVIF decoding in Rust (rav1e / rav1d), checked by the owner
+on Windows; its clean-up goes with B5's (the same files). **B5 in progress** (fae_backend 0.6.0): Process and
+the encoded compare in Rust, the CPU and GPU cores linked into the back end; left: the owner's check, then
+the clean-up (listed under B5). Moves the Python back
 end (`fastedit/`) into Rust, wave by wave, so the app keeps working after every wave and a later switch from
 pywebview to **Tauri** is a small last step instead of a rewrite. Not a goal in itself: no visible change to
 the editor; the gains are a smaller, faster-starting app (no NumPy / OpenCV / Pillow at run time), one
@@ -18,7 +20,8 @@ language for the engine, and an easy Tauri switch later.
   `View` borrowed pixels), `resample.rs` (Pillow's resize / reduce), `geometry.rs` (flip, quarter turns,
   crops, OpenCV's Lanczos-4 warp), `fit.rs` (StageParams, size maths, the resize step), `thumb.rs` (B2),
   `colour.rs` (White-Patch, Gray-Edge), `stage.rs` (entry cache, load_stage / load_source / sample,
-  preview tokens) (B3).
+  preview tokens) (B3), `encode.rs`, `avif.rs`, `avifdec.rs`, `run.rs` (B4), `render.rs` (the edit on the
+  GPU / CPU core, B5; Process and the encoded compare are `Backend::process` / `lossy_preview` in lib.rs).
   Python binding: `core/backend/fae-backend-py/src/lib.rs`; Python side: `fastedit/backend.py`
   (`REQUIRED` = the minimum fae_backend version; bump it with the crate version).
 - **Tests** (run before and after every change):
@@ -29,6 +32,8 @@ language for the engine, and an easy Tauri switch later.
   - `--record-missing` records goldens for new cases from the Python version (keeps existing ones);
     `--own` adds your own photos from `tests/parity/images/` (results kept locally, not committed);
   - `python tests\backend\commands_check.py` — the commands moved so far vs api.py's old behaviour;
+  - `python tests\backend\encoders_check.py` — the encoders (B4) vs the Python versions;
+  - `python tests\backend\process_check.py` — Process and the encoded compare (B5) vs the Python path;
   - `python tests\stage\stage_bench.py` — Python vs Rust timings of the moved stage steps;
   - `cargo test --release` in `core/backend`.
 - **Rules:** record goldens from the Python version *before* replacing it; exact where the same library or
@@ -52,9 +57,9 @@ language for the engine, and an easy Tauri switch later.
 | Resize | **Rust (B2)**: resample.rs, fit.rs (Pillow's Lanczos, Mpix / preset / custom sizes) | geometry.py `fit_image` and helpers (removed in B3) |
 | Color balance | **Rust (B3)**: colour.rs (White-Patch, Gray-Edge) | colour.py (removed in B3), NumPy, OpenCV |
 | The stage and its cache | **Rust (B3)**: stage.rs (entry cache, load_stage / load_source / sample, preview tokens) | engine.py `Engine`, `Entry` (removed in B3) |
-| The edit (Process) | core.py `render`: GPU core, else CPU core, skipped kit filters — **B5** | fae_gpu, fastedit_core (both Rust already) |
+| The edit (Process) | **Rust (B5)**: render.rs (the edit's JSON → steps, one GPU device, CPU core fallback, skipped kit filters), lib.rs `process` | core.py `render` on fae_gpu, fastedit_core |
 | Encoders | output.py PNG / WebP, jpeg.py (cjpegli.exe), avif.py (SvtAv1EncApp.exe + own OBU parser / AVIF muxer; Pillow aom fallback, also for alpha) — **B4** | Pillow, subprocess |
-| Encoded compare | api.py `lossy_preview`: render, encode, decode back, size; cancellation (proc.py) — **B5** | all of the above |
+| Encoded compare | **Rust (B5)**: lib.rs `lossy_preview` (render, encode, decode back, size, cache, cancellation) | api.py `lossy_preview`, proc.py, Pillow |
 | App plumbing | settings / presets in Rust (B0); the rest: api.py (files, dialogs, reveal), app.py (local HTTP server: UI, /preview tokens, /thumb), winchrome.py (frameless window), drag-drop — **B6** | pywebview, http.server |
 
 The edit math (CPU core, GPU core) and the whole UI are already Rust / web: they don't move.
@@ -178,7 +183,7 @@ dependency removed.
   with 24 threads that was most of a 50 MP encode (speeds 3–8 all ≈ 7.5 s). rav1e 0.8.1 with those three steps in
   parallel lives in github.com/Nukvah/rav1e-fae (upstream crate as the first commit, then the patch; notes
   in its FAE-PATCH.md), pulled in by `[patch.crates-io]` pinned to a commit, output byte-identical; colour and alpha encode side by side.
-- Kept until the owner's check, then removed (B4 clean-up): jpeg.py, avif.py, output.py's
+- Kept until the owner's check, then removed (B4 clean-up, done together with B5's): jpeg.py, avif.py, output.py's
   `encode_lossy_py` / `save_image_py`, proc.py's encoder runner, engine.py's `decode_pillow` /
   `make_thumb_pillow` and `give_source` (these three stay as the fallback for the AVIFs Rust doesn't open).
 
@@ -188,6 +193,30 @@ dependency removed.
   `lossy_preview` (render, encode, decode back, size, cancel).
 - Then: core.py, output.py, jpeg.py, avif.py, proc.py, **Pillow and NumPy** leave the run-time dependencies
   (tests keep NumPy).
+- Part 1 (fae_backend 0.6.0): fae-backend links **fastedit-core** and **fae-gpu** as path crates (their own
+  workspaces and Cargo.locks stay; note: Cargo gives a path crate from another workspace the version of
+  the nearest enclosing workspace, so fae-gpu's version comes from core/gpu/Cargo.toml in build.rs).
+  `render.rs`: core.py's `_step` / `_steps` / `_gpu_steps` on the edit's JSON; one GPU device made on first
+  use behind a lock, released after a batch / a compare; off for the session after a device error, a step
+  it can't build only sends that image to the CPU core; `--no-gpu` / FAE_NO_GPU; the shaders warmed in the
+  background at start (`warm_gpu`); `core_info` is core.py's self-test. lib.rs: `process` (progress
+  callback after each image of a batch), `lossy_preview` (cache of the last encode, decode back with the
+  back end's own decoders, Pillow's preview resize as in B3, cancellation by request id), `lossy_cancel`.
+  The shell's fallback decoder (`fallback=` of `fae_backend.Backend`: Pillow) opens what Rust can't (AVIF
+  grids, premultiplied alpha) for the stage, Process and the compare alike. serde_json parses floats with
+  `float_roundtrip` (the default parser was one unit in the last place off on some edit tables, so a
+  Curves / Contrast table could land one level off). api.py forwards the four commands; app.py needs only
+  fae_backend (fastedit_core / fae_gpu as Python extensions are the tests' references now; their build
+  scripts still make the live preview's WebAssembly). build_backend.bat builds with x86-64-v2, as
+  build_core.bat. `tests/backend/process_check.py`: the CPU core's results identical to fastedit_core on
+  every parity case (+ Sharpen), the GPU core's identical to fae_gpu, the files Process writes byte for byte
+  the same as the Python path's (RGB, RGBA, AVIF, rotated / resized / colour-balanced stages; every format;
+  GPU on and off), the compare's answers and preview pixels the same, cancellation, the fallback decoder.
+- Kept until the owner's check, then removed (B5 clean-up, with B4's): core.py, output.py, jpeg.py, avif.py,
+  proc.py, the Python cores' use at run time; NumPy from requirements (tests only: a tests requirement);
+  Pillow stays only for engine.py's `decode_pillow` (the fallback decoder), its AVIF thumbnails and
+  Ctrl+V's clipboard image (B6 / later). encoders_check.py and process_check.py keep the Python versions
+  they compare with inside the tests, or drop them once the results are stored.
 
 ### B6 — App plumbing (1 session)
 - Settings and presets files, file / folder collection, the HTTP handlers (UI, /preview, /thumb) in Rust.

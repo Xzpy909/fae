@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .config import UI_DIR
 from .engine import collect, make_thumb
 from .api import Api
-from . import backend, core
+from . import backend
 
 
 # ---------------------------------------------------------------------------
@@ -91,13 +91,13 @@ def main():
         selftest, page = True, "gpu-spike.html"
     elif not selftest:
         q = []
-        if "--no-gpu" in sys.argv:                 # CPU core only: preview (gpu-view.js) and Process (core.py)
+        if "--no-gpu" in sys.argv:                 # CPU core only: preview (gpu-view.js) and Process (backend.py)
             q.append("gpu=0")
         if "--test-filters" in sys.argv:           # the filter kit's hidden test filters in the Filters list
             q.append("fxtest=1")
         page = "?" + "&".join(q) if q else ""
-    missing = core.error() if not core.available() else backend.error()
-    if missing and not selftest:                   # no NumPy fallback any more: say how to build it
+    missing = backend.error()                      # the Rust back end (with both cores since B5)
+    if missing and not selftest:                   # no Python fallback: say how to build it
         msg = missing.replace("&", "&amp;").replace("<", "&lt;")
         webview.create_window("Fae", html=(
             "<body style='background:#0e0f11;color:#ddd;font:15px system-ui;margin:40px'>"
@@ -107,7 +107,7 @@ def main():
         webview.start()
         return
     api = Api(args)
-    core.warm_gpu()                                # the GPU core's shaders, in the background
+    backend.shared().warm_gpu()                    # the GPU core's shaders, in the background
     port = start_server()
     # unified header: on Windows the window has no frame and the UI's top bar is the title bar
     # (fastedit/winchrome.py); --native-frame keeps the normal Windows frame

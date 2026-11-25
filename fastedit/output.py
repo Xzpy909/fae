@@ -2,7 +2,8 @@
 
 B4 (docs/rust-backend-plan.md): encode_lossy and save_image run in the Rust back end; the Python versions
 (encode_lossy_py, save_image_py, with jpeg.py and avif.py) stay as the reference of
-tests/backend/encoders_check.py, and for the AVIF encoder that isn't in Rust yet, until B5.
+tests/backend/encoders_check.py. B5: the app no longer uses this file (Process and the encoded compare run
+in the Rust back end); it goes in the B5 clean-up.
 """
 from __future__ import annotations
 

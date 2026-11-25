@@ -116,8 +116,8 @@ python fae.py --no-gpu    # live preview and Process without the GPU core
 
 ## Rust core
 
-All edit math runs in one Rust crate (`core/`), built twice: as the Python extension `fastedit_core`
-(Process, lossy compare preview) and as WebAssembly (`ui/wasm/`, the live preview, multithreaded in
+All edit math runs in one Rust crate (`core/`), built twice: linked into the Rust back end (Process, lossy
+compare preview; the Python extension `fastedit_core` is the tests' reference) and as WebAssembly (`ui/wasm/`, the live preview, multithreaded in
 its own worker: `ui/js/preview-worker.js`). The UI only computes the tables the sliders stand for
 (`ui/js/edit-math.js`); there is no NumPy or JS fallback, so the core has to be built:
 
@@ -127,7 +127,7 @@ core\build_core.bat        # needs Rust from https://rustup.rs (MSVC build tools
 
 `build.bat` runs it too. The Rust version is pinned in `core/rust-toolchain.toml` (the threaded
 WebAssembly build rebuilds Rust's standard library; the script adds the `rust-src` component itself).
-Without the extension the app shows how to build it; without `ui/wasm/` the preview shows the
+Without the back end the app shows how to build it; without `ui/wasm/` the preview shows the
 unedited image and says so. `FASTEDIT_COI=0` turns off the cross-origin isolation headers the
 threaded WebAssembly needs.
 
@@ -159,7 +159,8 @@ rav1d; HEIC through the libheif that comes with pillow-heif; with [nasm](https:/
 installed, `build_backend.bat` builds libjpeg-turbo's faster SIMD code), crop / rotate / flip,
 resizing, the file-list thumbnails, White-Patch / Gray-Edge and the whole stage with its cache and
 previews (Pillow's, OpenCV's and NumPy's maths ported, multi-threaded; OpenCV is no longer needed), and the
-encoders (PNG, WebP, JPEG, AVIF through SvtAv1EncApp or rav1e, saving).
+encoders (PNG, WebP, JPEG, AVIF through SvtAv1EncApp or rav1e, saving), Process and the encoded compare
+(the back end links the CPU core and the GPU core as crates: one extension does all of it).
 Before a part moves, its Python results are stored as
 goldens; the Rust version must match them (exactly, or within the tolerance rule for the parts that
 re-implement OpenCV maths):
@@ -170,6 +171,7 @@ python tests/stage/stage_check.py        # decode, geometry, resize, colour bala
                                          #   (--impl python: Pillow's decode / thumbnails; --own: own photos too)
 python tests/backend/commands_check.py   # the commands moved so far vs their Python behaviour
 python tests/backend/encoders_check.py   # the encoders and the AVIF decoder vs Pillow / the Python versions
+python tests/backend/process_check.py    # Process and the encoded compare vs the Python path (core.py & co.)
 python tests/stage/stage_bench.py        # timing of the stage in Rust (Pillow next to it where it still does the job)
 ```
 
@@ -185,8 +187,8 @@ resolution and draws it at exactly the screen's pixels on every change, pan and 
 histograms follow a dragged slider. Without a GPU the CPU core renders a copy of at most 2560 px on
 the long side (zooming in shows it scaled up); crop mode and the preset thumbnails always use the
 CPU core (small images). The GPU core compiles all its shaders once at start-up, behind the loading screen
-(`ui/js/startup.js`; `python fae.py --debug` logs how long each start-up step took). Process (and the encoded compare preview) renders on the GPU core too when it is installed
-and has a device; otherwise, with `--no-gpu`, for an image too big for the GPU, or after a GPU error,
+(`ui/js/startup.js`; `python fae.py --debug` logs how long each start-up step took). Process (and the encoded compare preview) renders on the GPU core too
+(built into the Rust back end) when there is a device; otherwise, with `--no-gpu`, for an image too big for the GPU, or after a GPU error,
 the CPU core renders it, with the same result within the tolerance rule. The GPU computes in f32 (the CPU core in f64): 99.99 % of the
 values match exactly, the rest are 1 level off with rare outliers (`tests/gpu/tolerance.py` explains
 the rule).
@@ -259,12 +261,10 @@ python fae.py --test-filters        # the kit's hidden test filters in the Filte
 fae.py   # entry point
 fastedit/              # Python back end
 ├── config.py          # paths, defaults, per-image stage parameters
-├── core.py            # Process / compare preview: GPU core (fae_gpu) or CPU core (fastedit_core)
-├── backend.py         # the Rust back end (fae_backend): the stage, settings, presets
+├── backend.py         # the Rust back end (fae_backend): the stage, encoders, Process, compare, settings, presets
 ├── engine.py          # Pillow decode for the AVIFs Rust doesn't open, file lists
-├── proc.py            # running external encoders (cancellable preview encodes)
-├── jpeg.py, avif.py   # JPEG (jpegli) and AVIF (Python versions, kept until B4 is checked)
-├── output.py          # WEBP, lossy dispatch, saving
+├── core.py            # Process on fae_gpu / fastedit_core (Python version, kept until B5 is checked)
+├── proc.py, output.py, jpeg.py, avif.py   # encoders (Python versions, kept until B5 is checked)
 ├── api.py             # JS API used by the UI
 └── app.py             # local HTTP server, window, drag and drop
 ui/

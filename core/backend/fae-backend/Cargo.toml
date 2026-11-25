@@ -12,8 +12,9 @@ jpeg-simd = ["mozjpeg/nasm_simd"]
 simd = ["jpeg-simd", "rav1e/asm"]
 
 [dependencies]
-# preserve_order: settings / presets keep their key order when written back
-serde_json = { version = "1", features = ["preserve_order"] }
+# preserve_order: settings / presets keep their key order when written back; float_roundtrip: numbers parsed
+# exactly as Python wrote them (the default parser can be one unit in the last place off: edit tables)
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 # decoders (decode.rs): libjpeg-turbo's decoder (as Pillow), built with the C compiler alone
 mozjpeg = { version = "0.10", default-features = false }
 mozjpeg-sys = { version = "2", default-features = false, features = ["unwinding"] }
@@ -36,3 +37,8 @@ libz-rs-sys = "0.6"
 # both pure Rust; rav1e's assembly with the simd feature
 rav1e = { version = "0.8", default-features = false, features = ["threading"] }
 rav1d = { version = "1.1", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
+# the edit (B5, render.rs): the CPU core and the GPU core of core/ linked as crates (their own workspaces
+# keep their Cargo.locks; the CPU core's WASM build is untouched); pollster waits for the GPU device
+fe = { package = "fastedit-core", path = "../../fastedit-core", features = ["parallel"] }
+gpu = { package = "fae-gpu", path = "../../gpu/fae-gpu" }
+pollster = "0.4"

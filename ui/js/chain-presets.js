@@ -106,13 +106,25 @@ const ChainPresets = (() => {
       Object.assign(S.stage, p.stage.resize, p.stage.color);
       if (JSON.stringify(stageOf(S.stage)) !== before) valueChanged('stage');
     }
-    // open the islands of the tools in the preset
-    const open = S.prefs.secs || [];
-    S.prefs.secs = [...open, ...toolsOf(p).map(typeOf).filter((s, i, a) => a.indexOf(s) === i && !open.includes(s))];
-    savePrefsSoon();
+    openTools(p);
     close();
     syncPanel(); editChanged(); commit();
   }
+
+  // open the islands of the tools in the preset
+  function openTools(p) {
+    const open = S.prefs.secs || [];
+    S.prefs.secs = [...open, ...toolsOf(p).map(typeOf).filter((s, i, a) => a.indexOf(s) === i && !open.includes(s))];
+    savePrefsSoon();
+  }
+  // another image's saved state ({ stage, edit, geom }) with the preset applied (batch-apply.js)
+  function appliedState(st, p) {
+    const stage = clone(st.stage);
+    if (p.stage) Object.assign(stage, p.stage.resize, p.stage.color);
+    return { stage, edit: applied(st.edit, p), geom: clone(st.geom) };
+  }
+  // the presets, made whole (saved before this module existed / read from disk)
+  function presets() { const P = Presets.data(); return (P._chain = (P._chain || []).map(clean).filter(Boolean)); }
 
   /* ---------- the dropdown ---------- */
   const btn = document.createElement('button');
@@ -177,12 +189,15 @@ const ChainPresets = (() => {
     grid.querySelectorAll('.cp-menu').forEach(m => m.remove());
     const m = document.createElement('div');
     m.className = 'cp-menu';
-    m.innerHTML = '<button data-a="ren">Rename…</button><button data-a="upd">Update with current edits</button><button data-a="del" class="danger">Delete</button>';
+    m.innerHTML = '<button data-a="all">Apply to images…</button><button data-a="ren">Rename…</button><button data-a="upd">Update with current edits</button><button data-a="del" class="danger">Delete</button>';
     card.querySelector('.cp-thumbw').appendChild(m);
     m.addEventListener('click', e => {
       e.stopPropagation();
       const a = e.target.closest('button') && e.target.closest('button').dataset.a, l = list();
-      if (a === 'ren') {
+      if (a === 'all') {
+        m.remove(); close();
+        BatchApply.open('preset', p);
+      } else if (a === 'ren') {
         m.remove(); endPreview();
         card.classList.add('editing');
         nameInput(card.querySelector('.cp-row'), p.name, name => {
@@ -245,9 +260,7 @@ const ChainPresets = (() => {
   }
   function open() {
     Presets.close();
-    // presets saved before this module existed / from disk: made whole once
-    const P = Presets.data();
-    P._chain = (P._chain || []).map(clean).filter(Boolean);
+    presets();
     isOpen = true;
     btn.classList.add('open');
     search.value = '';
@@ -274,5 +287,5 @@ const ChainPresets = (() => {
   // a shortcut (undo, copy edits…) while a preset is previewed works on the real edit
   window.addEventListener('keydown', () => { if (saved) endPreview(); }, true);
 
-  return { open, close, isOpen: () => isOpen, list, apply };
+  return { open, close, isOpen: () => isOpen, list, presets, apply, appliedState, openTools };
 })();

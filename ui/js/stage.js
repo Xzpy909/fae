@@ -35,6 +35,7 @@ async function loadStage() {
   // same output at another preview resolution (the GPU came or went): keep the view where it is
   const resSwap = sizeChanged && old && !S.newFile && old.path === f.path && old.w === r.w && old.h === r.h;
   S.img = Object.assign({}, r, { base: new Uint8ClampedArray(buf), path: f.path });
+  f.src = [r.src_w, r.src_h];                // its source size (Paste edits to…: crop carries over only at the same size)
   if (sizeChanged) {
     canvas.width = r.pw; canvas.height = r.ph;
     S.outData = new ImageData(r.pw, r.ph);

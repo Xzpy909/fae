@@ -35,7 +35,8 @@ $('#undoBtn').addEventListener('click', undo);
 $('#redoBtn').addEventListener('click', redo);
 
 function copyEdits() {
-  S.clipboard = clone({ stage: S.stage, edit: S.edit, geom: S.geom, src: S.img ? [S.img.src_w, S.img.src_h] : null });
+  S.clipboard = clone({ stage: S.stage, edit: S.edit, geom: S.geom, src: S.img ? [S.img.src_w, S.img.src_h] : null,
+    name: S.files[S.cur] ? S.files[S.cur].name : '' });
   status('Edits copied');
 }
 function pasteEdits() {

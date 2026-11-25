@@ -272,10 +272,10 @@ button.primary:hover { background: var(--grad); filter: brightness(1.08) saturat
 .fp-count { display: none; font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft);
   padding: 1px 8px; border-radius: 999px; }
 .fp-count.show { display: inline-block; }
-#fpSearch { margin-left: auto; width: 190px; background: rgba(29, 29, 32, .6); border: 1px solid var(--line2);
+#fpSearch, .fp-search { margin-left: auto; width: 190px; background: rgba(29, 29, 32, .6); border: 1px solid var(--line2);
   border-radius: 7px; padding: 5px 9px; color: var(--text); font: 12.5px var(--font); }
-#fpSearch:focus { outline: none; border-color: var(--accent); }
-#fpSearch::placeholder { color: var(--dim); }
+#fpSearch:focus, .fp-search:focus { outline: none; border-color: var(--accent); }
+#fpSearch::placeholder, .fp-search::placeholder { color: var(--dim); }
 .fp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px;
   overflow-y: auto; min-height: 0; padding-right: 2px; margin-right: -4px; }
 .fp-tile { position: relative; height: 104px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .08);
@@ -921,6 +921,45 @@ body.no-dock #toolPills { display: none; }
 
 /* the search (loupe / Ctrl+Space) */
 #cmdPal { position: fixed; inset: 0; z-index: 70; display: none; }
+/* Edit › Apply preset to… / Paste edits to… (batch-apply.js): the search's veil, the Filters box and tiles,
+   a card per image of the list (thumbnail, name); Select all / Deselect / Apply to N show once one is selected */
+#batchPop { position: fixed; inset: 0; z-index: 70; display: none; align-items: center; justify-content: center; padding: 48px 24px 32px; }
+#batchPop.show { display: flex; }
+.bp-box { position: relative; width: min(980px, 100%); max-height: min(86vh, 860px); }
+.bp-acts { display: none; align-items: center; gap: 6px; }
+.bp-acts.show { display: flex; }
+.bp-btn { padding: 4px 12px; border-radius: 999px; font-size: 12px; color: #e3e3e6;
+  background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .13); }
+.bp-btn:hover { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .22); }
+.bp-btn:active { transform: none; }
+.bp-btn.on, .bp-go { background: var(--grad); border-color: transparent; color: var(--accent-ink); font-weight: 600; }
+.bp-btn.on:hover, .bp-go:hover { background: var(--grad); filter: brightness(1.08); }
+.bp-src { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 2px 12px; font-size: 12px; color: var(--muted); }
+.bp-src:empty { display: none; }
+.bp-lab { margin-right: 2px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.bp-from { color: var(--text); }
+.bp-note { color: var(--dim); }
+.bp-note::before { content: "·"; margin: 0 6px 0 2px; }
+.fp-tiles.bp-cards { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 10px; }
+.fp-tile.bp-card { height: auto; padding: 6px 6px 8px; cursor: pointer; min-width: 0; }
+.bp-thumb { aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; background: #1e1e21; box-shadow: 0 0 0 1px rgba(255, 255, 255, .08); }
+.bp-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.bp-row { display: flex; align-items: center; gap: 6px; margin: 7px 2px 0; min-width: 0; }
+.bp-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bp-tag { flex: none; font-size: 10.5px; color: var(--muted); }
+/* the selection tick, left of the name: an empty ring on hover, filled once selected */
+.bp-check { flex: none; width: 16px; height: 16px; display: grid; place-items: center; border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, .3); color: var(--accent-ink); }
+.bp-check svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round;
+  stroke-linejoin: round; opacity: 0; }
+.bp-card:hover .bp-check { border-color: rgba(255, 255, 255, .6); }
+.bp-card.sel .bp-check { background: var(--grad); border-color: transparent; }
+.bp-card.sel .bp-check svg { opacity: 1; }
+.bp-card .fp-badge { top: 12px; right: 12px; }
+/* the Apply pill: Filters' "+ Add", over the thumbnail's corner, and clickable */
+.bp-card .bp-apply { top: 12px; right: 12px; bottom: auto; border: none; pointer-events: auto; box-shadow: 0 2px 10px rgba(14, 14, 17, .4); }
+.bp-card .bp-apply:hover { background: var(--grad); filter: brightness(1.08); }
+.bp-card .bp-apply:active { transform: none; }
 #cmdPal.show { display: block; }
 .cpal-veil { position: absolute; inset: 0; background: rgba(20, 20, 23, .45); }
 .cpal-box { position: absolute; left: 50%; top: 90px; transform: translateX(-50%); width: min(580px, calc(100vw - 32px));
@@ -970,8 +1009,8 @@ body.no-dock #toolPills { display: none; }
 .fp-box, #chainPop { border-radius: 14px; background: rgba(41, 41, 44, .6); border: 1px solid rgba(255, 255, 255, .14);
   box-shadow: 0 24px 60px rgba(14, 14, 17, .6); }
 #filterPop .fp-veil { background: rgba(20, 20, 23, .45); }
-#fpSearch, .cp-search { background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .1); border-radius: 8px; }
-#fpSearch:focus, .cp-search:focus { border-color: #8e8e95; }
+#fpSearch, .fp-search, .cp-search { background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .1); border-radius: 8px; }
+#fpSearch:focus, .fp-search:focus, .cp-search:focus { border-color: #8e8e95; }
 /* Filters tiles: "+ Add" sits top-right on hover, clear of the name and the chain place */
 .fp-add { top: 10px; bottom: auto; }
 .fp-tile:hover .fp-badge { display: none; }

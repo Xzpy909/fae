@@ -36,9 +36,13 @@ const Cmd = (() => {
       SEP,
       { id: 'copy', label: 'Copy edits', key: 'Ctrl+Shift+C', run: () => copyEdits(), en: hasFile },
       { id: 'paste', label: 'Paste edits', key: 'Ctrl+Shift+V', run: () => pasteEdits(), en: () => hasFile() && !!S.clipboard },
+      { id: 'pasteTo', label: 'Paste edits to…', run: () => setTimeout(() => BatchApply.open('paste')),
+        en: () => S.files.length > 0 && (!!S.clipboard || hasFile()) },
       { id: 'reset', label: 'Reset edits', sub: 'Point correction, curves, adjustments, filters', run: () => resetEdits(), en: hasFile },
       SEP,
       { id: 'presets', label: 'Edit presets…', run: () => setTimeout(() => ChainPresets.open()) },
+      { id: 'presetTo', label: 'Apply preset to…', run: () => setTimeout(() => BatchApply.open('preset')),
+        en: () => S.files.length > 0 && ChainPresets.list().length > 0 },
       { id: 'settings', label: 'Settings…', key: 'Ctrl+,', run: () => setTimeout(() => Settings.open()) },
     ],
     Image: [
@@ -297,6 +301,7 @@ const Cmd = (() => {
       if (S.cropMode) return;
       Pop.close();
       if (typeof FilterPop !== 'undefined' && FilterPop.isOpen()) FilterPop.close();
+      BatchApply.close();
       wrap.classList.add('show'); btn.classList.add('on');
       inp.value = ''; render();
       inp.focus();

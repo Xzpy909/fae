@@ -35,6 +35,8 @@ Everything Fae does, tool by tool. Back to the [README](../README.md).
 - **Presets** on Adjustments, Curves, Perceptual Saturation, Super Contrast and Sharpen: the button in the tool's row shows the current preset (`Default`, a name, or `Custom`) and opens a list with thumbnails of the current image through each preset; hover previews it on the image, click applies it (one undo step); save the current values as a preset, rename or delete your own
 - **Edit presets** (Presets in the top bar): the whole edit in one preset — Resize, Color balance, Adjustments, Curves, the filters and Sharpen with their order and on / off state. Cards with a thumbnail of the current image through the preset and the tools it uses; hover previews (Resize and Color balance take effect on click), click applies (one undo step), ⋯ renames, updates with the current edits or deletes. Crop, point correction and the output format stay with the image
 
+*Film stock names used for the Film Effect presets are trademarks of their respective owners. The presets are approximations made for this project and are not affiliated with or endorsed by them.*
+
 **Resize**
 - **Preset**: aspect ratio (16:9, 21:9, 4:3, 3:2, 1:1, 4:5, 9:16) × resolution (2160p, 1440p, 1080p, 720p, 480p, 360p; the p-number is the short side), cover-crop
 - **Target Mpix** with *Mpix priority*, *Balanced* or *Ratio error priority*

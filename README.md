@@ -36,7 +36,3 @@ build.bat                  # -> dist\Fae\Fae.exe
 
 Needs Rust from https://rustup.rs (MSVC build tools) and Python 3.10+. Encoders, command-line options,
 tests and how the cores work: [docs/development.md](docs/development.md).
-
-## Trademarks
-
-Film stock names used for the Film Effect presets are trademarks of their respective owners. The presets are approximations made for this project and are not affiliated with or endorsed by them.

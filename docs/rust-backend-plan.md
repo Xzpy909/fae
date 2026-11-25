@@ -4,9 +4,9 @@ Status: **B0, B1, B2, B3 done** (on main; geometry.py, colour.py, the Python sta
 **B4 done** (fae_backend 0.5.0): all encoders and AVIF decoding in Rust (rav1e / rav1d), checked by the owner
 on Windows. **B5 done** (fae_backend 0.6.0): Process and the encoded compare in Rust, the CPU and GPU cores
 linked into the back end, checked by the owner on Windows; the B4 / B5 clean-up done (the Python versions
-moved to tests/pyref, NumPy only for the tests). **B6 in progress** (fae_backend 0.7.0): file lists and the
-local HTTP server in Rust, waiting for the owner's check (build size and start-up time to measure on
-Windows). Next: B7 (Tauri), only when decided. Moves the Python back
+moved to tests/pyref, NumPy only for the tests). **B6 done** (fae_backend 0.7.0): file lists and the local HTTP
+server in Rust, checked by the owner on Windows; the PyInstaller build went from about 300 MB to 140 MB
+unpacked (41 MB zipped). Next: B7 (Tauri), only when decided. Moves the Python back
 end (`fastedit/`) into Rust, wave by wave, so the app keeps working after every wave and a later switch from
 pywebview to **Tauri** is a small last step instead of a rewrite. Not a goal in itself: no visible change to
 the editor; the gains are a smaller, faster-starting app (no NumPy / OpenCV / Pillow at run time), one
@@ -225,7 +225,8 @@ dependency removed.
 - Settings and presets files, file / folder collection, the HTTP handlers (UI, /preview, /thumb) in Rust.
 - api.py = a forwarder over the command table; app.py = start the window. What Python still does at run time:
   pywebview, winchrome.py (frameless window), dialogs, reveal in Explorer, drag-drop paths.
-- PyInstaller build size and start-up time measured before / after.
+- PyInstaller build size and start-up time measured before / after: about 300 MB → 140 MB unpacked, 41 MB
+  zipped (NumPy and the Python cores out since B5, the Python server and thumbnails out with B6).
 - Done (fae_backend 0.7.0): `app.rs`. `collect` is engine.py's (os.walk order: names sorted, folders
   before going down, links to folders listed but not followed; the same extensions in any case);
   `initial_files` (the command-line paths given with `set_initial`) and `expand_paths` are commands, and

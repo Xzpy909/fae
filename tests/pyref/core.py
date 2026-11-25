@@ -1,9 +1,10 @@
 """The edit math after the stage: the GPU core (core/gpu, built by core/gpu/build_gpu.bat) and the
 CPU core (core/fastedit-py, built by core/build_core.bat).
 
-B5 (docs/rust-backend-plan.md): the app no longer uses this file - Process and the encoded compare run in
-the Rust back end (fae-backend render.rs, with both cores linked in). It stays as the reference of
-tests/backend/process_check.py and the GPU tests until the B5 clean-up. What it did:
+B5 (docs/rust-backend-plan.md): the app doesn't use this file - Process and the encoded compare run in
+the Rust back end (fae-backend render.rs, with both cores linked in). Moved from fastedit/ to the tests in
+the B5 clean-up: the reference of the parity tests, the GPU tests and tests/backend/process_check.py.
+What it did in the app:
 
 Process and the lossy compare preview run render(): on the GPU core when it is installed and has a
 device (G5 of the GPU core plan), otherwise on the CPU core, with the same result within the

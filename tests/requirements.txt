@@ -1,0 +1,2 @@
+# The tests only (the app runs without these): pip install -r tests/requirements.txt
+numpy

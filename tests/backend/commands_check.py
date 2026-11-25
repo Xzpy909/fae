@@ -26,6 +26,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tests"))           # pyref: the Python versions the back end replaced
 
 from fastedit import backend  # noqa: E402
 
@@ -242,8 +243,8 @@ def main() -> int:
     check("sample before any stage -> None", b.call("sample", 0.5, 0.5) is None)
     check_stage(check, b, d)
     # B4: encoder_info (api.py before B4: cjpegli / SvtAv1EncApp found, Pillow's AVIF; now AVIF is built in)
-    from fastedit.avif import svt_available
-    from fastedit.jpeg import jpegli_available
+    from pyref.avif import svt_available
+    from pyref.jpeg import jpegli_available
     info = backend.shared().call("encoder_info")
     check(f"encoder_info {info}", info == {"jpegli": jpegli_available(), "avif": True, "svt": svt_available()})
     try:

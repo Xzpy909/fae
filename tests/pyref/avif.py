@@ -7,7 +7,7 @@ import struct
 import tempfile
 import numpy as np
 from PIL import Image, features
-from .config import AOM_Q_DEFAULT, AOM_SPEED_DEFAULT, AVIF_CRF_DEFAULT, AVIF_PRESET_DEFAULT, SVTAV1
+from fastedit.config import AOM_Q_DEFAULT, AOM_SPEED_DEFAULT, AVIF_CRF_DEFAULT, AVIF_PRESET_DEFAULT, SVTAV1
 from .proc import check_cancel, run_encoder
 
 

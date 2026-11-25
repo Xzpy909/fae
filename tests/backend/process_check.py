@@ -28,13 +28,15 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tests"))           # pyref: the Python versions the back end replaced
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tests", "parity"))
 
 import numpy as np  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from fastedit import backend, core  # noqa: E402
+from fastedit import backend  # noqa: E402
+from pyref import core  # noqa: E402
 from fastedit.config import ENCODERS_DIR, PRESETS_PATH, SETTINGS_PATH, StageParams  # noqa: E402
 from fastedit.engine import to_pil  # noqa: E402
 from commands_check import preview_rgba, pv_size  # noqa: E402
@@ -68,7 +70,7 @@ def py_render_full(job, skipped=None, engine="auto"):
 
 def py_process(jobs, fmt, opts, engine="auto"):
     """api.py process (save_image: the B4 encoders in Rust)."""
-    from fastedit.output import norm_fmt
+    from pyref.output import norm_fmt
     fmt = norm_fmt(fmt)
     results = []
     for job in jobs:
@@ -88,7 +90,7 @@ def py_process(jobs, fmt, opts, engine="auto"):
 
 def py_lossy_preview(job, fmt, opts, req_id, full=0):
     """api.py lossy_preview without its cache and cancellation: (answer, preview RGBA)."""
-    from fastedit.output import norm_fmt
+    from pyref.output import norm_fmt
     fmt = norm_fmt(fmt)
     icc, out = py_render_full(job)
     core.gpu_release()

@@ -1,5 +1,5 @@
 """Process on the GPU core (gpu-core plan, G5): what Process writes, rendered by the GPU core and by
-the CPU core (fastedit.core.render with engine="gpu" / "cpu"), on photos at their full size.
+the CPU core (pyref.core.render with engine="gpu" / "cpu"), on photos at their full size.
 
     python tests/gpu/process_check.py              # own photos in tests/parity/images + 2 / 24 MP synthetic ones
     python tests/gpu/process_check.py --max-mp 12  # skip photos above 12 MP
@@ -25,12 +25,13 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tests"))           # pyref: the Python versions the back end replaced
 sys.path.insert(0, os.path.join(ROOT, "tests", "parity"))
 sys.path.insert(0, HERE)
 
 from PIL import Image  # noqa: E402
 
-from fastedit import core  # noqa: E402
+from pyref import core  # noqa: E402
 import parity  # noqa: E402
 import tolerance  # noqa: E402
 

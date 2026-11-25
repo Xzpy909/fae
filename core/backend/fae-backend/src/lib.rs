@@ -24,6 +24,7 @@ pub mod fit;
 pub mod geometry;
 pub mod heif;
 pub mod px;
+pub mod render;
 pub mod resample;
 pub mod run;
 pub mod stage;
@@ -46,6 +47,9 @@ pub struct Config {
     pub heif_dir: Option<PathBuf>,
     /// the external encoders' folder (cjpegli, SvtAv1EncApp; B4); None: none of them
     pub encoders_dir: Option<PathBuf>,
+    /// the GPU core is off for the session (--no-gpu / FAE_NO_GPU; B5): Process and the encoded compare
+    /// render on the CPU core
+    pub no_gpu: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,9 +129,8 @@ pub const COMMANDS: &[(&str, Wave, &str)] = &[
 ];
 
 /// The waves done in this build. B1 (decoding) and B2 (geometry, resize, thumbnails) have no command of
-/// their own: load_stage (B3) runs them. The shell still asks for the stage image itself for Process and
-/// the encoded compare until B5 ([`Backend::stage_image`]), and for thumbnails until B6.
-const DONE: &[Wave] = &[Wave::B0, Wave::B1, Wave::B2, Wave::B3, Wave::B4];
+/// their own: load_stage (B3) runs them. The shell still asks for thumbnails itself until B6.
+const DONE: &[Wave] = &[Wave::B0, Wave::B1, Wave::B2, Wave::B3, Wave::B4, Wave::B5];
 
 pub struct Backend {
     cfg: Config,
@@ -137,6 +140,34 @@ pub struct Backend {
     stage: stage::Stage,
     /// the external encoders' runs: encoded-compare requests and their cancellation (B4)
     runner: run::Runner,
+    /// the CPU and GPU cores (B5)
+    cores: render::Cores,
+    /// the last encoded compare (key, result), so a preview-size change doesn't encode again (B5)
+    lossy: std::sync::Mutex<Option<(String, Lossy)>>,
+    /// the shell's decoder for what the back end can't open (AVIF grids, premultiplied alpha: Pillow)
+    fallback: Option<Fallback>,
+}
+
+/// The shell's own decoder: (path) → upright RGB / RGBA + ICC profile, for the files the back end
+/// answers Unknown for.
+pub type Fallback = Box<dyn Fn(&Path) -> Result<(px::Px, Option<Vec<u8>>), Error> + Send + Sync>;
+
+/// An encoded compare's result, decoded back.
+struct Lossy {
+    dec: px::Px,
+    bytes: usize,
+    encoder: &'static str,
+    used: Value,
+    ms: f64,
+}
+
+/// What an error of a Process job / the encoded compare shows (api.py: "<Type>: <message>").
+fn job_error(e: &Error) -> String {
+    match e.kind {
+        ErrorKind::Io => format!("OSError: {}", e.message),
+        ErrorKind::BadArgs => format!("ValueError: {}", e.message),
+        _ => format!("RuntimeError: {}", e.message),
+    }
 }
 
 fn args_n<'a>(name: &str, args: &'a [Value], n: usize) -> Result<&'a [Value], Error> {
@@ -148,7 +179,23 @@ fn args_n<'a>(name: &str, args: &'a [Value], n: usize) -> Result<&'a [Value], Er
 
 impl Backend {
     pub fn new(cfg: Config) -> Backend {
-        Backend { cfg, heif: OnceLock::new(), stage: stage::Stage::default(), runner: run::Runner::new() }
+        let no_gpu = cfg.no_gpu || std::env::var_os("FAE_NO_GPU").is_some_and(|v| !v.is_empty());
+        Backend {
+            cfg,
+            heif: OnceLock::new(),
+            stage: stage::Stage::default(),
+            runner: run::Runner::new(),
+            cores: render::Cores::new(no_gpu),
+            lossy: std::sync::Mutex::new(None),
+            fallback: None,
+        }
+    }
+
+    /// The shell's decoder for the files the back end can't open (kind Unknown): used by the stage,
+    /// Process and the encoded compare.
+    pub fn with_fallback(mut self, f: Fallback) -> Backend {
+        self.fallback = Some(f);
+        self
     }
 
     /// libheif, loaded on first use.
@@ -181,14 +228,23 @@ impl Backend {
     }
 
     fn source(&self, path: &Path) -> Result<stage::Source, Error> {
-        let im = self.decode_file(path)?;
-        let icc = im.icc.clone().map(std::sync::Arc::new);
-        Ok(stage::Source { img: std::sync::Arc::new(im.into()), icc })
+        let (img, icc) = match self.decode_file(path) {
+            Ok(im) => {
+                let icc = im.icc.clone();
+                (im.into(), icc)
+            }
+            Err(e) if e.kind == ErrorKind::Unknown => match &self.fallback {
+                Some(f) => f(path)?,
+                None => return Err(e),
+            },
+            Err(e) => return Err(e),
+        };
+        Ok(stage::Source { img: std::sync::Arc::new(img), icc: icc.map(std::sync::Arc::new) })
     }
 
     /// The stage image of `path` at full resolution (decode, geometry, resize, colour balance; cached as
-    /// for `load_stage`) + the source's ICC profile: what Process and the encoded compare edit (the shell
-    /// does those until B5). Kind Unknown for a format the back end doesn't open (see [`Backend::give_source`]).
+    /// for `load_stage`) + the source's ICC profile: what Process and the encoded compare edit. Kind
+    /// Unknown for a format the back end doesn't open and no fallback (see [`Backend::give_source`]).
     pub fn stage_image(&self, path: &Path, p: &fit::StageParams) -> Result<(px::Px, Option<Vec<u8>>), Error> {
         let (img, src, _) = self.stage.stage(path, p, &|p| self.source(p))?;
         Ok((img, src.icc.map(|i| (*i).clone())))
@@ -233,6 +289,109 @@ impl Backend {
         encode::save(img, src, fmt, icc, opts, &self.encoders(), &self.runner)
     }
 
+    /// The CPU and GPU cores (B5).
+    pub fn cores(&self) -> &render::Cores {
+        &self.cores
+    }
+
+    /// Compile the GPU core's shaders in the background (app start; core.py `warm_gpu`).
+    pub fn warm_gpu(&self) {
+        self.cores.warm()
+    }
+
+    /// The stage of a job + the whole edit at full resolution (what Process writes; api.py
+    /// `_render_full`): the image (RGB, or RGBA with the stage's alpha untouched), the source's ICC
+    /// profile, the kit filters the CPU core left out.
+    pub fn render_job(&self, job: &Value) -> Result<(px::Px, Option<Vec<u8>>, Vec<String>), Error> {
+        let path = job.get("path").and_then(Value::as_str).ok_or_else(|| Error::new(ErrorKind::BadArgs, "job: no path"))?;
+        let p = fit::StageParams::from_json(job.get("stage").unwrap_or(&Value::Null));
+        let edit = render::parse(job.get("edit").unwrap_or(&Value::Null))?;
+        let (img, icc) = self.stage_image(Path::new(path), &p)?;
+        let mut skipped = vec![];
+        let out = if img.c == 4 {
+            let rgb: Vec<u8> = img.data.chunks_exact(4).flat_map(|q| [q[0], q[1], q[2]]).collect();
+            let o = self.cores.render(&rgb, img.w, img.h, &edit, render::Engine::Auto, &mut skipped)?;
+            let mut d = img.data;
+            for (q, s) in d.chunks_exact_mut(4).zip(o.chunks_exact(3)) {
+                q[..3].copy_from_slice(s);
+            }
+            px::Px::from_vec(img.w, img.h, 4, d)
+        } else {
+            px::Px::from_vec(img.w, img.h, 3, self.cores.render(&img.data, img.w, img.h, &edit, render::Engine::Auto, &mut skipped)?)
+        };
+        Ok((out, icc, skipped))
+    }
+
+    /// api.py `process`: render, encode and save each job next to its source. `progress(i, n, result)`
+    /// after each image of a batch of more than one (pywebview: window.onProcessProgress). The results:
+    /// {"path", "ok": true, "out", "skipped"?: [kit filter ids left out]} or {"path", "ok": false, "error"}.
+    pub fn process(&self, jobs: &[Value], fmt: &str, opts: &Value, progress: &dyn Fn(usize, usize, &Value)) -> Vec<Value> {
+        let fmt = encode::norm_fmt(fmt);
+        let n = jobs.len();
+        let mut results = vec![];
+        for (i, job) in jobs.iter().enumerate() {
+            let path = job.get("path").cloned().unwrap_or(Value::Null);
+            let r = self.render_job(job).and_then(|(img, icc, skipped)| {
+                let src = path.as_str().unwrap_or_default();
+                let out = self.save(img.view(), src, fmt, icc.as_deref(), opts)?;
+                let mut r = serde_json::json!({"path": path, "ok": true, "out": out.display().to_string()});
+                if !skipped.is_empty() {
+                    r["skipped"] = serde_json::json!(skipped);
+                }
+                Ok(r)
+            });
+            let r = r.unwrap_or_else(|e| serde_json::json!({"path": path, "ok": false, "error": job_error(&e)}));
+            if n > 1 {
+                progress(i + 1, n, &r);
+            }
+            results.push(r);
+        }
+        self.cores.release(); // same-size images reused it; now give it back
+        results
+    }
+
+    /// api.py `lossy_preview`: the fully edited image encoded with the lossy format, decoded again, as
+    /// preview pixels (token) + its size in bytes, the encode's time, the encoder and the settings used.
+    /// A newer request (or lossy_cancel) stops it: {"ok": false, "cancelled": true}.
+    pub fn lossy_preview(&self, job: &Value, fmt: &str, opts: &Value, req: i64, full: f64) -> Value {
+        self.runner.begin(req);
+        let fmt = encode::norm_fmt(fmt);
+        let r = (|| -> Result<Value, Error> {
+            self.runner.check(Some(req))?;
+            let key = serde_json::json!([job, fmt, opts]).to_string();
+            let mut cache = self.lossy.lock().unwrap().take().filter(|(k, _)| *k == key);
+            if cache.is_none() {
+                let r = self.render_job(job);
+                self.cores.release(); // the GPU memory of a full-size image isn't kept
+                let (img, icc, _) = r?;
+                self.runner.check(Some(req))?;
+                let t0 = std::time::Instant::now();
+                let e = self.encode_lossy(img.view(), fmt, opts, icc.as_deref(), Some(req))?;
+                let ms = t0.elapsed().as_secs_f64() * 1000.0; // the encode alone, shown next to the size
+                self.runner.check(Some(req))?;
+                // the encoded file's own alpha (JPEG: none, the white it was written on)
+                let ext = encode::ext(fmt).trim_start_matches('.');
+                let d = decode::decode(&e.data, ext, None)?;
+                let dec = px::Px::from_vec(d.w as usize, d.h as usize, d.channels as usize, d.px);
+                cache = Some((key, Lossy { dec, bytes: e.data.len(), encoder: e.encoder, used: e.used, ms }));
+            }
+            let (key, l) = cache.unwrap();
+            let (pw, ph) = stage::pv_size(l.dec.w, l.dec.h, full);
+            let token = self.put_preview(stage::preview_rgba(l.dec.view(), (pw, ph), resample::Filter::Lanczos));
+            let r = serde_json::json!({"ok": true, "req_id": req, "token": token, "pw": pw, "ph": ph, "bytes": l.bytes,
+                "ms": (l.ms * 10.0).round() / 10.0, "encoder": l.encoder, "fmt": fmt, "opts": l.used});
+            *self.lossy.lock().unwrap() = Some((key, l));
+            Ok(r)
+        })();
+        r.unwrap_or_else(|e| {
+            if e.kind == ErrorKind::Cancelled || req < self.runner.latest() {
+                serde_json::json!({"ok": false, "req_id": req, "cancelled": true})
+            } else {
+                serde_json::json!({"ok": false, "req_id": req, "error": job_error(&e)})
+            }
+        })
+    }
+
     /// The commands this build runs (the rest still run in the shell's Python).
     pub fn commands() -> Vec<&'static str> {
         COMMANDS.iter().filter(|(_, w, _)| DONE.contains(w)).map(|(n, _, _)| *n).collect()
@@ -256,6 +415,25 @@ impl Backend {
             "load_stage" => self.stage.load_stage(args, &|p| self.source(p)),
             "load_source" => self.stage.load_source(args, &|p| self.source(p)),
             "sample" => Ok(self.stage.sample(args)),
+            "lossy_preview" => {
+                let a = args_n(name, args, 4)?;
+                let full = a.get(4).and_then(fit::as_float).unwrap_or(0.0);
+                let req = fit::as_int(&a[3]).ok_or_else(|| Error::new(ErrorKind::BadArgs, "lossy_preview: req_id"))?;
+                Ok(self.lossy_preview(&a[0], a[1].as_str().unwrap_or_default(), &a[2], req, full))
+            }
+            "lossy_cancel" => {
+                let a = args_n(name, args, 1)?;
+                self.runner.begin(fit::as_int(&a[0]).ok_or_else(|| Error::new(ErrorKind::BadArgs, "lossy_cancel: req_id"))?);
+                Ok(Value::Bool(true))
+            }
+            "process" => {
+                let a = args_n(name, args, 1)?;
+                let jobs = a[0].as_array().cloned().unwrap_or_default();
+                let fmt = a.get(1).and_then(Value::as_str).unwrap_or("WEBP");
+                let opts = a.get(2).cloned().unwrap_or(Value::Null);
+                Ok(Value::Array(self.process(&jobs, fmt, &opts, &|_, _, _| {})))
+            }
+            "core_info" => Ok(self.cores.selftest()),
             "encoder_info" => {
                 let e = self.encoders();
                 // "avif": AVIF can be written and read back (rav1e / rav1d are built in since B4)
@@ -283,7 +461,7 @@ mod tests {
     #[test]
     fn settings_and_presets() {
         let d = tmp("sp");
-        let b = Backend::new(Config { settings: d.join("s.json"), presets: d.join("p.json"), heif_dir: None, encoders_dir: None });
+        let b = Backend::new(Config { settings: d.join("s.json"), presets: d.join("p.json"), heif_dir: None, encoders_dir: None, no_gpu: true });
         assert_eq!(b.call("get_settings", &[]).unwrap(), json!({}));
         let s = json!({"fmt": "PNG", "secs": ["adjust", "f_sc"], "jpeg_d": 1.25, "name": "Mirelle ✓"});
         assert_eq!(b.call("save_settings", &[s.clone()]).unwrap(), json!(true));
@@ -304,7 +482,15 @@ mod tests {
         // errors
         assert_eq!(b.call("save_settings", &[]).unwrap_err().kind, ErrorKind::BadArgs);
         assert_eq!(b.call("encoder_info", &[]).unwrap(), json!({"jpegli": false, "avif": true, "svt": false}));
-        assert_eq!(b.call("process", &[]).unwrap_err().kind, ErrorKind::Unknown);
+        assert_eq!(b.call("process", &[]).unwrap_err().kind, ErrorKind::BadArgs);
+        assert_eq!(b.call("process", &[json!([])]).unwrap(), json!([]));
+        let r = b.call("process", &[json!([{"path": "no/such/file.png"}])]).unwrap();
+        assert_eq!(r[0]["ok"], json!(false));
+        assert_eq!(b.call("lossy_preview", &[json!({"path": "no/such/file.png"}), json!("JPEG"), json!({}), json!(3)]).unwrap()["ok"], json!(false));
+        // an older request than the latest: cancelled
+        assert_eq!(b.call("lossy_cancel", &[json!(9)]).unwrap(), json!(true));
+        assert_eq!(b.call("lossy_preview", &[json!({"path": "x.png"}), json!("JPEG"), json!({}), json!(4)]).unwrap()["cancelled"], json!(true));
+        assert_eq!(b.call("core_info", &[]).unwrap()["ok"], json!(true));
         assert_eq!(b.call("sample", &[json!(0.5), json!(0.5)]).unwrap(), Value::Null);
         assert_eq!(b.call("load_stage", &[json!("no/such/file.png"), json!({}), json!(1)]).unwrap()["ok"], json!(false));
         assert_eq!(b.call("nope", &[]).unwrap_err().kind, ErrorKind::Unknown);
@@ -315,7 +501,8 @@ mod tests {
     fn table() {
         assert_eq!(
             Backend::commands(),
-            vec!["get_settings", "save_settings", "get_presets", "save_presets", "load_stage", "load_source", "sample", "encoder_info"]
+            vec!["get_settings", "save_settings", "get_presets", "save_presets", "load_stage", "load_source", "sample", "encoder_info",
+                 "lossy_preview", "lossy_cancel", "process", "core_info"]
         );
         let mut names: Vec<_> = COMMANDS.iter().map(|c| c.0).collect();
         names.sort();

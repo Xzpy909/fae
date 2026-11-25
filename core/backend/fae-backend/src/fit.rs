@@ -71,7 +71,7 @@ impl Default for StageParams {
     }
 }
 
-fn truthy(v: &Value) -> bool {
+pub(crate) fn truthy(v: &Value) -> bool {
     match v {
         Value::Bool(b) => *b,
         Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
@@ -82,7 +82,7 @@ fn truthy(v: &Value) -> bool {
     }
 }
 
-fn as_float(v: &Value) -> Option<f64> {
+pub(crate) fn as_float(v: &Value) -> Option<f64> {
     match v {
         Value::Bool(b) => Some(*b as i64 as f64),
         Value::Number(n) => n.as_f64(),
@@ -91,7 +91,7 @@ fn as_float(v: &Value) -> Option<f64> {
     }
 }
 
-fn as_int(v: &Value) -> Option<i64> {
+pub(crate) fn as_int(v: &Value) -> Option<i64> {
     match v {
         Value::Bool(b) => Some(*b as i64),
         Value::Number(n) => n.as_i64().or_else(|| n.as_f64().filter(|f| f.is_finite()).map(|f| f.trunc() as i64)),

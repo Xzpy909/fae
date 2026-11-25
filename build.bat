@@ -6,15 +6,15 @@ cd /d "%~dp0"
 python -m pip install -U pyinstaller || goto :fail
 python -m pip install -r requirements.txt || goto :fail
 
-rem Rust core (required: the app has no NumPy / JS fallback)
+rem Rust core (required: the live preview's WebAssembly, ui\wasm\; there is no JS fallback)
 call core\build_core.bat || goto :fail
 
-rem Rust back end (required: settings, presets, and wave by wave the rest of fastedit\)
+rem Rust back end (required: the stage, the encoders, Process and the encoded compare; it has both cores
+rem built in, so Process uses the GPU when there is one)
 call core\backend\build_backend.bat || goto :fail
 
-rem GPU core (optional: the live preview and Process use it when there is a GPU; without it the
-rem CPU core does everything). PyInstaller picks up fae_gpu and ui\gpu\ when they are built.
-call core\gpu\build_gpu.bat || echo GPU core not built: the exe will use the CPU core only.
+rem GPU core (optional: the live preview's WebGPU build, ui\gpu\; without it the preview uses the CPU core)
+call core\gpu\build_gpu.bat || echo GPU core not built: the live preview will use the CPU core only.
 
 set ICON=
 if exist app.ico set ICON=--icon app.ico

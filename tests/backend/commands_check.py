@@ -13,6 +13,8 @@ the stage tests hold its results): the same answers (sizes, scale, alpha, ...), 
 (Pillow), the same samples (NumPy); AVIF (opened by Pillow until B4, by rav1d since) too.
 
 B4: encoder_info. The encoders themselves: tests/backend/encoders_check.py.
+
+B5: lossy_preview, lossy_cancel, process, core_info: tests/backend/process_check.py.
 """
 from __future__ import annotations
 
@@ -55,6 +57,35 @@ def py_get_presets(path):
 _CURRENT = {}
 
 
+def pv_size(w, h, full=0):
+    """api.py _pv_size (removed in B5): full resolution when the GPU draws the preview (`full` = the most
+    pixels its device takes), else PREVIEW_MAX on the long side."""
+    from fastedit.config import PREVIEW_MAX
+    if full:
+        s = min(1.0, (float(full) / (w * h)) ** 0.5)
+    else:
+        s = min(1.0, PREVIEW_MAX / max(w, h))
+    return (max(1, round(w * s)), max(1, round(h * s))) if s < 1 else (w, h)
+
+
+def preview_rgba(img, size, resample) -> bytes:
+    """api.py _preview_rgba (removed in B5): RGB at `size`, alpha the image's own (255 without one),
+    resized on its own."""
+    import numpy as np
+    rgb = img.convert("RGB")
+    if rgb.size != tuple(size):
+        rgb = rgb.resize(size, resample)
+    pw, ph = rgb.size
+    rgba = np.empty((ph, pw, 4), dtype=np.uint8)
+    rgba[..., :3] = np.asarray(rgb)
+    if img.mode == "RGBA":
+        a = img.getchannel("A")
+        rgba[..., 3] = np.asarray(a if a.size == (pw, ph) else a.resize((pw, ph), resample))
+    else:
+        rgba[..., 3] = 255
+    return rgba.tobytes()
+
+
 def _src_geo(path, P):
     """The source size and the size after the geometry step (what engine.py's Entry reported)."""
     from fastedit.engine import decode_pillow
@@ -67,7 +98,6 @@ def _src_geo(path, P):
 def py_load_stage(path, params, req_id, full=0):
     import numpy as np
     from PIL import Image
-    from fastedit.api import _preview_rgba, _pv_size
     from fastedit.config import StageParams
     from fastedit.engine import to_pil
     P = StageParams.from_dict(params)
@@ -75,8 +105,8 @@ def py_load_stage(path, params, req_id, full=0):
     img = to_pil(raw)
     src, geo = _src_geo(path, P)
     w, h = img.size
-    pw, ph = _pv_size(w, h, full)
-    rgba = _preview_rgba(img, (pw, ph), Image.Resampling.LANCZOS)
+    pw, ph = pv_size(w, h, full)
+    rgba = preview_rgba(img, (pw, ph), Image.Resampling.LANCZOS)
     _CURRENT["rgb"] = np.ascontiguousarray(np.asarray(img.convert("RGB")))
     return {
         "ok": True, "req_id": req_id,
@@ -90,7 +120,6 @@ def py_load_stage(path, params, req_id, full=0):
 
 def py_load_source(path):
     from PIL import Image
-    from fastedit.api import _preview_rgba
     from fastedit.config import PREVIEW_MAX, StageParams
     from fastedit.engine import to_pil
     raw, _icc = backend.shared().stage(path, StageParams())     # no geometry, no resize: the source
@@ -101,7 +130,7 @@ def py_load_source(path):
         s = PREVIEW_MAX / max(W, H)
         pw, ph = max(1, round(W * s)), max(1, round(H * s))
     return {"ok": True, "W": W, "H": H, "pw": pw, "ph": ph, "alpha": img.mode == "RGBA"}, \
-        _preview_rgba(img, (pw, ph), Image.Resampling.BILINEAR)
+        preview_rgba(img, (pw, ph), Image.Resampling.BILINEAR)
 
 
 def py_sample(nx, ny):
@@ -218,7 +247,7 @@ def main() -> int:
     info = backend.shared().call("encoder_info")
     check(f"encoder_info {info}", info == {"jpegli": jpegli_available(), "avif": True, "svt": svt_available()})
     try:
-        b.call("process", [])
+        b.call("expand_paths", [])          # B6
         check("a command not moved yet raises", False)
     except RuntimeError as ex:
         check(f"a command not moved yet raises ({ex})", str(ex).startswith("unknown:"))
